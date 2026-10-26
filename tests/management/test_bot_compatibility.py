@@ -19,6 +19,9 @@ def assert_safe(markup):
     text, entities = html.parse(markup)
     assert utf16_length(text) <= 4096
     assert len(entities) <= 100
+    from src.command.list_page import PAGE_ENTITY_BYTES_LIMIT, PAGE_URL_BYTES_LIMIT, ENTITY_VECTOR_BYTES
+    assert ENTITY_VECTOR_BYTES + sum(len(bytes(e)) for e in entities) <= PAGE_ENTITY_BYTES_LIMIT
+    assert sum(len(getattr(e, 'url', '').encode('utf-8')) for e in entities) <= PAGE_URL_BYTES_LIMIT
     assert all(e.offset + e.length <= utf16_length(text) for e in entities)
     for entity in entities:
         bytes(entity)  # Exercise Telethon's actual TL encoding, including Unicode URLs.
@@ -163,16 +166,129 @@ def test_oversized_single_title_is_shortened_without_broken_surrogate():
 
 async def test_exact_text_boundary(context):
     await db.Sub.filter(user_id=-1001).delete()
-    # 12-unit heading + newline + four 1020-unit titles + three newlines = 4096.
-    await db.Feed.bulk_create([db.Feed(id=100+i, link=f'https://example.test/{i}', title='x' * 1020) for i in range(5)])
+    # 2-unit heading + newline + four 990-unit titles + three newlines = 3966.
+    # The remaining 130 units reserve the localized plain-text retry notice.
+    await db.Feed.bulk_create([db.Feed(id=100+i, link=f'https://example.test/{i}', title='x' * 990) for i in range(5)])
     await db.Sub.bulk_create([db.Sub(user_id=-1001, feed_id=100+i) for i in range(5)])
-    first = await get_list_page(-1001, 1, 'h' * 12)
+    first = await get_list_page(-1001, 1, 'h' * 2)
     assert first[:2] == (1, 2)
-    assert utf16_length(assert_safe(first[2])[0]) == 4096
-    smaller = await get_list_page(-1001, 1, 'h' * 13)
+    assert utf16_length(assert_safe(first[2])[0]) == 3966
+    smaller = await get_list_page(-1001, 1, 'h' * 3)
     assert len(assert_safe(smaller[2])[1]) == 4  # heading and only three entries
 
 
 def test_blank_title_uses_url():
     markup, _, _ = render_entry(' \n ', 'https://example.test/rss')
     assert assert_safe(markup)[0] == 'https://example.test/rss'
+
+
+@pytest.mark.parametrize('suffix', ['x' * 1100, '😀&"' * 150])
+async def test_short_titles_dense_long_urls_are_all_paginated(context, suffix):
+    from src.command.list_page import PAGE_ENTITY_BYTES_LIMIT, PAGE_URL_BYTES_LIMIT, ENTITY_VECTOR_BYTES
+    await db.Sub.filter(user_id=-1001).delete()
+    feeds = [db.Feed(id=100+i, link=f'https://example.test/{i}?q={suffix}', title=f'T{i}') for i in range(170)]
+    await db.Feed.bulk_create(feeds)
+    await db.Sub.bulk_create([db.Sub(user_id=-1001, feed_id=f.id) for f in feeds])
+    old = '<b>List</b>\n' + '\n'.join(render_entry(f.title, f.link)[0] for f in feeds[:99])
+    old_text, old_entities = html.parse(old)
+    assert utf16_length(old_text) < 4096 and len(old_entities) == 100
+    assert sum(len(bytes(e)) for e in old_entities) > PAGE_ENTITY_BYTES_LIMIT
+    first = await get_list_page(-1001, 1, 'List')
+    assert first[1] > 2
+    urls = []
+    for number in range(1, first[1] + 1):
+        actual, count, markup, total = await get_list_page(-1001, number, 'List')
+        assert (actual, count, total) == (number, first[1], 170)
+        _, entities = assert_safe(markup)
+        page_urls = [e.url for e in entities if isinstance(e, MessageEntityTextUrl)]
+        assert sum(len(u.encode('utf-8')) for u in page_urls) <= PAGE_URL_BYTES_LIMIT
+        assert ENTITY_VECTOR_BYTES + sum(len(bytes(e)) for e in entities) <= PAGE_ENTITY_BYTES_LIMIT
+        urls.extend(page_urls)
+    assert urls == [f.link for f in reversed(feeds)]
+
+
+@pytest.mark.parametrize('is_callback', [False, True])
+async def test_entities_rejection_retries_same_page_once_and_continues(context, monkeypatch, is_callback):
+    from telethon.errors import EntitiesTooLongError
+    await db.Sub.filter(user_id=-1001).delete()
+    feeds = [db.Feed(id=100+i, link=f'https://example.test/{i}?q=' + 'x'*1100, title=f'T{i}') for i in range(7)]
+    await db.Feed.bulk_create(feeds)
+    await db.Sub.bulk_create([db.Sub(user_id=-1001, feed_id=f.id) for f in feeds])
+    pages = (await get_list_page(-1001, 1, i18n['en']['subscription_list']))[1]
+    titles = []
+    for number in range(1, pages + 1):
+        event = Event()
+        event.data = f'get_list_page|{number}'.encode()
+        callback = is_callback or number > 1
+        monkeypatch.setattr(commands, 'TypeEventCb', Event if callback else type('Other', (), {}))
+        send = event.edit if callback else event.respond
+        send.side_effect = [EntitiesTooLongError(None), None]
+        await commands.cmd_list_or_callback_get_list_page.__wrapped__(event, lang='en')
+        assert send.await_count == 2
+        normal, fallback = send.call_args_list
+        parsed, _ = html.parse(normal.args[0])
+        assert fallback.args[0] == parsed + '\n\n' + i18n['en']['subscription_list_plain_fallback']
+        assert utf16_length(fallback.args[0]) <= 4096
+        assert fallback.kwargs['parse_mode'] is None
+        assert fallback.kwargs['formatting_entities'] == []
+        assert fallback.kwargs['buttons'] == normal.kwargs['buttons']
+        titles.extend(parsed.splitlines()[1:])
+        if number > 1:
+            assert any(b.data == f'get_list_page|{number-1}'.encode() for b in fallback.kwargs['buttons'])
+        if number < pages:
+            assert any(b.data == f'get_list_page|{number+1}'.encode() for b in fallback.kwargs['buttons'])
+    assert titles == [f.title for f in reversed(feeds)]
+    # Follow a previous-page callback after repeated server rejections.
+    previous = Event()
+    previous.data = f'get_list_page|{pages-1}'.encode()
+    previous.edit.side_effect = [EntitiesTooLongError(None), None]
+    await commands.cmd_list_or_callback_get_list_page.__wrapped__(previous, lang='en')
+    expected = await get_list_page(-1001, pages-1, i18n['en']['subscription_list'])
+    assert previous.edit.call_args.args[0] == html.parse(expected[2])[0] + '\n\n' + i18n['en']['subscription_list_plain_fallback']
+    assert previous.edit.await_count == 2
+
+
+@pytest.mark.parametrize('first_error', ['entities', 'message', 'permission'])
+async def test_list_fallback_is_bounded_and_does_not_swallow_other_errors(context, first_error):
+    from telethon.errors import EntitiesTooLongError, MessageTooLongError, ChatWriteForbiddenError
+    error = {'entities': EntitiesTooLongError, 'message': MessageTooLongError,
+             'permission': ChatWriteForbiddenError}[first_error]
+    event = Event()
+    event.respond.side_effect = error(None)
+    with pytest.raises(error):
+        await commands.cmd_list_or_callback_get_list_page.__wrapped__(event, lang='en')
+    assert event.respond.await_count == (2 if first_error == 'entities' else 1)
+
+
+@pytest.mark.parametrize('lang', ['en', 'zh-Hans', 'zh-Hant', 'de'])
+async def test_fallback_notice_fits_full_page_and_locale_fallback(context, lang):
+    from telethon.errors import EntitiesTooLongError
+    from src.command.list_page import PAGE_TEXT_LIMIT, FALLBACK_NOTICE_LIMIT
+    from src.i18n import ALL_LANGUAGES
+    for locale in ALL_LANGUAGES:
+        assert utf16_length(i18n[locale]['subscription_list_plain_fallback']) <= FALLBACK_NOTICE_LIMIT
+    # Inject an exactly full safe page to exercise notice addition, not just short titles.
+    from unittest.mock import patch
+    event = Event()
+    event.respond.side_effect = [EntitiesTooLongError(None), None]
+    with patch.object(commands, 'get_list_page', AsyncMock(return_value=(1, 1, 'x' * PAGE_TEXT_LIMIT, 1))):
+        await commands.cmd_list_or_callback_get_list_page.__wrapped__(event, lang=lang)
+    fallback = event.respond.call_args.args[0]
+    assert fallback.startswith('x' * PAGE_TEXT_LIMIT + '\n\n')
+    assert fallback.endswith(i18n[lang]['subscription_list_plain_fallback'])
+    assert utf16_length(fallback) <= 4096
+
+
+async def test_tl_overhead_can_split_before_url_budget(context):
+    from src.command.list_page import PAGE_ENTITY_BYTES_LIMIT, PAGE_URL_BYTES_LIMIT, ENTITY_VECTOR_BYTES
+    await db.Sub.filter(user_id=-1001).delete()
+    feeds = [db.Feed(id=100+i, link=f'https://e.test/{i:03d}'.ljust(30, 'x'), title='T') for i in range(99)]
+    await db.Feed.bulk_create(feeds)
+    await db.Sub.bulk_create([db.Sub(user_id=-1001, feed_id=f.id) for f in feeds])
+    assert sum(len(f.link.encode()) for f in feeds) <= PAGE_URL_BYTES_LIMIT
+    result = await get_list_page(-1001, 1, 'List')
+    assert result[:2] == (1, 2)
+    _, entities = assert_safe(result[2])
+    assert len(entities) == 93  # heading + 92 links; TL overhead, not URL sum, is the boundary
+    additional = MessageEntityTextUrl(0, 1, feeds[0].link)
+    assert ENTITY_VECTOR_BYTES + sum(len(bytes(e)) for e in entities) + len(bytes(additional)) > PAGE_ENTITY_BYTES_LIMIT

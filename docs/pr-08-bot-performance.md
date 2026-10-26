@@ -9,30 +9,36 @@
 - 无新增 HTTP 路由、环境变量、数据库字段、Web 组件或生命周期钩子。UI/API PR 无须修改；也未改共享 `server.py`、`store.py`、`service.py`。
 - 独立模块可直接并入组合版本。没有其他功能 PR 依赖，不改变 `create_app` 签名。基线脚本调用原服务与 dashboard handler，组合版若更改这些内部接口，需同步脚本。
 
-## 根因与处理
+## 已确认缺口与根因边界
 
-原实现只通过每页 99 个订阅加 1 个粗体标题来限制格式实体数，未限制解析后的文本长度；`href` 直接拼接未转义的 URL。合成样本中 50 个标题已经产生 7,254 个 UTF-16 单元，99 个标题可超过 15,000。原错误提示由 Telegram 的长消息异常路径产生；本次无需真实发送也能复现超限的构造结果。
+原实现只通过每页 99 个订阅加 1 个粗体标题限制实体数，未限制解析后的文本长度及全部内联 URL/TL 实体载荷；`href` 也未完整转义。合成数据可复现显示文本超限，但这不能解释所有“返回太长”提示。`command_gatekeeper` 将 `EntitiesTooLongError` 和 `MessageTooLongError` 合并为同一提示；用户点名场景的原始线上 RPC 类别未知，不能宣称已在线上复现或验证修复。离线聚合检查也说明短标题可能在文本未超限时携带较大的实体载荷。本仓库不保存真实频道/订阅数据或其聚合报告。
 
 依据：
 
+- [Telegram messages.sendMessage](https://core.telegram.org/method/messages.sendMessage)：分别列出 `ENTITIES_TOO_LONG` 与 `MESSAGE_TOO_LONG`；没有据此假定固定的 8192 字节实体上限。本机 Telethon 1.40.0 的 `EntitiesTooLongError` 说明还明确提到内联 URL 等实体内数据过长。
 - [Telegram 消息实体规范](https://core.telegram.org/api/entities)：实体偏移和长度按 UTF-16 单元计算。
 - [Telethon split_text 文档](https://docs.telethon.dev/en/stable/modules/utils.html#telethon.utils.split_text)：默认消息长度 4096、最多 100 个实体。
 - [Telegram sendMessage](https://core.telegram.org/bots/api#sendmessage)：解析后文本最多 4096 字符。本实现采用更保守的 4096 UTF-16 单元预算，不将字符数与实体偏移混为一谈。
 
-新实现同时约束文本及实体预算，包括标题和换行。标题、标签样式文本和 URL 属性均完整 HTML 转义；长度计算基于显示文字而非 HTML 源码。使用实际安装的 Telethon 1.40.0 HTML 解析器及实体 TL 编码验证。
+当前实现同时约束：显示文本、实体数量、全部 URL 的 UTF-8 总字节、实际 TL 实体序列化总字节。每页 URL 合计最多 3072 字节；TL 合计最多 4096 字节（包含 8 字节 vector 头和粗体标题）。TL 长度用安装的 Telethon `bytes(entity)` 计算，包含构造器、字段、字符串长度前缀与填充。两个总量值均是本地保守策略，不是已核实的官方服务端阈值。
+
+显示文本正常页最多 3966 UTF-16 单元，预留 128 单元提示及两个换行，有限降级后仍不超过 4096。标题、标签样式文本和 URL 属性均完整 HTML 转义；长度计算基于显示文字而非 HTML 源码。使用实际安装的 Telethon 1.40.0 HTML 解析器及实体 TL 编码验证。
 
 单个标题显示最多 1024 UTF-16 单元，超出时保留省略号，不切断代理对；空白折叠，空标题用 URL，数据库中完整标题不变。HTTP(S) URL 在 2048 UTF-8 字节以内时保留完整链接，包括查询参数、引号及 emoji；超过预算或无效 URL 显示纯文本标题，不截断成错误目标。2048 是本地保守显示策略，不声称是所有 Telegram 服务端 URL 的统一限制。完整 URL 仍可通过原 `/export` OPML 取得。
+
+若服务端仍返回 `EntitiesTooLongError`，仅重试一次当前页纯文本：保留原页内容、页边界及相同按钮，不重新分组；显式 `parse_mode=None`、`formatting_entities=[]`。附带 `/export` 提示，提供英文/简中/繁中，其他语言按既有 i18n 回退英文，所有语言提示验证不超过预留预算。下一页和上一页继续使用原回调形状，每次请求独立处理；第二次失败传播至既有错误入口，不循环重试。`MessageTooLongError`、权限等其他异常不在这里捕获。诊断仅记录页码，不记录请求对象、标题或 URL。
 
 每个请求以 256 行 keyset 批次读取 ID、标题和 URL，只保留当前页及目标页，不预加载全部 Feed/Sub ORM 对象，不新增长期缓存。渲染遍历该会话 n 条订阅以得到准确页数；数据库可能重复排序，不能把整体数据库成本承诺为 O(n)。与原分页一样，订阅增删/标题变化会让已显示页边界变化，不提供跨请求快照一致性。空列表回调编辑原消息并清除旧按钮。
 
 ## 兼容性覆盖与验收
 
-运行 `.venv/bin/python -m pytest -q`。初次提交完整结果：57 passed（后续生命周期回归扩展为 64 passed，见附录）；仅有现有 uvloop.install 弃用警告。
+运行 `.venv/bin/python -m pytest -q`。当前完整结果：76 passed（初次 57、生命周期扩展至 64，本次实体预算/降级再增加 12 项）；仅有现有 uvloop.install 弃用警告。
 
 | 入口/能力 | 实际覆盖 | 边界 |
 | --- | --- | --- |
 | `/list` 与回调 | 实际 handler 内层、真实 ORM、Telethon HTML/TL 编码、下一页/上一页及远程目标尾缀 | 消息发送/编辑由 AsyncMock 捕获，没有 Telegram 实发 |
-| 长列表 | 105 条中文/emoji/格式标签、300 条跨数据库批次、每条链接恰好出现一次、实体上限、4096 精确边界、过期页码 | 超长标题另做纯渲染测试；数据库本身标题长度上限 1024 字符 |
+| 长列表 | 105 条中文/emoji/格式标签、300 条跨数据库批次、每条链接恰好出现一次、实体上限、3966 正常页精确边界及含降级提示的 4096 总预算、过期页码 | 超长标题另做纯渲染测试；数据库本身标题长度上限 1024 字符 |
+| 密集长 URL 与 RPC 降级 | 170 条短标题＋长 ASCII/emoji URL，逐页 URL/TL 总量与全量无重复/遗漏；TL 开销先于 URL 上限触发分页；命令/回调拒绝后同页单次重试、实际 next/back、第二次失败及其他异常传播、多语言预留空间 | 全为合成数据和错误替身，不声称已验证用户点名频道的真实 RPC |
 | `/sub` | 原业务函数复用现有源、无新增 Feed、禁止联网的测试夹具、重复订阅 | 原版重复 `/sub` 会重置自定义标题，保留此行为；Web 幂等新增另有原测试 |
 | `/unsub` | 只删除目标订阅、其他目的地保留、最后有效间隔恢复 | `/unsub_all` 确认对话未模拟全链路 |
 | `/set`、标题、间隔 | 原格式选项循环、标题保存、调度最短间隔更新 | 所有格式选项的 Telegram 键盘点击未穷举 |
@@ -49,7 +55,7 @@
 .venv/bin/python scripts/benchmark_console.py --sizes 1000 10000 50000 --repeats 20 > /tmp/rsstt-baseline.json
 ```
 
-原始测量已保存为 [pr-08-performance-baseline.json](pr-08-performance-baseline.json)。测量日期 2026-10-26；Python 3.12.14、Darwin arm64、SQLite 3.53.1、Telethon 1.40.0。机器并非受限低配服务器。每组独立临时磁盘 SQLite 数据库，20 个合成目的地，每个来源 10 个订阅，来源总数分别 100/1000/5000，标题包含中文和 emoji。脚本预热一次，随后 20 次顺序运行，p95 用 nearest-rank；另一次 tracemalloc 测 Python 峰值分配。测试结束删除临时数据库，审计钩子拒绝外连，不启动监听器、抓取器或 Telegram 客户端。
+以下测量在本次增加实体总预算前完成，保留为历史基线；其中 `/list` 页数/耗时不代表本次最终实现。原始测量已保存为 [pr-08-performance-baseline.json](pr-08-performance-baseline.json)。测量日期 2026-10-26；Python 3.12.14、Darwin arm64、SQLite 3.53.1、Telethon 1.40.0。机器并非受限低配服务器。每组独立临时磁盘 SQLite 数据库，20 个合成目的地，每个来源 10 个订阅，来源总数分别 100/1000/5000，标题包含中文和 emoji。脚本预热一次，随后 20 次顺序运行，p95 用 nearest-rank；另一次 tracemalloc 测 Python 峰值分配。测试结束删除临时数据库，审计钩子拒绝外连，不启动监听器、抓取器或 Telegram 客户端。
 
 耗时包含 ORM/SQLite 与服务响应构造，不含 HTTP 认证/传输、真实 RSS 或 Telegram 延迟。旧 `/list` 按原 99 行算法重建，两版均执行 Telethon HTML 解析；旧版仅构建首批并返回不可发送的长文本，新版计算全会话页数后构建安全首屏，因此不能把两者当等量吞吐跑分。
 

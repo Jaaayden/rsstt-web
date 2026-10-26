@@ -1,13 +1,21 @@
-"""Bounded Telegram /list rendering. No Telegram or management dependencies."""
+"""Bounded Telegram /list rendering; no client or management dependencies."""
 from html import escape
 from urllib.parse import urlsplit
+
+from telethon.tl.types import MessageEntityBold, MessageEntityTextUrl
 
 from .. import db
 
 TEXT_LIMIT = 4096  # Conservative UTF-16 budget, including heading and newlines.
+FALLBACK_NOTICE_LIMIT = 128
+PAGE_TEXT_LIMIT = TEXT_LIMIT - FALLBACK_NOTICE_LIMIT - 2  # Reserve two newlines + retry notice.
 ENTITY_LIMIT = 100
 TITLE_LIMIT = 1024
 URL_LIMIT = 2048  # Conservative UTF-8 budget; never truncate a destination URL.
+# Local conservative budgets, not assertions about Telegram's server limits.
+PAGE_URL_BYTES_LIMIT = 3072
+PAGE_ENTITY_BYTES_LIMIT = 4096
+ENTITY_VECTOR_BYTES = 8  # TL vector constructor + element count.
 BATCH_SIZE = 256
 
 
@@ -51,7 +59,9 @@ async def get_list_page(user_id, page_number, heading):
     heading = short_text(heading, 256)
     prefix = f'<b>{escape(heading)}</b>\n'
     base_length = utf16_length(heading) + 1
+    base_entity_bytes = ENTITY_VECTOR_BYTES + len(bytes(MessageEntityBold(0, utf16_length(heading))))
     lines, length, entities = [], base_length, 1
+    url_bytes, entity_bytes = 0, base_entity_bytes
     page_count = total = 0
     selected = last = ''
     before = None
@@ -64,14 +74,21 @@ async def get_list_page(user_id, page_number, heading):
             break
         for row in rows:
             html, units, count = render_entry(row['title'] or row['feed__title'], row['feed__link'])
-            if lines and (length + 1 + units > TEXT_LIMIT or entities + count > ENTITY_LIMIT):
+            entry_url_bytes = len(row['feed__link'].encode('utf-8')) if count else 0
+            entry_entity_bytes = len(bytes(MessageEntityTextUrl(0, units, row['feed__link']))) if count else 0
+            if lines and (length + 1 + units > PAGE_TEXT_LIMIT or entities + count > ENTITY_LIMIT
+                          or url_bytes + entry_url_bytes > PAGE_URL_BYTES_LIMIT
+                          or entity_bytes + entry_entity_bytes > PAGE_ENTITY_BYTES_LIMIT):
                 page_count += 1
                 last = prefix + '\n'.join(lines)
                 if page_count == wanted:
                     selected = last
                 lines, length, entities = [], base_length, 1
+                url_bytes, entity_bytes = 0, base_entity_bytes
             length += units + bool(lines)
             entities += count
+            url_bytes += entry_url_bytes
+            entity_bytes += entry_entity_bytes
             lines.append(html)
             total += 1
         before = rows[-1]['id']

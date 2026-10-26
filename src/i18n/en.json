@@ -52,6 +52,7 @@
         "subscribe": "Subscribe",
         "unsubscribe": "Unsubscribe",
         "subscription_list": "Subscription list",
+        "subscription_list_plain_fallback": "Links could not be displayed on this page. Use /export for complete subscription URLs.",
         "processing": "Processing, please wait for a moment…",
         "canceled_by_user": "Canceled by the user.",
         "n_subscriptions_in_total": "%d subscriptions in total",
