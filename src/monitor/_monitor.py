@@ -178,22 +178,27 @@ class Monitor(Singleton):
         )
 
     def _erase_state_for_feed_id(self, feed_id: int, flag_to_erase: TaskState):
-        task_state = self._subtask_defer_map[feed_id]
+        task_state = self._subtask_defer_map.get(feed_id, TaskState.EMPTY)
         if not task_state:
             logger.warning(f'Unexpected empty state ({repr(task_state)}): {feed_id}')
             return
         erased_state = task_state & ~flag_to_erase
         if erased_state == TaskState.DEFERRED:  # deferred with any other flag erased, resubmit it
-            self._subtask_defer_map[feed_id] = TaskState.EMPTY
+            self._subtask_defer_map.pop(feed_id, None)
             self.submit_feed(feed_id, 'resubmit deferred subtask')
             self._stat.resubmitted()
             logger.debug(f'Resubmitted a deferred subtask ({repr(task_state)}): {feed_id}')
             return
-        self._subtask_defer_map[feed_id] = erased_state  # update the state
+        if erased_state:
+            self._subtask_defer_map[feed_id] = erased_state
+        else:
+            # Completed/deleted feeds need no permanent EMPTY entry. Keep active
+            # and deferred states until all flags clear, preserving resubmission.
+            self._subtask_defer_map.pop(feed_id, None)
 
     def _defer_feed_id(self, feed_id: int, feed_link: str = None) -> bool:
         feed_description = f'{feed_id}: {feed_link}' if feed_link else str(feed_id)
-        task_state = self._subtask_defer_map[feed_id]
+        task_state = self._subtask_defer_map.get(feed_id, TaskState.EMPTY)
         if task_state == TaskState.DEFERRED:
             # This should not happen, but just in case.
             logger.warning(f'A deferred subtask ({repr(task_state)}) was never resubmitted: {feed_description}')
