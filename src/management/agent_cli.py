@@ -20,7 +20,7 @@ def main(argv=None):
     parser.add_argument('--url', default=os.environ.get('RSSTT_URL'))
     parser.add_argument('--token-file', type=Path)
     parser.add_argument('--token-stdin', action='store_true')
-    parser.add_argument('--method', choices=['GET', 'POST', 'PATCH', 'DELETE'], default='GET')
+    parser.add_argument('--method', choices=['GET', 'POST', 'PUT', 'PATCH', 'DELETE'], default='GET')
     parser.add_argument('--data', type=Path, help='JSON request body file (never credentials)')
     parser.add_argument('--apply', action='store_true', help='Execute a write; otherwise only print a local plan')
     parser.add_argument('--confirm-delete', action='store_true')
@@ -35,6 +35,8 @@ def main(argv=None):
         parser.error('path must start with /api/')
     if args.token_file and args.token_stdin:
         parser.error('choose one credential source')
+    if args.token_file and not callable(getattr(os, 'getuid', None)):
+        parser.error('--token-file requires POSIX ownership checks; use RSSTT_TOKEN or --token-stdin on this platform')
     if args.token_file:
         with args.token_file.open() as stream:
             info = os.fstat(stream.fileno())
@@ -49,8 +51,8 @@ def main(argv=None):
     if args.method != 'GET' and not args.apply:
         print(json.dumps({'dry_run': True, 'validation': 'local_plan_only', 'method': args.method, 'path': args.path, 'body': data}, ensure_ascii=False))
         return 0
-    if (args.method == 'DELETE' or isinstance(data, dict) and data.get('action') == 'delete') and not args.confirm_delete:
-        parser.error('deletion requires --confirm-delete together with --apply')
+    if (args.method == 'DELETE' or isinstance(data, dict) and (data.get('action') == 'delete' or data.get('mode') == 'replace')) and not args.confirm_delete:
+        parser.error('deletion or recipient replacement requires --confirm-delete together with --apply')
     request = urllib.request.Request(args.url.rstrip('/') + args.path, method=args.method,
                                      data=json.dumps(data).encode() if data is not None else None,
                                      headers={'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json'})

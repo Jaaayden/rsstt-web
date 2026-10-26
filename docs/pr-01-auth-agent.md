@@ -93,3 +93,20 @@ printf '%s' '{"state":0}' > .preview/change.json
 | `POST /api/backups/export`、`/preflight`、`/restore` | 浏览器管理员；若未来开放机器管理，必须独立显式 capability | 所有当前机器令牌拒绝 |
 
 注册 PR3 路由时更新 `AGENT_ROUTES` 和 `openapi()` 的输入/响应定义，`PUT` 与 `PATCH` 同为写入，不能只判断 POST。后端 handler 仍需在任何修改前一次验证完整会话选择；路由级 capability 无法替代对象级范围检查。以上草案不会出现在已实现路由的 OpenAPI paths 中，避免机器客户端误认为已经可调用。
+
+## 后续补充：PR3 接入与按安装状态生成契约
+
+已只读核对 `feat/console-subscriptions` 的 `docs/pr-03-subscriptions.md` 与 `subscriptions.py`。本分支现在登记以下能力：
+
+- `GET /api/subscriptions/opml`、`GET /api/feeds/{id}/recipients` → `subscriptions:read`。
+- `PUT /api/feeds/{id}/recipients` → `subscriptions:write`。输入必须包含 `mode` 与 `targets`；replace 保留范围外关系，空集合可清空授权范围内关系。
+
+`openapi(router)` 只列出当前 aiohttp router 中实际安装的方法和 canonical 路由模板，调用点为 `openapi(request.app.router)`。因此本分支单独运行时不会宣称 PR3 接口可用，组合版本安装 PR3 后自动列出。此前“待实现后登记”的 PR3 三项现已完成能力登记；实际 handler 仍由 PR3 提供，未复制或 cherry-pick 到此分支。来源 UA、统计、角色、通知设置和备份均不在 Agent 白名单中。
+
+机器契约补充列表分页/筛选参数、OPML ids 筛选、必需请求字段、接收者响应、列表分页响应、订阅与目标字段、Session 字段、XML 响应类型及统一错误结构。订阅 PATCH 的推送选项枚举复用上游 `SUB_OPTIONS_EXHAUSTIVE_VALUES`；`feed_id` 在通用订阅 schema 中可选，以兼容尚未安装 PR3 的基础版。
+
+CLI 新增 `--method PUT`，默认仍为本地 dry-run，`--apply` 才发出请求。`mode=replace` 可能移除关系，因此与 DELETE/batch delete 一样要求 `--confirm-delete`。Windows 等不提供 `os.getuid` 的平台，使用 `--token-file` 返回受控参数错误并提示改用 `RSSTT_TOKEN` 或 `--token-stdin`，不尝试用不完整的 POSIX 权限检查替代 Windows ACL 验证。
+
+新增测试通过显式安装的最小路由测试夹具验证：未安装路由不进入 OpenAPI、已安装路由能力分配、read 拒绝 PUT、对象范围检查、管理路由持续拒绝、CLI PUT dry-run 与实际本地 HTTP 调用、非 POSIX 受控错误。夹具不声称验证 PR3 的接收者事务实现；PR3 的事务/范围测试仍由该分支及主会话组合验收负责。
+
+本次增量验证：全套后端 42 passed；再增加 replace 必须显式确认的测试后，认证/Agent 专项 9 passed；`git diff --check` 通过。本次未改 UI，未重跑浏览器，未操作 CI 或其他分支。
