@@ -106,8 +106,21 @@ def test_cli_credential_file_permissions(tmp_path):
 
 async def test_openapi_only_advertises_installed_routes(logged):
     data = await (await logged.client.get('/api/openapi.json')).json()
-    assert '/api/feeds/{id}/recipients' not in data['paths']
-    assert '/api/subscriptions/opml' not in data['paths']
+    from aiohttp import web
+    from src.management.agent_contract import AGENT_ROUTES, openapi
+    installed = {(route.method, route.resource.canonical)
+                 for route in logged.client.server.app.router.routes() if route.resource}
+    advertised = {(method.upper(), path) for path, operations in data['paths'].items()
+                  for method in operations}
+    assert advertised == installed.intersection(AGENT_ROUTES)
+    # Prove absence/presence independently of which optional modules are installed.
+    minimal = web.Application()
+    assert openapi(minimal.router)['paths'] == {}
+    async def unused(request):
+        return web.Response()
+    minimal.router.add_get('/api/feeds/{id}/recipients', unused)
+    minimal.router.add_get('/api/feeds/{id}/fetch-options', unused)
+    assert set(openapi(minimal.router)['paths']) == {'/api/feeds/{id}/recipients'}
     params = data['paths']['/api/subscriptions']['get']['parameters']
     assert {p['name'] for p in params} == {'q', 'page', 'size', 'target', 'state', 'attention'}
     create = data['paths']['/api/subscriptions']['post']['requestBody']['content']['application/json']['schema']
@@ -120,9 +133,17 @@ async def test_optional_route_contract_permissions_and_cli_put(context, aiohttp_
     """Contract harness, not a replacement for PR3 transaction/integration tests."""
     from aiohttp import web
     from src.management.service import Service
-    app = await create_app(context.store, PASSWORD, ORIGIN, context.gateway)
+    from src.management.agent_contract import openapi
+    # Reuse the real authentication boundary, but no production routes. Optional
+    # modules in a combined build cannot shadow this harness's handlers.
+    app = web.Application(middlewares=list(context.client.server.app.middlewares))
     service = Service(context.store, context.gateway)
     calls = []
+
+    async def contract_endpoint(request):
+        return web.json_response(openapi(request.app.router))
+
+    app.router.add_get('/api/openapi.json', contract_endpoint)
 
     async def recipients(request):
         values = await request.json() if request.method == 'PUT' else {'targets': []}
