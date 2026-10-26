@@ -2,7 +2,7 @@
 
 ## 范围与定义
 
-活跃目的地：至少有一个 `Sub.state=1 AND Feed.state=1` 的订阅，且 `User.state!=-1`。这是数据库当前配置下的使用量，不承诺 Telegram 当前可达或在线。已知会话数仍包含无订阅、暂停和封禁记录。私聊为正 ID；负 ID 仅在原表明确 `state=50/51` 时分类为频道/群组，其余独立计为 `unknown`，不按 ID 前缀猜测。被封禁后丢失类型的负 ID 同样保持 unknown。活跃订阅使用同一条件；旧 `counts.active` 保持仅订阅启用的旧定义。
+活跃目的地：至少有一个 `Sub.state=1 AND Feed.state=1` 的订阅，且 `User.state!=-1`。这是数据库当前配置下的使用量，不承诺 Telegram 当前可达或在线。已知会话数仍包含无订阅、暂停和封禁记录。类型优先采用管理库已核验记录：`targets.membership` 为 `known` 或 `available`，且 `kind` 为与 ID 正负一致的 private/channel/group。角色修改后原表 state 变为 1、100 或 -1，已核验类型仍保持不变。无已核验记录时，正 ID 回退为私聊，负 ID 仅在原表明确 `state=50/51` 时分类为频道/群组，其余独立计为 `unknown`。snapshot、unknown 和无法证明核验来源的 left 记录不覆盖类型，不按 ID 前缀猜测。封禁仍从活跃计数排除，但已知类型保留。活跃订阅使用同一条件；旧 `counts.active` 保持仅订阅启用的旧定义。
 
 新增内容和成功推送沿用基础版入口：来源保存新条目后计新内容；一篇内容完整发送到一个目的地后计成功。多消息拆分不重复计数，部分发送、取消和权限失败不计成功。没有改动抓取器、调度器或 Telegram 发送实现。
 
@@ -42,7 +42,7 @@
 
 ## 持久化与接入点
 
-- 新模块 `src/management/statistics.py`：`usage()`、`query()`、`increment()`、`initialize()`，无新增第三方依赖。
+- 新模块 `src/management/statistics.py`：`usage(store=None)`、`query()`、`increment()`、`initialize()`，无新增第三方依赖。dashboard 调用 `usage(store)` 以读取已核验类型；省略 store 仅作兼容回退。管理库按 ID 游标每批最多 400 条读取已核验记录，再由上游数据库按状态聚合修正类型计数，不载入全部会话或订阅；管理库和上游数据库无需同库或同数据库引擎。
 - `Store.statistics_window(granularity='hour', start=None, end=None, unavailable=False)` 是公共查询包装；原 `Store.increment(..., day=None)` 保持兼容，新增可选 `at`（带时区 datetime 或字符串），供确定时间的测试/事件使用。day 与 at 不能同时指定。负数、非整数、未来时间被拒绝。
 - 新 `metrics_hourly(bucket TEXT PRIMARY KEY, fetched, delivered, failed)`；沿用 `metrics(day PRIMARY KEY,...)`，其中 total 行永远不清理。主键为窗口查询、冲突更新及清理提供索引。
 - `Store.open()` 自动建表及写入 `meta.hourly_started_at`；旧每日累计原样保留，不按每日数据拆造小时数。day-only 导入只影响每日和累计，不伪造小时分配。
@@ -58,8 +58,8 @@ PR 07 可保留 API 和语义并自由替换控件。没有新配置项、后台
 
 ## 验证
 
-- `.venv/bin/python -m pytest -q`：50 项通过（新增 16 项测试，含参数化）。仅有既有 uvloop 弃用警告。
-- 覆盖 UTC 跨小时/天、偏移时间归一化、空桶、部分桶、未来未知桶、40 次并发一致性、双 SQLite 连接并发、事务取消回滚、取消发送不计成功、100 天保留边界、读取清理、重启、旧库总计保留且不补造小时、源停用/订阅暂停/封禁/未知类型、目的地去重、删除订阅不改累计、744 桶大小上限、错误参数和权限、事务失败全回滚。
+- `.venv/bin/python -m pytest -q`：55 项通过（新增 21 项测试，含参数化）。仅有既有 uvloop 弃用警告。
+- 覆盖 UTC 跨小时/天、偏移时间归一化、空桶、部分桶、未来未知桶、40 次并发一致性、双 SQLite 连接并发、事务取消回滚、取消发送不计成功、100 天保留边界、读取清理、重启、旧库总计保留且不补造小时、源停用/订阅暂停/封禁/未知类型、已核验类型在角色变化后保持一致、拒绝快照猜测类型、400 条跨页处理、目的地去重、删除订阅不改累计、744 桶大小上限、错误参数和权限、事务失败全回滚。
 - 原成功发送/部分失败计数回归测试保留运行；所有网络接口使用离线替身。
 - 浏览器 6 项全部通过（首次沙箱内 Chromium 启动受 macOS 限制，获准在沙箱外运行后通过）；只在本工作目录 `.test-data/` 独立数据库和端口 8744 运行，未使用 8730/8731、真实快照或真实 Telegram。
 - 原版快照 API 测试新增对 `/api/statistics` 全 null 的验证。

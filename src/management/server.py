@@ -159,7 +159,7 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
             db.Sub.all().count(), db.Sub.filter(state=1).count(), db.Feed.all().count(),
             db.Sub.filter(state=1, feed__error_count__gte=threshold).count())
         settings = await store.settings()
-        usage_counts = await usage()
+        usage_counts = await usage(store)
         statistics = await store.statistics()
         if snapshot:
             statistics = {'available': False, 'totals': {'fetched': None, 'delivered': None, 'failed': None}, 'daily': []}

@@ -96,7 +96,7 @@ async def test_usage_banned_paused_source_unknown_and_distinct(logged):
     extra = await db.Feed.create(link='https://example.test/extra', title='Extra')
     await db.Sub.create(user_id=-1001, feed=extra)
     data = await (await logged.client.get('/api/dashboard')).json()
-    assert data['usage']['known'] == dict(private=2, channel=1, group=1, unknown=2, total=6)
+    assert data['usage']['known'] == dict(private=2, channel=2, group=1, unknown=1, total=6)
     assert data['usage']['active'] == dict(private=0, channel=1, group=0, unknown=1, total=2)
     assert data['usage']['active_subscriptions'] == 3
     assert data['counts']['groups'] == 1
@@ -162,3 +162,52 @@ async def test_cancellation_rolls_back_and_two_connections_agree(tmp_path, monke
     assert result['totals']['delivered'] == sum(b['delivered'] or 0 for b in result['buckets']) == 20
     await second.close()
     await store.close()
+
+
+async def test_verified_type_survives_role_changes_and_ban(logged):
+    before = await statistics.usage(logged.store)
+    await db.User.filter(id=-1001).update(state=1)
+    after = await statistics.usage(logged.store)
+    assert after == before
+    targets = (await (await logged.client.get('/api/targets')).json())['items']
+    assert next(t for t in targets if t['id'] == '-1001')['kind'] == 'channel'
+    await db.User.filter(id=-1001).update(state=-1)
+    banned = await statistics.usage(logged.store)
+    assert banned['known'] == before['known']
+    assert banned['active']['channel'] == before['active']['channel'] - 1
+    assert banned['active_subscriptions'] == before['active_subscriptions'] - 1
+    await db.User.filter(id=-1001).update(state=100)
+    assert await statistics.usage(logged.store) == before
+
+
+@pytest.mark.parametrize('membership', ['snapshot', 'unknown', 'left'])
+async def test_unverified_metadata_never_promotes_guessed_type(logged, membership):
+    await db.User.filter(id=-1001).update(state=1)
+    await logged.store.target(-1001, 'Test', None, 'group', membership)
+    result = await statistics.usage(logged.store)
+    assert result['known']['unknown'] == 1
+    assert result['active']['unknown'] == 1
+    # Explicit upstream state is still a valid fallback.
+    await db.User.filter(id=-1001).update(state=50)
+    assert (await statistics.usage(logged.store))['known']['channel'] == 2
+
+
+async def test_verified_type_overrides_stale_state_in_bounded_pages(logged, monkeypatch):
+    await logged.store.target(-1001, 'Test', None, 'group', 'available')
+    # More than one page; absent upstream users must not inflate usage.
+    for ident in range(-3000, -2590):
+        await logged.store.target(ident, 'Test', None, 'channel', 'available')
+    original = logged.store.rows
+    page_sizes = []
+
+    async def bounded(sql, args=()):
+        rows = await original(sql, args)
+        if 'SELECT id,kind FROM targets' in sql:
+            page_sizes.append(len(rows))
+        return rows
+
+    monkeypatch.setattr(logged.store, 'rows', bounded)
+    result = await statistics.usage(logged.store)
+    assert result['known'] == dict(private=2, channel=1, group=1, unknown=0, total=4)
+    assert result['active'] == dict(private=0, channel=1, group=1, unknown=0, total=2)
+    assert len(page_sizes) >= 3 and max(page_sizes) == 400

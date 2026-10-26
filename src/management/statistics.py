@@ -134,7 +134,7 @@ async def query(store, granularity='hour', start=None, end=None, unavailable=Fal
             'history_before_recording': 'unavailable', 'buckets': buckets}
 
 
-async def usage():
+async def usage(store=None):
     """Aggregate in SQL without materializing every user or subscription."""
     from tortoise.functions import Count
     from .. import db
@@ -150,6 +150,39 @@ async def usage():
                 kind = 'private' if positive else {50: 'channel', 51: 'group'}.get(row['state'], 'unknown')
                 result[kind] += row['count']
                 result['total'] += row['count']
+    if store is not None:
+        # The management and upstream databases may use different engines. Read
+        # verified metadata in bounded keyset pages and aggregate corrections in
+        # the upstream database; never load subscription rows or all target IDs.
+        after = ''
+        while True:
+            metadata = await store.rows("""SELECT id,kind FROM targets
+                WHERE id>? AND membership IN ('known','available')
+                AND kind IN ('private','channel','group') ORDER BY id LIMIT 400""", (after,))
+            if not metadata:
+                break
+            after = metadata[-1]['id']
+            for verified_kind in ('private', 'channel', 'group'):
+                ids = []
+                for target in metadata:
+                    if target['kind'] != verified_kind:
+                        continue
+                    try:
+                        ident = int(target['id'])
+                    except ValueError:
+                        continue
+                    if (ident > 0 and verified_kind == 'private') or (ident < 0 and verified_kind != 'private'):
+                        ids.append(ident)
+                if not ids:
+                    continue
+                for query_set, result in ((db.User.filter(id__in=ids), known),
+                        (db.User.filter(id__in=ids, subs__state=1, subs__feed__state=1).exclude(state=-1), active)):
+                    rows = await query_set.annotate(count=Count('id', distinct=True)).group_by('state').values('state', 'count')
+                    for row in rows:
+                        previous = ('private' if verified_kind == 'private' else
+                                    {50: 'channel', 51: 'group'}.get(row['state'], 'unknown'))
+                        result[previous] -= row['count']
+                        result[verified_kind] += row['count']
     count = await db.Sub.filter(state=1, feed__state=1).exclude(user__state=-1).count()
     return {'known': known, 'active': active, 'active_subscriptions': count,
             'definition': 'subscription.state=1 AND feed.state=1 AND user.state!=-1',
