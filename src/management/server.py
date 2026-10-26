@@ -150,7 +150,7 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
 
     @routes.get('/api/openapi.json')
     async def contract(request):
-        return web.json_response(openapi())
+        return web.json_response(openapi(request.app.router))
 
     @routes.post('/api/logout')
     async def logout(request):
