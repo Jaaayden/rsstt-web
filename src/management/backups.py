@@ -55,10 +55,17 @@ class InstanceLock:
         self.fd = None
 
     def __enter__(self):
-        import fcntl
-        self.fd = os.open(self.path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+        self.fd = os.open(self.path, os.O_CREAT | os.O_RDWR | getattr(os, 'O_NOFOLLOW', 0), 0o600)
         try:
-            fcntl.flock(self.fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            if os.name == 'nt':
+                import msvcrt
+                if os.fstat(self.fd).st_size == 0:
+                    os.write(self.fd, b'0')
+                os.lseek(self.fd, 0, os.SEEK_SET)
+                msvcrt.locking(self.fd, msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(self.fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
             os.close(self.fd)
             self.fd = None
@@ -335,6 +342,8 @@ def snapshot(connection, folder):
 
 
 def validate(main, console, raw, options=None):
+    if os.name == 'nt':
+        raise BackupError('Windows 支持正常 Bot 启动和备份导出；自动恢复须在 POSIX 主机执行。')
     package, options = unpack(raw), flags(options or {})
     with tempfile.TemporaryDirectory(prefix='rsstt-preflight-') as folder:
         folder = Path(folder).resolve()
@@ -460,6 +469,8 @@ def early_startup(database_url, config):
 
 
 def sync_directory(folder):
+    if os.name == 'nt':
+        return  # Windows exports fsync the file; automatic restore is disabled.
     fd = os.open(folder, os.O_RDONLY)
     try:
         os.fsync(fd)
@@ -469,16 +480,12 @@ def sync_directory(folder):
 
 def write_private(path, content):
     path = safe_path(path, exists=False)
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, 'O_NOFOLLOW', 0), 0o600)
     with os.fdopen(fd, 'wb') as out:
         out.write(content)
         out.flush()
         os.fsync(out.fileno())
-    directory = os.open(path.parent, os.O_RDONLY)
-    try:
-        os.fsync(directory)
-    finally:
-        os.close(directory)
+    sync_directory(path.parent)
 
 
 def result_file(console, value):

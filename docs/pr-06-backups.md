@@ -107,3 +107,9 @@ WEB_PORT=8746 WEB_DEMO_CONFIG=.test-data/backups-manual .venv/bin/python -m src.
 - 覆盖：逻辑往返、认证／令牌默认保留与显式覆盖、BLOB 哈希、源会话排除、目标会话失效、小时统计、通知队列不重放、坏 JSON／checksum／FK／路径攻击／符号链接、锁冲突、双库写入后注入异常回滚、配置文件保存失败回滚、模拟中断日志恢复、ORM重新读取与 EffectiveTasks 重建。
 - 实际启动两次离线演示子进程：HTTP 下载→更改标题／阈值→预检→暂存→停止→重启→旧 Cookie 401→重新登录→恢复状态成功、标题和阈值恢复。端口 8746，临时数据库自动清理，无真实数据。
 - 最终补充凭据防升级校验后，备份与重启专用检查为 12 passed：导入的 token 权限只允许 read/write，拒绝伪造 admin 权限；显式覆盖管理员时必须恰好一个完整账户。
+
+### 基础 CI 合入（2026-10-26）
+
+已合入 feat/web-console 的 `2fb6c46`，未修改主会话管理的 CI、Docker 忽略规则或 ci_* 脚本。合入后全量后端 46 passed，本机 Bot 脚本／模块入口及 Aerich history/heads/upgrade smoke 通过，JS 语法和 diff check 通过。
+
+新矩阵覆盖 Windows，因此实例锁补充 `msvcrt` 非阻塞字节锁，POSIX 保持 flock；避免 Web 关闭时破坏 Windows Bot 启动。Windows 支持正常启动和备份导出，自动恢复明确禁用（API 暴露 restore_supported，UI 禁用预检），因为当前持久目录日志恢复只验证了 POSIX fsync 语义。Windows 与其它 Python 版本的实际结果由 Actions 验证，本机不冒称完成跨平台实测。

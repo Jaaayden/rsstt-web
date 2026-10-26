@@ -1,6 +1,7 @@
 """Administrator-only backup download, preflight and stopped-instance staging."""
 import asyncio
 import json
+import os
 import sqlite3
 from aiohttp import web
 from . import backups
@@ -61,6 +62,7 @@ def install(routes, service, database_url, admin, body):
         authorize(request)
         return web.json_response({'format_version': 1, 'max_bytes': backups.MAX_BYTES,
                                   'sqlite': database_url.startswith('sqlite:'),
+                                  'restore_supported': database_url.startswith('sqlite:') and os.name != 'nt',
                                   'mode': 'apply_on_restart', 'components': await components(),
                                   'restore': restore_status(),
                                   'never_included': ['web_sessions', 'bot_token', 'telethon_session', 'deployment_environment']})
