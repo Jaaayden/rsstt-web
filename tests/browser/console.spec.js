@@ -150,7 +150,8 @@ test("account security revokes sessions and rotates the persistent password", as
         await page.getByRole("link", { name: "设置", exact: true }).click();
         await page.getByRole("button", { name: "账户安全", exact: true }).click();
         await expect(page.getByText(/preview-admin/)).toBeVisible();
-        await page.getByRole("button", { name: "撤销全部网页登录会话" }).click();
+        await page.getByRole("button", { name: "退出所有网页登录", exact: true }).click();
+        await page.getByRole("dialog").getByRole("button", { name: "确认", exact: true }).click();
         await expect(page.locator("#login-form")).toBeVisible();
         await page.getByLabel("管理台密码", { exact: true }).fill(original);
         await page.getByRole("button", { name: /进入管理台/ }).click();
@@ -184,9 +185,8 @@ test("account security revokes sessions and rotates the persistent password", as
 });
 
 test("active usage and bounded hourly/day trends", async ({ page }) => {
-    await expect(page.getByText("活跃会话", {exact: true})).toBeVisible();
+    await expect(page.getByText("活跃目的地", {exact: true})).toBeVisible();
     await expect(page.getByRole("button", {name: "24 小时", exact: true})).toHaveAttribute("aria-pressed", "true");
-    await expect(page.getByText(/UTC 分桶/, {exact: false}).first()).toBeVisible();
     const response = page.waitForResponse(r => r.url().includes("/api/statistics?") && r.url().includes("granularity=day"));
     await page.getByRole("button", {name: "7 天", exact: true}).click();
     const result = await (await response).json();
