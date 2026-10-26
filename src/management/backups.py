@@ -249,6 +249,8 @@ def apply_rows(connection, package, options):
         item = package['data'][f'{schema}.{table}']
         if item['columns'] != columns(connection, schema, table):
             raise BackupError('备份与目标数据库结构不一致，请先使用相同版本。')
+        if table == 'console_admin' and len(item['rows']) != 1:
+            raise BackupError('管理员备份必须包含且仅包含一个账户。')
         cols = item['columns']
         definitions = connection.execute(f'PRAGMA {schema}.table_info({ident(table)})').fetchall()
         for row in item['rows']:
@@ -274,8 +276,12 @@ def apply_rows(connection, package, options):
                 if 'TIMESTAMP' in declared or 'DATETIME' in declared:
                     datetime.fromisoformat(value)
             values = dict(zip(cols, row))
-            if table == 'credentials' and values.get('kind') != 'token':
-                raise BackupError('备份不允许包含网页登录会话。')
+            if table == 'credentials':
+                if values.get('kind') != 'token' or values.get('permission') not in ('read', 'write'):
+                    raise BackupError('备份仅允许普通 read/write 连接令牌，不能导入管理员令牌或网页登录会话。')
+                scope = json.loads(values['targets'])
+                if scope is not None and (not isinstance(scope, list) or any(not isinstance(v, str) or not re.fullmatch(r'-?[0-9]+', v) for v in scope)):
+                    raise BackupError('连接令牌会话范围无效。')
             if table == 'console_admin':
                 if values.get('id') != 1 or not isinstance(values.get('username'), str) or not 1 <= len(values['username']) <= 80:
                     raise BackupError('管理员记录无效。')
@@ -490,7 +496,7 @@ def result_file(console, value):
 
 
 def apply_pending(main, console):
-    """Called before ORM opens, while db.init holds main InstanceLock."""
+    """Called before ORM opens, while early_startup holds main InstanceLock."""
     path = safe_path(Path(console).parent / '.restore-pending.json', exists=False)
     if not path.exists():
         return

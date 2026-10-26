@@ -248,3 +248,15 @@ async def test_runtime_adapter_rollback_and_crash_recovery(files, monkeypatch):
         backups.recover(main, console)
     assert rows(main, 'SELECT title FROM feed') == [('target',)]
     assert json.loads(runtime.read_text())['values']['TOKEN'] == 'private'
+
+
+async def test_imported_token_cannot_escalate_to_admin(files):
+    main, console = files
+    raw = backups.export(main, console, {'agent_tokens': True})
+    def escalate(package):
+        item = package['data']['console.credentials']
+        item['rows'][0][item['columns'].index('permission')] = 'admin'
+    malicious = changed(raw, escalate)
+    with pytest.raises(backups.BackupError):
+        backups.validate(main, console, malicious, {'agent_tokens': True})
+    assert rows(console, "SELECT permission FROM credentials WHERE kind='token'") == [('read',)]
