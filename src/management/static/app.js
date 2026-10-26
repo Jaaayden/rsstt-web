@@ -44,7 +44,7 @@ const S = {
     session: null,
     demo: false,
     snapshot: null,
-    period: 14,
+    period: 24,
     settings: "general",
     page: 1,
     q: "",
@@ -133,7 +133,16 @@ async function render(quiet = false) {
     if (!quiet) $("#main").innerHTML = `<div class="loading" role="status">正在加载${labels[S.route]}…</div>`;
     try {
         let html;
-        if (S.route === "dashboard") html = dashboard(await api("/dashboard"));
+        if (S.route === "dashboard") {
+            const hourly = S.period === 24, end = new Date();
+            end.setUTCMinutes(0, 0, 0);
+            if (!hourly) end.setUTCHours(0);
+            end.setTime(end.getTime() + (hourly ? 3600000 : 86400000));
+            const start = new Date(end.getTime() - S.period * (hourly ? 3600000 : 86400000));
+            const params = new URLSearchParams({granularity: hourly ? "hour" : "day", start: start.toISOString(), end: end.toISOString()});
+            const [data, trend] = await Promise.all([api("/dashboard"), api("/statistics?" + params)]);
+            html = dashboard({...data, trend});
+        }
         if (S.route === "targets") {
             const data = await api("/targets?" + new URLSearchParams({ page: S.page, q: S.q, kind: S.kind }));
             if (serial !== S.serial) return;
@@ -194,15 +203,13 @@ function dashboard(d) {
             "rss",
             "订阅关系",
             c.subscriptions,
-            `<em>${n(c.active)}</em> 个${S.snapshot ? "已启用" : "正在更新"} · ${n(c.feeds)} 个独立来源`,
+            `<em>${n(d.usage.active_subscriptions)}</em> 个活跃订阅 · ${n(c.feeds)} 个独立来源`,
         ],
         [
             "chats",
-            "已知会话",
-            c.users + c.groups + c.channels,
-            S.snapshot
-                ? `${n(c.channels + c.groups)} 个群组/频道 · ${n(c.users)} 个私聊`
-                : `${n(c.channels)} 个频道 · ${n(c.groups)} 个群组 · ${n(c.users)} 个私聊`,
+            "活跃会话",
+            d.usage.active.total,
+            `${n(d.usage.active.private)} 私聊 · ${n(d.usage.active.channel)} 频道 · ${n(d.usage.active.group)} 群组 · ${n(d.usage.active.unknown)} 未核验群组/频道<br>已知共 ${n(d.usage.known.total)} 个；订阅和来源均启用且未封禁`,
         ],
         [
             "send",
@@ -218,7 +225,7 @@ function dashboard(d) {
             ? `<div class="notice warning">机器人当前未连接 Telegram，订阅推送暂不可用。</div><br>`
             : "") +
         (d.metrics_error ? `<div class="notice warning">${esc(d.metrics_error)}</div><br>` : "") +
-        `<section class="stats" aria-label="运行概况">${cards.map(([i, label, value, foot], idx) => `<article class="stat ${idx === 3 && value ? "warning" : ""}"><div class="stat-head"><span>${label}</span>${icon(i, 17)}</div><div class="stat-value">${n(value)}</div><div class="stat-foot">${foot}</div></article>`).join("")}</section><section class="panel"><div class="panel-head"><div><h2>内容流动</h2><p>每天发现的新内容，以及成功送达的篇次</p></div><div class="segmented" aria-label="趋势时间范围">${[7, 14, 30].map((v) => `<button data-period="${v}" class="${S.period === v ? "active" : ""}" aria-pressed="${S.period === v}">${v} 天</button>`).join("")}</div></div><div class="chart-wrap"><div class="chart-meta"><span><i class="legend"></i>成功推送</span><span><i class="legend orange"></i>新内容</span><span>UTC</span></div>${S.snapshot ? empty("没有历史统计", "原版未记录累计推送和每日趋势，无法从订阅快照还原。") : chart(d.statistics.daily)}</div><div class="chart-footer"><span>${S.snapshot ? "订阅与失败次数来自快照，不会自动更新" : (S.demo ? "示例统计" : "开始记录于 " + dateText(d.started_at)) + " · 累计值持续保留，趋势保留 90 天"}</span><span>${S.demo ? "未连接 Telegram" : d.bot.connected ? "机器人在线" : "机器人离线"} · @${esc(d.bot.username || "未设置")}</span></div></section><div class="dashboard-lower"><section class="panel"><div class="panel-head"><h2>需要检查 <span class="muted small">${n(c.attention)}</span></h2><button class="text-link" data-action="attention">查看全部 ${icon("arrow", 13)}</button></div>${d.attention.length ? d.attention.map((item) => `<div class="attention-row">${feedMark(item.title)}<div class="feed-info"><strong>${esc(item.title)}</strong><small>${esc(item.target_title)}</small></div>${pill(`连续失败 ${item.errors} 次`, "warn")}</div>`).join("") : empty("目前没有需要检查的订阅", "偶发失败会自动重试，你可以安心阅读。")}</section><section class="panel"><div class="panel-head"><h2>最近操作</h2><span class="muted small">管理台记录</span></div><div class="activity">${
+        `<section class="stats" aria-label="运行概况">${cards.map(([i, label, value, foot], idx) => `<article class="stat ${idx === 3 && value ? "warning" : ""}"><div class="stat-head"><span>${label}</span>${icon(i, 17)}</div><div class="stat-value">${n(value)}</div><div class="stat-foot">${foot}</div></article>`).join("")}</section><section class="panel"><div class="panel-head"><div><h2>内容流动</h2><p>按 UTC 分桶；标签显示浏览器本地时间，未知历史留空</p></div><div class="segmented" aria-label="趋势时间范围">${[24, 7, 14, 30].map((v) => `<button data-period="${v}" class="${S.period === v ? "active" : ""}" aria-pressed="${S.period === v}">${v === 24 ? "24 小时" : v + " 天"}</button>`).join("")}</div></div><div class="chart-wrap"><div class="chart-meta"><span><i class="legend"></i>成功推送</span><span><i class="legend orange"></i>新内容</span><span>${esc(Intl.DateTimeFormat().resolvedOptions().timeZone)} · UTC 分桶</span></div>${S.snapshot ? empty("没有历史统计", "原版未记录累计推送和每日趋势，无法从订阅快照还原。") : chart(d.trend.buckets)}</div><div class="chart-footer"><span>${S.snapshot ? "订阅与失败次数来自快照，不会自动更新" : (S.demo ? "示例统计" : "开始记录于 " + dateText(d.started_at)) + " · 累计值持续保留，小时保留 31 天，日保留 90 天"}</span><span>${S.demo ? "未连接 Telegram" : d.bot.connected ? "机器人在线" : "机器人离线"} · @${esc(d.bot.username || "未设置")}</span></div></section><div class="dashboard-lower"><section class="panel"><div class="panel-head"><h2>需要检查 <span class="muted small">${n(c.attention)}</span></h2><button class="text-link" data-action="attention">查看全部 ${icon("arrow", 13)}</button></div>${d.attention.length ? d.attention.map((item) => `<div class="attention-row">${feedMark(item.title)}<div class="feed-info"><strong>${esc(item.title)}</strong><small>${esc(item.target_title)}</small></div>${pill(`连续失败 ${item.errors} 次`, "warn")}</div>`).join("") : empty("目前没有需要检查的订阅", "偶发失败会自动重试，你可以安心阅读。")}</section><section class="panel"><div class="panel-head"><h2>最近操作</h2><span class="muted small">管理台记录</span></div><div class="activity">${
             d.activity.length
                 ? d.activity
                       .slice(0, 4)
@@ -232,23 +239,25 @@ function dashboard(d) {
     );
 }
 
-function chart(rows) {
-    const today = new Date(),
-        data = [];
-    for (let i = S.period - 1; i >= 0; i--) {
-        const date = new Date(today);
-        date.setUTCDate(date.getUTCDate() - i);
-        const day = date.toISOString().slice(0, 10);
-        data.push(rows.find((r) => r.day === day) || { day, fetched: 0, delivered: 0 });
-    }
-    const max = Math.max(10, ...data.flatMap((r) => [r.fetched, r.delivered])),
-        ceiling = Math.ceil(max / 50) * 50;
-    const x = (i) => 42 + (i * 854) / (data.length - 1),
-        y = (v) => 139 - (v / ceiling) * 118;
-    const line = (key) => data.map((r, i) => `${i ? "L" : "M"}${x(i).toFixed(1)} ${y(r[key]).toFixed(1)}`).join(" ");
-    const delivered = data.reduce((a, r) => a + r.delivered, 0),
-        fetched = data.reduce((a, r) => a + r.fetched, 0);
-    return `<svg class="chart" viewBox="0 0 920 172" preserveAspectRatio="none" role="img" aria-label="最近 ${S.period} 天抓取 ${fetched} 篇，推送 ${delivered} 篇次"><defs><linearGradient id="chart-fill" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#8fbca0" stop-opacity=".18"/><stop offset="1" stop-color="#8fbca0" stop-opacity="0"/></linearGradient></defs>${[0, 0.5, 1].map((f) => `<line x1="42" x2="900" y1="${y(ceiling * f)}" y2="${y(ceiling * f)}"/><text x="30" y="${y(ceiling * f) + 4}" text-anchor="end">${n(ceiling * f)}</text>`).join("")}<path d="${line("delivered")} L896 139 L42 139Z" fill="url(#chart-fill)"/><path class="delivered" d="${line("delivered")}" fill="none" stroke="#37795b" stroke-width="2.2" vector-effect="non-scaling-stroke"/><path d="${line("fetched")}" fill="none" stroke="#c59857" stroke-width="1.8" vector-effect="non-scaling-stroke"/>${data.map((r, i) => `<circle cx="${x(i)}" cy="${y(r.delivered)}" r="7" fill="transparent"><title>${r.day}：抓取 ${r.fetched} 篇 · 推送 ${r.delivered} 篇次</title></circle>${i % Math.ceil(data.length / 7) === 0 || i === data.length - 1 ? `<text x="${x(i)}" y="164" text-anchor="middle">${r.day.slice(5).replace("-", "/")}</text>` : ""}`).join("")}</svg>`;
+function chart(data) {
+    if (data.every(r => r.availability === "unavailable"))
+        return empty("没有历史统计", "此时间窗口未记录或已超出保留范围；未知值不按零计算。");
+    const max = Math.max(10, ...data.flatMap(r => [r.fetched || 0, r.delivered || 0]));
+    const ceiling = Math.ceil(max / 50) * 50;
+    const x = i => 42 + i * 854 / Math.max(1, data.length - 1), y = v => 139 - v / ceiling * 118;
+    const line = key => {
+        let connected = false;
+        return data.map((r, i) => {
+            if (r[key] === null) { connected = false; return ""; }
+            const point = `${connected ? "L" : "M"}${x(i).toFixed(1)} ${y(r[key]).toFixed(1)}`;
+            connected = true;
+            return point;
+        }).join(" ");
+    };
+    const label = r => new Date(r.start).toLocaleString([], S.period === 24
+        ? {month: "numeric", day: "numeric", hour: "2-digit", timeZoneName: "short"}
+        : {month: "numeric", day: "numeric"});
+    return `<svg class="chart" viewBox="0 0 920 172" preserveAspectRatio="none" role="img" aria-label="内容流动趋势；空白为未知历史，部分桶尚未完整记录">${[0, .5, 1].map(f => `<line x1="42" x2="900" y1="${y(ceiling*f)}" y2="${y(ceiling*f)}"/><text x="30" y="${y(ceiling*f)+4}" text-anchor="end">${n(ceiling*f)}</text>`).join("")}<path d="${line("delivered")}" fill="none" stroke="#37795b" stroke-width="2.2"/><path d="${line("fetched")}" fill="none" stroke="#c59857" stroke-width="1.8"/>${data.map((r,i) => `${r.delivered === null ? "" : `<circle cx="${x(i)}" cy="${y(r.delivered)}" r="3" fill="#37795b"><title>${esc(label(r))}（${esc(r.start)}）：抓取 ${r.fetched} · 推送 ${r.delivered}${r.availability === "partial" ? " · 部分时间已记录" : ""}</title></circle>`}${i % Math.ceil(data.length/5) === 0 || i === data.length-1 ? `<text x="${x(i)}" y="164" text-anchor="middle">${esc(label(r))}</text>` : ""}`).join("")}</svg><p class="small muted">空白为不可用历史；当前桶及开始记录所在桶可能仅覆盖部分时间。累计仅包含开始记录后的结果。</p>`;
 }
 
 function searchBox(placeholder = "搜索名称或网址") {
