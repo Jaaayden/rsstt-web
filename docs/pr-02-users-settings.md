@@ -106,3 +106,9 @@
 - 未执行真实 Telegram、Docker、线上部署或远端凭据有效性验证。
 
 管理者 100 状态继承原版模型语义；原版只允许环境 MANAGER 使用管理者命令。本 PR 不把 100 提升为网页登录权限。负数 ID 未核验时应显示“群组/频道”，不得仅依据 state=1/-1 断言类型。总体 UI 重设计交给 PR7。
+
+### 角色刷新回归修正
+
+`Service.refresh()` 只更新管理库 targets 中的名称、kind、membership 等元数据，不写 User.state。`add()` 内部刷新同样不改变角色。首次 register 仍可按上游类别初始化 state=50/51；已有会话不会因同步或重复登记被重新初始化。新增参数化回归覆盖负数 ID 的 guest/user/banned：刷新后保持 state 与 role、类型筛选仍使用元数据；添加已有来源不提升角色，封禁时仍拒绝添加且保持暂停。
+
+本次修正后执行 `.venv/bin/python -m pytest -q`：45 passed；`git diff --check` 通过。仅修改后端刷新行为与对应回归测试，未重复浏览器测试，未连接真实 Telegram。
