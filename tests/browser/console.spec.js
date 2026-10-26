@@ -140,23 +140,45 @@ test("snapshot preview distinguishes real copies from unavailable history", asyn
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
 });
 
-test("account security revokes sessions and rotates the persistent password", async ({ page }) => {
-    await page.getByRole("link", { name: "设置", exact: true }).click();
-    await page.getByRole("button", { name: "账户安全", exact: true }).click();
-    await expect(page.getByText(/preview-admin/)).toBeVisible();
-    await page.getByRole("button", { name: "撤销全部网页登录会话" }).click();
-    await expect(page.locator("#login-form")).toBeVisible();
-    await page.getByLabel("管理台密码", { exact: true }).fill(process.env.WEB_PASSWORD);
-    await page.getByRole("button", { name: /进入管理台/ }).click();
-    await expect(page.getByRole("heading", { name: "账户安全", exact: true })).toBeVisible();
-    const next = process.env.WEB_PASSWORD + "-rotated";
-    await page.getByLabel("当前密码", { exact: true }).fill(process.env.WEB_PASSWORD);
-    await page.getByLabel("新密码", { exact: true }).fill(next);
-    await page.getByRole("button", { name: "修改密码并退出" }).click();
-    await expect(page.locator("#login-form")).toBeVisible();
-    await page.getByLabel("管理台密码", { exact: true }).fill(next);
-    await page.getByRole("button", { name: /进入管理台/ }).click();
-    await expect(page.getByRole("link", { name: "设置", exact: true })).toBeVisible();
+test("account security revokes sessions and rotates the persistent password", async ({ page, request, baseURL }) => {
+    const original = process.env.WEB_PASSWORD;
+    const next = original + "-rotated";
+    const headers = { Origin: new URL(baseURL).origin };
+    try {
+        await page.getByRole("link", { name: "设置", exact: true }).click();
+        await page.getByRole("button", { name: "账户安全", exact: true }).click();
+        await expect(page.getByText(/preview-admin/)).toBeVisible();
+        await page.getByRole("button", { name: "撤销全部网页登录会话" }).click();
+        await expect(page.locator("#login-form")).toBeVisible();
+        await page.getByLabel("管理台密码", { exact: true }).fill(original);
+        await page.getByRole("button", { name: /进入管理台/ }).click();
+        await expect(page.getByRole("heading", { name: "账户安全", exact: true })).toBeVisible();
+        await page.getByLabel("当前密码", { exact: true }).fill(original);
+        await page.getByLabel("新密码", { exact: true }).fill(next);
+        await page.getByRole("button", { name: "修改密码并退出" }).click();
+        await expect(page.locator("#login-form")).toBeVisible();
+        await page.getByLabel("管理台密码", { exact: true }).fill(next);
+        await page.getByRole("button", { name: /进入管理台/ }).click();
+        await expect(page.getByRole("link", { name: "设置", exact: true })).toBeVisible();
+    } finally {
+        // The isolated API fixture works even if a browser assertion failed or
+        // its session was revoked. Do not depend on a UI-set success flag:
+        // the password mutation may have committed before the assertion failed.
+        const login = await request.post("/api/login", { headers, data: { password: next } });
+        if (login.status() === 200) {
+            const restored = await request.post("/api/auth/password", {
+                headers, data: { current_password: next, new_password: original },
+            });
+            expect(restored.status(), "restore original password after security test").toBe(200);
+        } else {
+            // A failure before rotation must still leave the original usable.
+            expect(login.status(), "cleanup login status").toBe(401);
+        }
+        const verified = await request.post("/api/login", { headers, data: { password: original } });
+        expect(verified.status(), "original password remains usable by subsequent specs").toBe(200);
+        const logout = await request.post("/api/logout", { headers });
+        expect(logout.status()).toBe(200);
+    }
 });
 
 test("active usage and bounded hourly/day trends", async ({ page }) => {
