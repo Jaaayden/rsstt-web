@@ -359,6 +359,8 @@ class Monitor(Singleton):
 
             if feed_updated_fields:
                 await feed.save(update_fields=feed_updated_fields)
+            from ..management.notifications import fetch_result
+            await fetch_result(feed.id, new_error_count)
 
         from ..management.metrics import record
         await record(fetched=len(updated_entries))
