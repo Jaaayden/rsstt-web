@@ -200,9 +200,8 @@ class Service:
         user = await self.user(ident, principal)
         data = await self.gateway.inspect(user.id)
         await self.store.target(**{k: data[k] for k in ('title', 'username', 'kind', 'membership')}, ident=user.id)
-        if user.id < 0 and user.state != -1 and data['membership'] != 'snapshot':
-            user.state = 50 if data['kind'] == 'channel' else 51
-            await user.save(update_fields=['state'])
+        # Telegram entity type is metadata, not an account permission change.
+        # Keep explicit guest/user/banned states intact, including add() refreshes.
         return (await self.target_data([user]))[0]
 
     async def register(self, ident, principal):

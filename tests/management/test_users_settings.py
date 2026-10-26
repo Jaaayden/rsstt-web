@@ -138,3 +138,27 @@ async def test_unknown_negative_id_is_not_claimed_as_group(logged):
     item = (await result.json())['items'][0]
     assert item['kind'] == 'unknown'
     assert item['role'] == 'user'
+
+
+@pytest.mark.parametrize('role,state', [('guest', 0), ('user', 1), ('banned', -1)])
+async def test_negative_target_refresh_and_add_preserve_role(logged, role, state):
+    c = logged.client
+    response = await c.patch('/api/targets/-1001/role', json={'role': role}, headers=WRITE)
+    assert response.status == 200
+    # Force metadata refresh to prove the gateway result is applied without
+    # converting the account's permission state into the channel type value 50.
+    await logged.store.target(-1001, 'Old name', None, 'unknown', 'unknown')
+    response = await c.post('/api/targets/-1001/refresh', headers=WRITE)
+    assert response.status == 200
+    item = await response.json()
+    assert (item['state'], item['role'], item['kind']) == (state, role, 'channel')
+    assert item['title'] == '会话 -1001'
+    assert (await db.User.get(id=-1001)).state == state
+    channels = (await (await c.get('/api/targets?kind=channel')).json())['items']
+    assert '-1001' in [item['id'] for item in channels]
+    response = await c.post('/api/subscriptions',
+                            json={'target': '-1001', 'urls': [logged.feed.link]}, headers=WRITE)
+    assert response.status == (409 if state == -1 else 200)
+    assert (await db.User.get(id=-1001)).state == state
+    if state == -1:
+        assert (await db.Sub.get(id=logged.sub.id)).state == 0
