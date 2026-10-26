@@ -2,7 +2,6 @@ import asyncio
 import os
 import sys
 import tempfile
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -12,7 +11,7 @@ TEST_CONFIG = tempfile.TemporaryDirectory(prefix='rsstt-console-tests-')
 os.environ.update(TOKEN='test', MANAGER='1', MULTIPROCESSING='0')
 _argv = sys.argv
 sys.argv = [sys.argv[0], '-c', TEST_CONFIG.name]
-from src import db, env, aio_helper, web as upstream_web
+from src import db, env, web as upstream_web
 from src.management.server import create_app
 from src.management.store import Store
 from src.management.service import Problem
