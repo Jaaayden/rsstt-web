@@ -11,6 +11,8 @@ from ci_bot_smoke import run_smoke
 
 def upgrade(legacy_python, legacy_source, postgres):
     root = Path(__file__).resolve().parents[1]
+    if any((folder / '.env').exists() for folder in (root, legacy_source)):
+        raise RuntimeError('CI migration fixtures must not contain .env files')
     with tempfile.TemporaryDirectory(prefix='rsstt-migration-ci-') as temporary:
         for label, database in (('sqlite', None), ('postgres', postgres)):
             config = Path(temporary) / label
@@ -35,4 +37,6 @@ if __name__ == '__main__':
     parser.add_argument('--legacy-source', required=True, type=Path)
     parser.add_argument('--postgres', required=True)
     args = parser.parse_args()
-    upgrade(args.legacy_python.resolve(), args.legacy_source.resolve(), args.postgres)
+    # Resolving the venv's python symlink would select the base interpreter and
+    # lose the legacy dependencies installed into that virtual environment.
+    upgrade(args.legacy_python.absolute(), args.legacy_source.resolve(), args.postgres)
