@@ -14,7 +14,7 @@ test("dashboard, navigation, search and compact settings", async ({ page }) => {
     page.on("console", (m) => {
         if (m.type() === "error") errors.push(m.text());
     });
-    await expect(page.getByRole("img", { name: /最近 14 天/ })).toBeVisible();
+    await expect(page.getByRole("img", { name: /内容流动趋势/ })).toBeVisible();
     await page.screenshot({ path: "test-results/dashboard.png", fullPage: true });
     await page.getByRole("link", { name: "会话与频道", exact: true }).click();
     await expect(page.getByRole("heading", { name: "会话与频道" })).toBeVisible();
@@ -135,7 +135,7 @@ test("snapshot preview distinguishes real copies from unavailable history", asyn
     await expect(page.locator(".demo-banner")).toContainText("修改仅保存在本地");
     await expect(page.locator(".stat").filter({ hasText: "累计推送" }).locator(".stat-value")).toHaveText("—");
     await expect(page.getByText("没有历史统计", { exact: true })).toBeVisible();
-    await expect(page.getByRole("img", { name: /最近 14 天/ })).toHaveCount(0);
+    await expect(page.getByRole("img", { name: /内容流动趋势/ })).toHaveCount(0);
     await page.setViewportSize({ width: 390, height: 844 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
 });
@@ -157,4 +157,15 @@ test("account security revokes sessions and rotates the persistent password", as
     await page.getByLabel("管理台密码", { exact: true }).fill(next);
     await page.getByRole("button", { name: /进入管理台/ }).click();
     await expect(page.getByRole("link", { name: "设置", exact: true })).toBeVisible();
+});
+
+test("active usage and bounded hourly/day trends", async ({ page }) => {
+    await expect(page.getByText("活跃会话", {exact: true})).toBeVisible();
+    await expect(page.getByRole("button", {name: "24 小时", exact: true})).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByText(/UTC 分桶/, {exact: false}).first()).toBeVisible();
+    const response = page.waitForResponse(r => r.url().includes("/api/statistics?") && r.url().includes("granularity=day"));
+    await page.getByRole("button", {name: "7 天", exact: true}).click();
+    const result = await (await response).json();
+    expect(result.buckets).toHaveLength(7);
+    await expect(page.getByRole("button", {name: "7 天", exact: true})).toHaveAttribute("aria-pressed", "true");
 });
