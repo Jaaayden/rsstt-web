@@ -113,3 +113,11 @@ WEB_PORT=8746 WEB_DEMO_CONFIG=.test-data/backups-manual .venv/bin/python -m src.
 已合入 feat/web-console 的 `2fb6c46`，未修改主会话管理的 CI、Docker 忽略规则或 ci_* 脚本。合入后全量后端 46 passed，本机 Bot 脚本／模块入口及 Aerich history/heads/upgrade smoke 通过，JS 语法和 diff check 通过。
 
 新矩阵覆盖 Windows，因此实例锁补充 `msvcrt` 非阻塞字节锁，POSIX 保持 flock；避免 Web 关闭时破坏 Windows Bot 启动。Windows 支持正常启动和备份导出，自动恢复明确禁用（API 暴露 restore_supported，UI 禁用预检），因为当前持久目录日志恢复只验证了 POSIX fsync 语义。Windows 与其它 Python 版本的实际结果由 Actions 验证，本机不冒称完成跨平台实测。
+
+### 组合验收 fixture 修正（2026-10-26）
+
+- 小时统计 fixture 使用真实 metrics_hourly 的 NOT NULL/DEFAULT schema 和 CREATE TABLE IF NOT EXISTS，先清理测试行再注入；通知队列 fixture 同样使用真实 schema 和命名列插入，不与已安装模块重复建表冲突。
+- 重启测试为每次运行生成专用随机 WEB_PASSWORD，并明确验证未登录 401、错误密码 401、成功登录获得 rsstt_session_8746，以及恢复后的旧 Cookie 401；不依赖浏览器自动登录。
+- 子进程 stderr 持续排空到有界环形缓冲区，启动失败显示最后最多 8192 字符并遮蔽测试密码；超时后清理子进程。端口检查允许 TIME_WAIT，不复用已有监听服务。
+- 基础版 demo 增加显式 WEB_PASSWORD 覆盖以支持同一测试。与 PR1 组合时保留 PR1 的 `os.environ.get('WEB_PASSWORD', '')`，不能重新引入旧版固定密码默认值。
+- 本分支备份专项 12 passed；从集成树 HEAD 只读 git archive 到本分支忽略目录、仅覆盖这两个测试文件后，真实认证／统计组合的相同 12 项亦全部通过。未修改集成树、未弱化生产 InstanceLock。

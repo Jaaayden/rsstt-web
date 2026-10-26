@@ -199,10 +199,12 @@ async def test_registered_admin_blob_overwrite(files):
 async def test_extensions_hourly_and_queue_exclusion(files):
     main, console = files
     with sql(console) as c:
-        c.execute('CREATE TABLE metrics_hourly (bucket TEXT PRIMARY KEY, fetched INTEGER, delivered INTEGER, failed INTEGER)')
+        c.execute('CREATE TABLE IF NOT EXISTS metrics_hourly (bucket TEXT PRIMARY KEY, fetched INTEGER NOT NULL DEFAULT 0, delivered INTEGER NOT NULL DEFAULT 0, failed INTEGER NOT NULL DEFAULT 0)')
+        c.execute('DELETE FROM metrics_hourly')
         c.execute("INSERT INTO metrics_hourly VALUES ('2026-10-26T00:00:00Z', 7, 11, 0)")
-        c.execute('CREATE TABLE notify_jobs (id INTEGER PRIMARY KEY, event TEXT)')
-        c.execute("INSERT INTO notify_jobs VALUES (1, 'must not replay')")
+        c.execute('CREATE TABLE IF NOT EXISTS notify_jobs (id INTEGER PRIMARY KEY AUTOINCREMENT, channel TEXT, event TEXT, subject TEXT, status TEXT, attempts INTEGER DEFAULT 0, due REAL, created REAL)')
+        c.execute('DELETE FROM notify_jobs')
+        c.execute("INSERT INTO notify_jobs (id,event) VALUES (1, 'must not replay')")
     raw = backups.export(main, console)
     assert 'must not replay' not in raw.decode()
     with sql(console) as c:
