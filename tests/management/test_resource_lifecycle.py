@@ -76,7 +76,7 @@ async def test_host_waiters_and_cancellation_keep_same_semaphore():
     assert locks.hostname_semaphore('same.invalid', parse=False) is semaphore
     waiter.cancel()
     with pytest.raises(asyncio.CancelledError):
-        await waiter
+        await asyncio.wait_for(waiter, timeout=1)
     assert locks.hostname_semaphore('same.invalid', parse=False) is semaphore
     semaphore.release()
     successor = asyncio.create_task(semaphore.acquire())
