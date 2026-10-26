@@ -8,6 +8,8 @@ on:
       - 'setup.*'
       - 'src/**'
       - 'scripts/health_check.py'
+      - 'scripts/stress_resources.py'
+      - 'scripts/ci_resource_probe.py'
       - '.github/workflows/pr-test-docker-build.yml'
       - 'scripts/ci_docker_context.py'
   push:
@@ -19,9 +21,17 @@ on:
       - 'setup.*'
       - 'src/**'
       - 'scripts/health_check.py'
+      - 'scripts/stress_resources.py'
+      - 'scripts/ci_resource_probe.py'
       - '.github/workflows/pr-test-docker-build.yml'
       - 'scripts/ci_docker_context.py'
   workflow_dispatch:
+    inputs:
+      stable_rounds:
+        description: Stable-set resource probe rounds (churn always runs 60)
+        type: choice
+        default: '60'
+        options: ['60', '300']
 permissions:
   contents: read
 concurrency:
@@ -37,6 +47,27 @@ jobs:
         with:
           fetch-depth: 0
       - uses: docker/setup-buildx-action@v4
+      - name: Check resource probe applicability
+        id: resource
+        shell: bash
+        env:
+          CI_BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: |
+          if [ -f scripts/stress_resources.py ]; then
+            echo 'available=true' >> "$GITHUB_OUTPUT"
+          else
+            case "$CI_BRANCH" in
+              feat/console-bot-performance|integration/*)
+                echo '::error::Resource probe is required for performance and integration branches.'
+                exit 1
+                ;;
+              *)
+                echo 'available=false' >> "$GITHUB_OUTPUT"
+                echo '::notice::Resource probe is not applicable: this foundation/feature does not include the probe script.'
+                echo 'Resource probe: not applicable (probe script is absent from this foundation/feature).' >> "$GITHUB_STEP_SUMMARY"
+                ;;
+            esac
+          fi
       - name: Verify private files stay outside Docker context
         run: python scripts/ci_docker_context.py
       - name: Build local test image
@@ -58,3 +89,15 @@ jobs:
           "from pathlib import Path; from src.management.server import create_app;
           assert Path('src/management/static/index.html').is_file();
           assert Path('src/management/static/app.js').is_file()"
+      - name: Offline 1 CPU / 512 MiB resource probe
+        if: steps.resource.outputs.available == 'true'
+        env:
+          RESOURCE_STABLE_ROUNDS: ${{ inputs.stable_rounds || '60' }}
+        run: python scripts/ci_resource_probe.py --stable-rounds "$RESOURCE_STABLE_ROUNDS"
+      - name: Upload resource evidence (including failed runs)
+        if: always() && steps.resource.outputs.available == 'true'
+        uses: actions/upload-artifact@v6
+        with:
+          name: resource-probe-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .ci-artifacts/resource
+          retention-days: 14
