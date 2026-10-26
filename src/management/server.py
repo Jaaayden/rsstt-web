@@ -475,6 +475,8 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
         admin(request)
         return web.json_response(await notifier.test((await body(request)).get('channel')))
 
+    from .backup_api import install as install_backups
+    install_backups(routes, service, env.DATABASE_URL, admin, body)
     app.add_routes(routes)
     return app
 

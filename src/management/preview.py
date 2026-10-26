@@ -61,6 +61,9 @@ async def run(config, metadata, listener, port):
     sys.argv = [sys.argv[0], '-c', str(config)]
     sys.addaudithook(deny_network)
 
+    from .backups import early_startup
+    early_startup(f'sqlite:{config / "db.sqlite3"}', config)
+
     from aiohttp import web
     from feedparser import FeedParserDict
     from .. import db, env, aio_helper, web as upstream_web

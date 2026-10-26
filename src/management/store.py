@@ -21,9 +21,20 @@ class Store:
         self.path = Path(path)
         self.lock = asyncio.Lock()
         self.db = None
+        self.backup_lock = None
 
     async def open(self):
+        try:
+            return await self._open()
+        except BaseException:
+            await self.close()
+            raise
+
+    async def _open(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        from .backups import InstanceLock
+        self.backup_lock = InstanceLock(self.path)
+        self.backup_lock.__enter__()
         self.db = await aiosqlite.connect(self.path)
         self.db.row_factory = aiosqlite.Row
         await self.db.executescript('''
@@ -61,6 +72,10 @@ class Store:
     async def close(self):
         if self.db:
             await self.db.close()
+            self.db = None
+        if self.backup_lock:
+            self.backup_lock.__exit__()
+            self.backup_lock = None
 
     async def rows(self, sql, args=()):
         async with self.lock:

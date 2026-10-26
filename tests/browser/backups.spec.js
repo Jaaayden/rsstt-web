@@ -1,0 +1,22 @@
+const {test, expect} = require('@playwright/test');
+const fs = require('node:fs/promises');
+test('backup download, preflight, restart staging and cancel', async ({page}) => {
+    await page.goto('/');
+    await page.getByRole('link', {name: '设置', exact: true}).click();
+    await page.getByRole('button', {name: '备份与恢复', exact: true}).click();
+    await expect(page.getByRole('heading', {name: '备份与恢复'})).toBeVisible();
+    const downloadPromise = page.waitForEvent('download');
+    await page.getByRole('button', {name: '下载备份', exact: true}).click();
+    const download = await downloadPromise;
+    const file = await download.path();
+    const data = JSON.parse(await fs.readFile(file, 'utf8'));
+    expect(data.manifest.version).toBe(1);
+    expect(data.data['console.credentials']).toBeUndefined();
+    await page.locator('#backup-file').setInputFiles(file);
+    await page.getByRole('button', {name: '预检备份', exact: true}).click();
+    await expect(page.getByRole('heading', {name: '备份预检通过'})).toBeVisible();
+    await page.getByRole('button', {name: '确认提交，等待重启', exact: true}).click();
+    await expect(page.getByText('恢复状态：等待正常重启，尚未应用')).toBeVisible();
+    await page.getByRole('button', {name: '取消待恢复任务', exact: true}).click();
+    await expect(page.getByText('恢复状态：无待恢复任务')).toBeVisible();
+});
