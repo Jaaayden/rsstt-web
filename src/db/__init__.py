@@ -85,8 +85,26 @@ async def __upgrade_migrations_in_db():
             await revisions.save(update_fields=['version'])
 
 
+_backup_lock = None
+
+
 async def init():
-    global DB_TYPE
+    global DB_TYPE, _backup_lock
+    if env.DATABASE_URL.startswith("sqlite:"):
+        from ..management.backups import acquire_runtime
+        # Tortoise expects literal paths; the database may not exist yet.
+        path = env.DATABASE_URL[len("sqlite:"):]
+        if path.startswith("//"):
+            path = path[2:]
+        if path != ":memory:":
+            _backup_lock = acquire_runtime(path)
+            # A task staged after env initialization must wait for a new process;
+            # applying it here would leave already-derived runtime settings stale.
+            if (Path(env.config_folder_path) / '.restore-pending.json').exists():
+                from ..management.backups import BackupError, release_runtime
+                release_runtime()
+                _backup_lock = None
+                raise BackupError('初始化期间出现待恢复任务，请重新启动以先恢复运行配置。')
     try:
         DB_TYPE = DBType(env.DATABASE_URL.partition(':')[0])
     except ValueError:
@@ -116,4 +134,9 @@ async def init():
 
 
 async def close():
+    global _backup_lock
     await Tortoise.close_connections()
+    if _backup_lock:
+        from ..management.backups import release_runtime
+        release_runtime()
+        _backup_lock = None

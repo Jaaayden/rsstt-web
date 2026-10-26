@@ -7,9 +7,13 @@ from pathlib import Path
 from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[2]
-CONFIG = ROOT / '.demo'
+CONFIG = Path(os.environ.get('WEB_DEMO_CONFIG', ROOT / '.demo')).resolve()
+PORT = int(os.environ.get('WEB_PORT', '8730'))
 os.environ.update(TOKEN='test', MANAGER='1', MULTIPROCESSING='0', DATABASE_URL=f'sqlite:{CONFIG / "db.sqlite3"}')
 sys.argv = [sys.argv[0], '-c', str(CONFIG)]
+
+from .backups import early_startup
+early_startup(f'sqlite:{CONFIG / "db.sqlite3"}', CONFIG)
 
 from aiohttp import web
 from feedparser import FeedParserDict
@@ -76,12 +80,12 @@ async def main():
     gateway = DemoGateway()
     gateway.store = store
     upstream_web.feed_get = offline_feed
-    app = await create_app(store, 'rsstt-local-preview', 'http://127.0.0.1:8730', gateway, demo=True)
+    app = await create_app(store, 'rsstt-local-preview', f'http://127.0.0.1:{PORT}', gateway, demo=True)
     runner = web.AppRunner(app, access_log=None)
     await runner.setup()
     try:
-        await web.TCPSite(runner, '127.0.0.1', 8730).start()
-        print('离线预览：http://127.0.0.1:8730（仅示例数据，不连接 Telegram）', flush=True)
+        await web.TCPSite(runner, '127.0.0.1', PORT).start()
+        print(f'离线预览：http://127.0.0.1:{PORT}（仅示例数据，不连接 Telegram）', flush=True)
         await asyncio.Event().wait()
     finally:
         await runner.cleanup()
