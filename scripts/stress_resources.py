@@ -235,10 +235,15 @@ def main():
     parser.add_argument('--rounds', type=int, default=30)
     parser.add_argument('--latency-ms', type=int, default=10)
     parser.add_argument('--round-timeout', type=int, default=120)
+    parser.add_argument('--require-cgroup-limits', action='store_true', help='Fail unless Linux cgroup v2 memory/CPU/pid limits are finite')
     parser.add_argument('--churn', action='store_true', help='Delete/recreate sources and destinations each round')
     args = parser.parse_args()
     if min(args.sources, args.targets, args.hosts, args.entries, args.rounds, args.round_timeout) < 1 or args.latency_ms < 0:
         parser.error('counts/timeouts must be positive; latency cannot be negative')
+    if args.require_cgroup_limits:
+        limits = [linux_value(name) for name in ('memory.max', 'cpu.max', 'pids.max')]
+        if sys.platform != 'linux' or any(value is None or value.split()[0] == 'max' for value in limits):
+            parser.error('Finite Linux cgroup v2 memory, CPU and pid limits are required')
     sys.addaudithook(deny_network)
     with tempfile.TemporaryDirectory(prefix='rsstt-resource-probe-') as temporary:
         config = Path(temporary)
