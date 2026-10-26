@@ -1,6 +1,9 @@
 import asyncio
 import json
 import sqlite3
+from types import SimpleNamespace
+
+import aiosqlite
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -156,12 +159,20 @@ async def test_cancellation_rolls_back_and_two_connections_agree(tmp_path, monke
         await store.increment(delivered=7)
     monkeypatch.setattr(store.db, 'execute', execute)
     assert (await store.statistics())['totals']['delivered'] == 0
-    second = await Store(path).open()
-    await asyncio.gather(*(target.increment(delivered=1) for _ in range(10) for target in (store, second)))
-    result = await store.statistics_window()
-    assert result['totals']['delivered'] == sum(b['delivered'] or 0 for b in result['buckets']) == 20
-    await second.close()
-    await store.close()
+    # A second production Store.open() is deliberately forbidden by the backup
+    # instance lock. Exercise SQLite transaction contention through a test-only
+    # connection instead; do not weaken the production lifecycle guard.
+    try:
+        async with aiosqlite.connect(path) as connection:
+            connection.row_factory = aiosqlite.Row
+            await connection.executescript('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA busy_timeout=5000;')
+            second = SimpleNamespace(db=connection, lock=asyncio.Lock())
+            await asyncio.gather(*(statistics.increment(target, delivered=1)
+                                  for _ in range(10) for target in (store, second)))
+            result = await store.statistics_window()
+            assert result['totals']['delivered'] == sum(b['delivered'] or 0 for b in result['buckets']) == 20
+    finally:
+        await store.close()
 
 
 async def test_verified_type_survives_role_changes_and_ban(logged):
