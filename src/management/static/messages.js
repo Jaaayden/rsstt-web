@@ -1,5 +1,20 @@
 // UI copy only. Never translate server-supplied titles, URLs or user input.
 export const english = {
+    "每天的新内容与成功推送，按 UTC 日聚合": "Daily entries and deliveries, aggregated by UTC day",
+    "按 UTC 日聚合（00:00–24:00 UTC）": "UTC-day aggregation (00:00–24:00 UTC)",
+    "按 UTC 日聚合的统计趋势": "Statistics aggregated by UTC day",
+    "UTC 日期": "UTC date",
+
+    网页登录: "Browser sign-in",
+    登录成功: "Signed in successfully",
+    修改密码: "Password changed",
+    撤销网页登录会话: "Browser sessions revoked",
+    "Agent 请求": "Agent request",
+    全部网页登录会话已撤销: "All browser sessions revoked",
+    可横向滚动的表格: "Horizontally scrollable table",
+    "左右滑动表格，查看右侧管理操作": "Scroll horizontally to see management actions on the right",
+    左右滑动查看完整表格: "Scroll horizontally to view the full table",
+
     "下载 Agent API 契约": "Download Agent API contract",
     "群组/频道（未核验）": "Group / channel (unverified)",
     "Bot 语言": "Bot language",

@@ -324,6 +324,7 @@ async function render(quiet = false) {
         }
         if (serial !== S.serial) return;
         $("#main").innerHTML = html + credit();
+        syncTableHints();
         if (quiet && (focusId || focusSelector)) {
             const next = focusId ? document.getElementById(focusId) : $(focusSelector);
             if (next) {
@@ -427,7 +428,9 @@ function dashboard(d) {
                         <p>
                             ${d.trend?.granularity === "hour"
                                 ? tr("每小时的新内容与成功推送，按本地时间显示")
-                                : tr("每天发现的新内容，以及成功送达的篇次")}
+                                : d.trend
+                                  ? tr("每天的新内容与成功推送，按 UTC 日聚合")
+                                  : tr("每天发现的新内容，以及成功送达的篇次")}
                         </p>
                     </div>
                     <div class="segmented" aria-label="趋势时间范围">
@@ -452,7 +455,13 @@ function dashboard(d) {
                 <div class="chart-wrap">
                     <div class="chart-meta">
                         <span><i class="legend"></i>成功推送</span><span><i class="legend orange"></i>新内容</span
-                        ><span>${d.trend ? esc(Intl.DateTimeFormat().resolvedOptions().timeZone) : "UTC"}</span>
+                        ><span
+                            >${d.trend?.granularity === "day"
+                                ? tr("按 UTC 日聚合（00:00–24:00 UTC）")
+                                : d.trend
+                                  ? esc(Intl.DateTimeFormat().resolvedOptions().timeZone)
+                                  : "UTC"}</span
+                        >
                     </div>
                     ${d.trend
                         ? trendChart(d.trend)
@@ -510,8 +519,8 @@ function dashboard(d) {
                                           html`<div class="activity-row">
                                               <div class="activity-icon">${icon("check", 14)}</div>
                                               <div>
-                                                  <p>${esc(tr(a.action))}</p>
-                                                  <small>${esc(a.detail)}</small>
+                                                  <p>${esc(auditAction(a.action))}</p>
+                                                  <small>${esc(auditDetail(a.action, a.detail))}</small>
                                               </div>
                                               <time>${dateText(a.at)}</time>
                                           </div>`,
@@ -980,7 +989,13 @@ ${esc(o.sub_limit_reached_message)}</textarea
                 <div class="notice">
                     授权只允许访问指定会话的订阅，不包含管理台设置、创建授权或退出频道等管理员操作。完整密钥只显示一次。
                 </div>
-                ${S.features.security ? html`<p><a class="text-link" href="/api/openapi.json" download="rsstt-openapi.json">下载 Agent API 契约</a></p>` : ""}
+                ${S.features.security
+                    ? html`<p>
+                          <a class="text-link" href="/api/openapi.json" download="rsstt-openapi.json"
+                              >下载 Agent API 契约</a
+                          >
+                      </p>`
+                    : ""}
             </div>
         </section>`;
     if (S.settings === "instance")
@@ -1110,6 +1125,7 @@ function modal(title, body, footer = tr('<button type="button" data-action="clos
         <div class="dialog-footer">${footer}</div>
     </form>`;
     if (!d.open) d.showModal();
+    syncTableHints();
 }
 const saveFooter = (text) =>
     html`<button type="button" data-action="close">取消</button><button class="primary" type="submit">${text}</button>`;
@@ -2196,10 +2212,26 @@ function trendChart(data) {
     const shortDate = (v) =>
         new Intl.DateTimeFormat(
             locale,
-            data.granularity === "hour" ? { hour: "2-digit", hour12: false } : { month: "short", day: "numeric" },
+            data.granularity === "hour"
+                ? { hour: "2-digit", hour12: false }
+                : { month: "short", day: "numeric", timeZone: "UTC" },
         ).format(new Date(v));
+    const bucketTime = (v) =>
+        data.granularity === "day"
+            ? new Intl.DateTimeFormat(locale, {
+                  year: "numeric",
+                  month: "2-digit",
+                  day: "2-digit",
+                  timeZone: "UTC",
+              }).format(new Date(v)) + " UTC"
+            : dateText(v);
     return html`<p class="muted small">未记录的时间段显示为空，不计为零。空心点表示尚未完整的时间段。</p>
-        <svg class="chart" viewBox="0 0 ${width} 172" role="img" aria-label="按本地时间显示的统计趋势">
+        <svg
+            class="chart"
+            viewBox="0 0 ${width} 172"
+            role="img"
+            aria-label="${data.granularity === "day" ? tr("按 UTC 日聚合的统计趋势") : tr("按本地时间显示的统计趋势")}"
+        >
             <line x1="36" x2="${width - 22}" y1="130" y2="130" />
             <text x="30" y="26" text-anchor="end">${n(max)}</text>
             <text x="30" y="134" text-anchor="end">0</text>
@@ -2216,7 +2248,7 @@ function trendChart(data) {
                                   r="${r.availability === "partial" ? 4 : 2}"
                                   fill="${r.availability === "partial" ? "var(--panel)" : "var(--green)"}"
                                   stroke="var(--green)"
-                                  ><title>${esc(dateText(r.start))} · ${n(r.delivered)}</title></circle
+                                  ><title>${esc(bucketTime(r.start))} · ${n(r.delivered)}</title></circle
                               >`}${i % Math.ceil(rows.length / (width < 500 ? 4 : 7)) === 0
                             ? html`<text x="${x(i)}" y="158" text-anchor="middle">${esc(shortDate(r.start))}</text>`
                             : ""}`,
@@ -2229,7 +2261,7 @@ function trendChart(data) {
                 <table>
                     <thead>
                         <tr>
-                            <th>开始时间</th>
+                            <th>${data.granularity === "day" ? tr("UTC 日期") : tr("开始时间")}</th>
                             <th>新内容</th>
                             <th>成功推送</th>
                             <th>数据状态</th>
@@ -2240,7 +2272,7 @@ function trendChart(data) {
                             .map(
                                 (r) =>
                                     html`<tr>
-                                        <td>${esc(dateText(r.start))}</td>
+                                        <td>${esc(bucketTime(r.start))}</td>
                                         <td>${n(r.fetched)}</td>
                                         <td>${n(r.delivered)}</td>
                                         <td>
@@ -2506,3 +2538,82 @@ function featureSettings(key, data) {
 $("#dialog").addEventListener("close", () => {
     if (!$("#dialog").open && modalState.action === "restore") modalState = {};
 });
+
+// Translate only exact, documented audit codes. Free-form details remain opaque.
+function auditAction(action) {
+    const known = {
+        login: "网页登录",
+        password_changed: "修改密码",
+        sessions_revoked: "撤销网页登录会话",
+        agent_request: "Agent 请求",
+    };
+    const legacy = new Set([
+        "登记会话",
+        "修改会话默认设置",
+        "修改用户角色",
+        "退出会话并暂停订阅",
+        "导入 OPML",
+        "添加订阅",
+        "修改订阅",
+        "取消订阅",
+        "批量处理订阅",
+        "更新设置",
+        "保存运行配置（待重启）",
+        "创建连接授权",
+        "撤销连接授权",
+        "修改来源接收者",
+        "修改来源 UA",
+    ]);
+    return Object.hasOwn(known, action) ? tr(known[action]) : legacy.has(action) ? tr(action) : action;
+}
+function auditDetail(action, detail) {
+    const known = {
+        login: { success: "登录成功" },
+        password_changed: { "all browser sessions revoked": "全部网页登录会话已撤销" },
+        sessions_revoked: { all: "全部网页登录会话已撤销" },
+    };
+    const values = Object.hasOwn(known, action) ? known[action] : null;
+    return values && Object.hasOwn(values, detail) ? tr(values[detail]) : detail;
+}
+let tableHintId = 0;
+const tableHints = new Map();
+const tableResize = new ResizeObserver((entries) => entries.forEach(({ target }) => updateTableHint(target)));
+function updateTableHint(wrap) {
+    const hint = tableHints.get(wrap);
+    if (!hint) return;
+    const overflow = wrap.clientWidth > 0 && wrap.scrollWidth > wrap.clientWidth + 1;
+    hint.hidden = !overflow;
+    if (overflow) {
+        wrap.tabIndex = 0;
+        wrap.setAttribute("role", "region");
+        wrap.setAttribute("aria-label", tr("可横向滚动的表格"));
+        wrap.setAttribute("aria-describedby", hint.id);
+    } else {
+        wrap.removeAttribute("tabindex");
+        wrap.removeAttribute("role");
+        wrap.removeAttribute("aria-label");
+        wrap.removeAttribute("aria-describedby");
+    }
+}
+function syncTableHints() {
+    for (const [wrap, hint] of tableHints)
+        if (!wrap.isConnected) {
+            tableResize.unobserve(wrap);
+            hint.remove();
+            tableHints.delete(wrap);
+        }
+    for (const wrap of $$(".table-wrap")) {
+        if (!tableHints.has(wrap)) {
+            const hint = document.createElement("p");
+            hint.className = "table-scroll-hint";
+            hint.id = `table-scroll-hint-${++tableHintId}`;
+            hint.textContent =
+                "↔ " +
+                tr(wrap.querySelector(".table-actions") ? "左右滑动表格，查看右侧管理操作" : "左右滑动查看完整表格");
+            wrap.before(hint);
+            tableHints.set(wrap, hint);
+            tableResize.observe(wrap);
+        }
+        updateTableHint(wrap);
+    }
+}

@@ -58,7 +58,18 @@ test("destination picker, pagination, safe error fallback and keyboard navigatio
         .check();
     await page.getByRole("button", { name: "应用筛选", exact: true }).click();
     await expect(page.locator(".pager")).toContainText("第 1 /");
-    await expect(page.getByRole("link", { name: "导出 OPML" })).toHaveAttribute("href", "/api/targets/-1001001/opml");
+    const features = (await (await page.request.get("/api/public")).json()).features;
+    if (features?.recipients) {
+        const href = await page.getByRole("link", { name: "导出筛选结果", exact: true }).getAttribute("href");
+        const url = new URL(href, page.url());
+        expect(url.pathname).toBe("/api/subscriptions/opml");
+        expect(url.searchParams.get("target")).toBe("-1001001");
+    } else {
+        await expect(page.getByRole("link", { name: "导出 OPML" })).toHaveAttribute(
+            "href",
+            "/api/targets/-1001001/opml",
+        );
+    }
     await page.locator("#language").selectOption("en");
     await page.route("**/api/subscriptions?*", (r) =>
         r.fulfill({ status: 403, json: { error: "sensitive-debug-value", code: "scope_denied" } }),
@@ -162,4 +173,49 @@ test("static localization preserves user strings and uses plural rules and stabl
     expect(data.many).toBe("2 subscriptions");
     expect(data.error).toContain("(FORBIDDEN)");
     expect(data.error).not.toContain("private detail");
+});
+
+test("overflow hint exposes mobile management actions and disappears when the table fits", async ({ page }) => {
+    await page.goto("/#targets");
+    await expect(page.locator("tbody tr")).not.toHaveCount(0);
+    await page.setViewportSize({ width: 390, height: 844 });
+    const hint = page.getByText("↔ 左右滑动表格，查看右侧管理操作", { exact: true });
+    await expect(hint).toBeVisible();
+    const region = page.getByRole("region", { name: "可横向滚动的表格" });
+    await expect(region).toHaveAttribute("tabindex", "0");
+    await region.focus();
+    await page.keyboard.press("ArrowRight");
+    await expect.poll(() => region.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
+    await region.evaluate((el) => {
+        el.scrollLeft = el.scrollWidth;
+    });
+    await expect(page.locator("[data-target-subs]").first()).toBeInViewport();
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await expect(hint).toBeHidden();
+});
+
+test("audit localization translates exact codes while preserving free-form details", async ({ page }) => {
+    await page.route("**/api/dashboard", async (route) => {
+        const response = await route.fetch(),
+            data = await response.json();
+        data.activity = [
+            { action: "login", detail: "success", at: "2026-10-26T00:00:00Z" },
+            { action: "创建连接授权", detail: "success", at: "2026-10-26T00:00:00Z" },
+            { action: "custom_action", detail: "登录成功", at: "2026-10-26T00:00:00Z" },
+            { action: "sessions_revoked", detail: "all", at: "2026-10-26T00:00:00Z" },
+        ];
+        await route.fulfill({ response, json: data });
+    });
+    await page.goto("/#dashboard");
+    await page.reload();
+    const rows = page.locator(".activity-row");
+    await expect(rows.nth(0)).toContainText("网页登录");
+    await expect(rows.nth(0)).toContainText("登录成功");
+    await expect(rows.nth(1).locator("small")).toHaveText("success");
+    await expect(rows.nth(3)).toContainText("全部网页登录会话已撤销");
+    await page.locator("#language").selectOption("en");
+    await expect(rows.nth(0)).toContainText("Browser sign-in");
+    await expect(rows.nth(0)).toContainText("Signed in successfully");
+    await expect(rows.nth(1).locator("small")).toHaveText("success");
+    await expect(rows.nth(2).locator("small")).toHaveText("登录成功");
 });

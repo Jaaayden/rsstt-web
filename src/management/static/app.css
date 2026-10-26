@@ -1707,3 +1707,15 @@ footer.credit {
 .legend.orange {
     background: var(--orange);
 }
+.table-scroll-hint {
+    margin: 0;
+    padding: 8px 16px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--muted);
+    background: var(--bg);
+    border-top: 1px solid var(--line);
+}
+.table-scroll-hint[hidden] {
+    display: none;
+}

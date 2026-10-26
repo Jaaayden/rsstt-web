@@ -21,7 +21,7 @@
 - `static/i18n.js`：`tr()`、`html` 静态模板标签、`count()` 复数、`message()` 参数化文本、主题／语言、API 错误 fallback。
 - `static/messages.js`：集中英文界面文案，中文作为源键；修改静态文案时同步这里。新整句优先完整键，带数量使用 `count/message`，避免拼接产生语序问题。
 - 静态模板翻译仅处理字面片段；插值（会话名称、订阅标题、网址、用户输入、服务端内容）保持原样。不得把整段动态 HTML 交给翻译器。参数先按原有 `esc()` 安全输出。
-- 数字使用 Intl.NumberFormat，计数使用 Intl.PluralRules；记录时间包含年份和浏览器时区，统计查询按 UTC 桶对齐，小时图／明细转为本地时间。旧版日统计保留 UTC 标识。
+- 数字使用 Intl.NumberFormat，计数使用 Intl.PluralRules；记录时间包含年份和浏览器时区，统计查询按 UTC 桶对齐，小时图／明细转为本地时间；日图明确按 UTC 日聚合，日期标签和明细使用 UTC 日期。旧版日统计保留 UTC 标识。
 - API 错误识别 PR1 的稳定大写 `code`，兼容无 code 时的 `http_<status>`。未知类别保留安全错误码与本地化通用提示，不回显未知服务端异常正文。
 
 ## 可选功能发现与后端契约
@@ -71,3 +71,12 @@ Bark/Webhook 自定义 headers 仍通过 API 配置；UI 提供渠道 URL、Tele
 PR1–6 实际后端尚未合入本工作分支；新增功能现阶段通过 UI 契约测试，必须在组合分支再跑真实 API 验证，特别是修改密码撤销会话、角色封禁、来源事务、小时持久化、通知队列与启动恢复。已有 PR 的模拟／离线结果不应称为真实 Telegram 或真实通知验证。
 
 未合并、未部署、未操作线上服务、未发送真实消息。保留上游 AGPL 与原版 Bot 行为。
+
+
+## 组合验收反馈修正
+
+- 表格仅在实际横向溢出时显示轻量滚动提示；会话／订阅提示明确右侧管理操作，滚动区域可获得键盘焦点。ResizeObserver 在屏幕变化后更新，无溢出时隐藏。
+- 最近操作只翻译已知动作码及动作限定的固定结果码：login/success、password_changed、sessions_revoked；其它详情（包括授权名等用户输入）保留原文。
+- 新增四个真实后端浏览器用例：subscriptions、users-settings、notifications、backups。共用 support/live.js，从 WEB_PASSWORD 显式登录；仅当 public.features 缺少对应能力时明确 skip。要求离线演示且不是 snapshot，防止把写入测试用于真实数据副本。组合版能力齐全时四项都必须执行；未用路由 mock 代替。
+- i18n 的导出断言按 recipients 能力选择完整筛选导出或旧版会话导出。既有 features.spec.js 仍为独立契约替身测试，不能混称为实连验证。
+- 本次基础分支浏览器结果：18 passed、4 skipped；4 项均因对应后端未安装明确跳过。手机提示、已知审计码／用户输入隔离、UTC 日标签和按能力导出断言通过。四项实连结果等待组合版执行，不能将 skip 计为通过。
