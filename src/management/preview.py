@@ -110,7 +110,7 @@ async def run(config, metadata, listener, port):
                                    cached.get('username'), kind(user), 'snapshot')
             await store.set_setting('snapshot_loaded', metadata['sha256'])
         upstream_web.feed_get = offline_feed
-        app = await create_app(store, 'rsstt-local-preview', f'http://127.0.0.1:{port}',
+        app = await create_app(store, os.environ.get('WEB_PASSWORD', ''), f'http://127.0.0.1:{port}',
                                SnapshotGateway(), demo=True,
                                snapshot={'captured_at': metadata['captured_at'], 'counts': metadata['counts']})
         runner = web.AppRunner(app, access_log=None)

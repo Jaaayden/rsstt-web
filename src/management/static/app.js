@@ -310,13 +310,16 @@ function settings(d, tokens) {
         content = `<form id="settings-form" class="panel"><div class="panel-head"><div><h2>更新与订阅</h2><p>新订阅使用的默认值，以及管理台提醒方式</p></div></div><div class="form-body">${settingRow("default_interval", "默认更新间隔", "单位：分钟。影响使用默认值的订阅。")}${settingRow("minimal_interval", "最短更新间隔", "单位：分钟。限制今后设置的更新间隔。")}${settingRow("user_sub_limit", "私聊订阅上限", "-1 表示不限，0 表示不允许添加。", -1)}${settingRow("channel_or_group_sub_limit", "频道 / 群组订阅上限", "每个目的地的默认上限，-1 表示不限。", -1)}${settingRow("attention_threshold", "需要检查的失败次数", "仅改变管理台提醒，不改变上游重试和停用策略。", 1, 100, d.console.attention_threshold)}<div class="form-row"><label for="limit-message">订阅上限提示<p>达到上限时机器人显示的附加说明。</p></label><textarea id="limit-message" name="sub_limit_reached_message" maxlength="2000">${esc(o.sub_limit_reached_message)}</textarea></div></div><div class="form-footer"><button class="primary" type="submit">保存设置</button></div></form>`;
     if (S.settings === "tokens")
         content = `<section class="panel"><div class="panel-head"><div><h2>连接授权</h2><p>允许外部应用通过 API 管理选定的会话</p></div><button class="primary" data-action="new-token">${icon("plus", 14)}创建授权</button></div>${tokens.items.length ? tokens.items.map((t) => `<div class="token-row">${icon("key", 20)}<div><p>${esc(t.name)} ${pill(t.permission === "write" ? "读写" : "只读", "gray")}</p><small>${t.targets === null ? "全部会话（含今后新增）" : `${t.targets.length} 个指定会话`} · ${dateText(t.expires_at * 1000)} 到期</small></div><button class="danger" data-revoke="${esc(t.id)}">撤销</button></div>`).join("") : empty("还没有连接授权", "未来接入 FeedLantern 时，在这里创建专用授权。")}<div class="form-body"><div class="notice">授权只允许访问指定会话的订阅，不包含管理台设置、创建授权或退出频道等管理员操作。完整密钥只显示一次。</div></div></section>`;
+    if (S.settings === "security")
+        content = `<form id="password-form" class="panel"><div class="panel-head"><h2>账户安全</h2></div><div class="form-body"><p>当前账户：${esc(S.session.name)} · ${S.demo ? "预览管理员" : "管理台管理员"}。此账户独立于 Telegram 机器人管理员。</p><label>当前密码<input name="current_password" type="password" autocomplete="current-password" required></label><label>新密码<input name="new_password" type="password" autocomplete="new-password" minlength="16" maxlength="512" required></label><p>修改后所有网页登录会话失效，连接授权保持有效。</p><p class="error" role="alert"></p></div><div class="form-footer"><button class="primary" type="submit">修改密码并退出</button><button type="button" data-action="revoke-sessions">撤销全部网页登录会话</button></div></form>`;
     if (S.settings === "instance")
-        content = `<section class="panel"><div class="panel-head"><h2>实例信息</h2></div><div class="form-body"><dl class="info-grid"><div><dt>机器人</dt><dd>${esc(d.bot.name)} · @${esc(d.bot.username || "未设置")}</dd></div><div><dt>连接状态</dt><dd>${S.snapshot ? "真实数据离线预览" : d.demo ? "离线演示" : d.bot.connected ? "在线" : "未连接"}</dd></div><div><dt>管理台地址</dt><dd>${esc(d.origin)}</dd></div><div><dt>RSStT 数据库</dt><dd>${esc(d.database)}</dd></div><div><dt>${S.snapshot ? "快照时间" : "统计开始时间"}</dt><dd>${dateText(S.snapshot ? S.snapshot.captured_at : d.console.started_at)}</dd></div><div><dt>统计存储</dt><dd>${S.snapshot ? "原版无历史统计" : "独立 SQLite · 累计值永久保留"}</dd></div></dl><div class="notice">机器人 Token、Telegram API 凭证、代理与管理台密码通过部署环境配置。修改这些配置后重启实例即可生效。管理台不会读取或显示这些密钥。</div></div></section>`;
+        content = `<section class="panel"><div class="panel-head"><h2>实例信息</h2></div><div class="form-body"><dl class="info-grid"><div><dt>机器人</dt><dd>${esc(d.bot.name)} · @${esc(d.bot.username || "未设置")}</dd></div><div><dt>连接状态</dt><dd>${S.snapshot ? "真实数据离线预览" : d.demo ? "离线演示" : d.bot.connected ? "在线" : "未连接"}</dd></div><div><dt>管理台地址</dt><dd>${esc(d.origin)}</dd></div><div><dt>RSStT 数据库</dt><dd>${esc(d.database)}</dd></div><div><dt>${S.snapshot ? "快照时间" : "统计开始时间"}</dt><dd>${dateText(S.snapshot ? S.snapshot.captured_at : d.console.started_at)}</dd></div><div><dt>统计存储</dt><dd>${S.snapshot ? "原版无历史统计" : "独立 SQLite · 累计值永久保留"}</dd></div></dl><div class="notice">机器人 Token、Telegram API 凭证与代理通过部署环境配置。管理台密码在首次启动时初始化，此后通过账户安全修改。管理台不会读取或显示这些密钥。</div></div></section>`;
     return (
         header("设置", "熟悉的管理方式，按需调整。") +
         `<div class="settings"><nav class="settings-nav" aria-label="设置栏目">${[
             ["general", "settings", "更新与订阅"],
             ["tokens", "key", "连接授权"],
+            ["security", "key", "账户安全"],
             ["instance", "rss", "实例信息"],
         ]
             .map(
@@ -495,6 +498,12 @@ document.addEventListener("click", async (event) => {
         }
         if (d.action === "menu") {
             document.body.classList.toggle("menu-open");
+            return;
+        }
+        if (d.action === "revoke-sessions") {
+            await api("/auth/sessions", { method: "DELETE" });
+            S.session = null;
+            login();
             return;
         }
         if (d.action === "logout") {
@@ -685,6 +694,12 @@ document.addEventListener("submit", async (event) => {
             await boot();
             return;
         }
+        if (form.id === "password-form") {
+            await api("/auth/password", { method: "POST", body: Object.fromEntries(f) });
+            S.session = null;
+            login();
+            return;
+        }
         if (form.id === "settings-form") {
             const values = Object.fromEntries(f);
             for (const k of Object.keys(values)) if (k !== "sub_limit_reached_message") values[k] = Number(values[k]);
@@ -792,9 +807,7 @@ async function boot() {
             S.session = await api("/session");
         } catch (e) {
             if (e.status !== 401) throw e;
-            if (!pub.demo) return login();
-            await api("/login", { method: "POST", body: { password: "rsstt-local-preview" } });
-            S.session = await api("/session");
+            return login();
         }
         shell();
         route();
