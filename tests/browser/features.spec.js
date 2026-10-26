@@ -25,7 +25,7 @@ test.beforeEach(async ({ page }) => {
         await r.fulfill({ response, json: { ...data, account_type: "preview_admin" } });
     });
     await page.goto("/");
-    await page.locator("#password").fill("rsstt-local-preview");
+    await page.locator("#password").fill(process.env.WEB_PASSWORD || "rsstt-local-preview");
     await page.locator("#login-form button[type=submit]").click();
     await expect(page.locator("#main")).toBeVisible();
 });
