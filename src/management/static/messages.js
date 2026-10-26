@@ -1,5 +1,7 @@
 // UI copy only. Never translate server-supplied titles, URLs or user input.
 export const english = {
+    "当前平台不支持恢复预检与自动恢复，仍可导出备份。":
+        "This platform does not support restore validation or automatic restoration. Backup export remains available.",
     "每天的新内容与成功推送，按 UTC 日聚合": "Daily entries and deliveries, aggregated by UTC day",
     "按 UTC 日聚合（00:00–24:00 UTC）": "UTC-day aggregation (00:00–24:00 UTC)",
     "按 UTC 日聚合的统计趋势": "Statistics aggregated by UTC day",

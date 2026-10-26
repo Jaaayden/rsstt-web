@@ -257,3 +257,27 @@ test("role protection and Bot language remain separate from console language", a
     await page.getByRole("button", { name: "保存角色" }).click();
     expect(rolePatch).toEqual({ role: "banned" });
 });
+
+test("backup capability disables unsupported restore while preserving export and legacy behavior", async ({ page }) => {
+    const info = { sqlite: true, restore_supported: false, restore: { status: "none" } };
+    await page.route("**/api/backups", (route) => route.fulfill({ json: info }));
+    await page.goto("/#settings?section=backups");
+    await expect(page.getByRole("button", { name: "预检备份", exact: true })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "下载备份", exact: true })).toBeEnabled();
+    await expect(page.getByText("当前平台不支持恢复预检与自动恢复，仍可导出备份。", { exact: true })).toBeVisible();
+    await page.locator("#language").selectOption("en");
+    await expect(page.getByRole("button", { name: "Validate backup", exact: true })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Download backup", exact: true })).toBeEnabled();
+    await expect(
+        page.getByText(
+            "This platform does not support restore validation or automatic restoration. Backup export remains available.",
+            { exact: true },
+        ),
+    ).toBeVisible();
+    info.restore_supported = true;
+    await page.reload();
+    await expect(page.getByRole("button", { name: "Validate backup", exact: true })).toBeEnabled();
+    delete info.restore_supported;
+    await page.reload();
+    await expect(page.getByRole("button", { name: "Validate backup", exact: true })).toBeEnabled();
+});

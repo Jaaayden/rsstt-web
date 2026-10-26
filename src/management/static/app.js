@@ -2513,6 +2513,9 @@ function featureSettings(key, data) {
                           <hr />
                           <form id="backup-restore-form" class="stack">
                               <h2>恢复备份</h2>
+                              ${data.restore_supported === false
+                                  ? html`<p class="notice">当前平台不支持恢复预检与自动恢复，仍可导出备份。</p>`
+                                  : ""}
                               <label
                                   >JSON 备份文件<input
                                       type="file"
@@ -2525,7 +2528,9 @@ function featureSettings(key, data) {
                                   <button
                                       type="submit"
                                       class="primary"
-                                      ${data.restore?.status === "pending_restart" ? "disabled" : ""}
+                                      ${data.restore_supported === false || data.restore?.status === "pending_restart"
+                                          ? "disabled"
+                                          : ""}
                                   >
                                       预检备份
                                   </button>
