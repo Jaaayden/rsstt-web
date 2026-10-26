@@ -24,6 +24,7 @@ from telethon.tl.patched import Message
 from .. import env
 from ..i18n import i18n
 from . import inner
+from .list_page import get_list_page
 from .types import *
 from .utils import (
     command_gatekeeper, parse_command, escape_html, parse_callback_data_with_page,
@@ -175,22 +176,14 @@ async def cmd_list_or_callback_get_list_page(
     else:
         page_number = 1
 
-    # Telegram only allow <= 100 parsing entities in a message
-    page_number, page_count, page, sub_count = await inner.utils.get_sub_list_by_page(
-        user_id=chat_id, page_number=page_number, size=99,
+    page_number, page_count, list_result, sub_count = await get_list_page(
+        chat_id, page_number, i18n[lang]['subscription_list'],
     )
 
     if page_count == 0:
-        await event.respond(i18n[lang]['no_subscription'])
+        await (event.edit(i18n[lang]['no_subscription'], buttons=None)
+               if is_callback else event.respond(i18n[lang]['no_subscription']))
         return
-
-    list_result = ''.join((
-        f'<b>{i18n[lang]["subscription_list"]}</b>\n',  # it occupies a parsing entity
-        '\n'.join(
-            f'<a href="{sub.feed.link}">{escape_html(sub.title or sub.feed.title)}</a>'
-            for sub in page
-        )
-    ))
 
     page_buttons = inner.utils.get_page_buttons(
         page_number=page_number,
