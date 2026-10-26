@@ -96,6 +96,10 @@ test("hourly statistics distinguish unavailable, partial and known zero", async 
     await expect(rows.nth(2)).toContainText("部分");
     await page.getByRole("button", { name: "7 天", exact: true }).click();
     await expect.poll(() => granularity).toBe("day");
+    await expect(page.getByRole("img", { name: "按 UTC 日聚合的统计趋势" })).toBeVisible();
+    await expect(page.getByText("按 UTC 日聚合（00:00–24:00 UTC）", { exact: true })).toBeVisible();
+    await page.getByText("查看统计数据", { exact: true }).click();
+    await expect(page.locator(".chart-wrap tbody tr").first().locator("td").first()).toHaveText("2026/10/26 UTC");
     await page.screenshot({ path: "test-results/hourly-statistics.png", fullPage: true });
 });
 
