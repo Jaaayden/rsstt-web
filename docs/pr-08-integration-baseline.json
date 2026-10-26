@@ -1,0 +1,225 @@
+{
+  "environment": {
+    "python": "3.12.14",
+    "os": "Darwin",
+    "architecture": "arm64",
+    "sqlite": "3.53.1",
+    "telethon": "1.40.0"
+  },
+  "repeats": 20,
+  "datasets": [
+    {
+      "subscriptions": 1000,
+      "sources": 100,
+      "targets": 20,
+      "list_target_subscriptions": 50,
+      "list_pages": 2,
+      "old_list_utf16": 7254,
+      "safe_list_utf16": 4045,
+      "measurements": {
+        "subscriptions_first": {
+          "median_ms": 1.69,
+          "p95_ms": 1.805,
+          "python_peak_kib": 126.5
+        },
+        "subscriptions_last": {
+          "median_ms": 1.759,
+          "p95_ms": 1.852,
+          "python_peak_kib": 125.7
+        },
+        "subscriptions_search": {
+          "median_ms": 2.595,
+          "p95_ms": 2.859,
+          "python_peak_kib": 129.5
+        },
+        "targets": {
+          "median_ms": 1.531,
+          "p95_ms": 1.595,
+          "python_peak_kib": 52.3
+        },
+        "dashboard_handler": {
+          "median_ms": 4.519,
+          "p95_ms": 4.751,
+          "python_peak_kib": 54.5
+        },
+        "metrics_increment": {
+          "median_ms": 0.279,
+          "p95_ms": 0.462,
+          "python_peak_kib": 7.5
+        },
+        "list_old_99_rows": {
+          "median_ms": 2.863,
+          "p95_ms": 3.14,
+          "python_peak_kib": 309.3
+        },
+        "list_safe": {
+          "median_ms": 1.206,
+          "p95_ms": 1.393,
+          "python_peak_kib": 151.0
+        }
+      },
+      "list_query_plan": [
+        {
+          "id": 6,
+          "parent": 0,
+          "notused": 60,
+          "detail": "SEARCH sub USING INDEX sqlite_autoindex_sub_1 (user_id=?)"
+        },
+        {
+          "id": 11,
+          "parent": 0,
+          "notused": 45,
+          "detail": "SEARCH sub__feed USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN"
+        },
+        {
+          "id": 31,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ]
+    },
+    {
+      "subscriptions": 10000,
+      "sources": 1000,
+      "targets": 20,
+      "list_target_subscriptions": 500,
+      "list_pages": 20,
+      "old_list_utf16": 15159,
+      "safe_list_utf16": 3965,
+      "measurements": {
+        "subscriptions_first": {
+          "median_ms": 1.59,
+          "p95_ms": 1.725,
+          "python_peak_kib": 128.1
+        },
+        "subscriptions_last": {
+          "median_ms": 2.642,
+          "p95_ms": 2.825,
+          "python_peak_kib": 125.0
+        },
+        "subscriptions_search": {
+          "median_ms": 8.079,
+          "p95_ms": 8.569,
+          "python_peak_kib": 130.8
+        },
+        "targets": {
+          "median_ms": 4.195,
+          "p95_ms": 4.678,
+          "python_peak_kib": 54.0
+        },
+        "dashboard_handler": {
+          "median_ms": 12.49,
+          "p95_ms": 13.46,
+          "python_peak_kib": 56.0
+        },
+        "metrics_increment": {
+          "median_ms": 0.26,
+          "p95_ms": 0.374,
+          "python_peak_kib": 7.5
+        },
+        "list_old_99_rows": {
+          "median_ms": 5.666,
+          "p95_ms": 6.151,
+          "python_peak_kib": 616.9
+        },
+        "list_safe": {
+          "median_ms": 5.895,
+          "p95_ms": 6.401,
+          "python_peak_kib": 560.8
+        }
+      },
+      "list_query_plan": [
+        {
+          "id": 6,
+          "parent": 0,
+          "notused": 60,
+          "detail": "SEARCH sub USING INDEX sqlite_autoindex_sub_1 (user_id=?)"
+        },
+        {
+          "id": 11,
+          "parent": 0,
+          "notused": 45,
+          "detail": "SEARCH sub__feed USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN"
+        },
+        {
+          "id": 31,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ]
+    },
+    {
+      "subscriptions": 50000,
+      "sources": 5000,
+      "targets": 20,
+      "list_target_subscriptions": 2500,
+      "list_pages": 100,
+      "old_list_utf16": 15951,
+      "safe_list_utf16": 4013,
+      "measurements": {
+        "subscriptions_first": {
+          "median_ms": 1.674,
+          "p95_ms": 1.781,
+          "python_peak_kib": 129.0
+        },
+        "subscriptions_last": {
+          "median_ms": 7.962,
+          "p95_ms": 8.663,
+          "python_peak_kib": 124.9
+        },
+        "subscriptions_search": {
+          "median_ms": 64.255,
+          "p95_ms": 65.658,
+          "python_peak_kib": 130.5
+        },
+        "targets": {
+          "median_ms": 31.505,
+          "p95_ms": 32.945,
+          "python_peak_kib": 56.5
+        },
+        "dashboard_handler": {
+          "median_ms": 85.04,
+          "p95_ms": 86.667,
+          "python_peak_kib": 54.7
+        },
+        "metrics_increment": {
+          "median_ms": 0.344,
+          "p95_ms": 0.457,
+          "python_peak_kib": 7.5
+        },
+        "list_old_99_rows": {
+          "median_ms": 7.848,
+          "p95_ms": 8.451,
+          "python_peak_kib": 642.5
+        },
+        "list_safe": {
+          "median_ms": 41.176,
+          "p95_ms": 44.817,
+          "python_peak_kib": 604.6
+        }
+      },
+      "list_query_plan": [
+        {
+          "id": 6,
+          "parent": 0,
+          "notused": 60,
+          "detail": "SEARCH sub USING INDEX sqlite_autoindex_sub_1 (user_id=?)"
+        },
+        {
+          "id": 11,
+          "parent": 0,
+          "notused": 45,
+          "detail": "SEARCH sub__feed USING INTEGER PRIMARY KEY (rowid=?) LEFT-JOIN"
+        },
+        {
+          "id": 31,
+          "parent": 0,
+          "notused": 0,
+          "detail": "USE TEMP B-TREE FOR ORDER BY"
+        }
+      ]
+    }
+  ]
+}
