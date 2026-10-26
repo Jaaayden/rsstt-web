@@ -1,6 +1,6 @@
 # 低资源压力/增长验证：准备与当前证据
 
-本文件是 PR 08 的后续验证准备。**组合版本的 Linux 受限资源验收尚未执行**；组合提交 `4df444f` 已完成 macOS 离线复测，后续 `27aa590` 加本修复已通过 149 项后端测试，见末节；Linux 限额仍待执行。当前环境为 macOS，Docker CLI 存在，但 daemon 不可连接。本轮没有启动 Docker、远程机器或任何真实服务。
+本文件记录 PR 08 的资源验证证据。**当前组合 `ef2e166` 的后端 149/149、浏览器 24/24（0 skip）通过，结果由主会话提供；历史 3 个组合测试失败已全部修复。Linux 受限资源结果仍由主会话统一收集，尚未据此完成第 16 项验收。** 本会话已停止重复复测，不启动本机 Docker；当前环境为 macOS，未运行 Linux 容器、远程机器或任何真实服务。
 
 ## 有证据的小修复
 
@@ -51,9 +51,9 @@
 
 macOS 下未提供当前 RSS/FD/cgroup 数据，JSON 明确为 null；不能从上述峰值声称长期内存稳定。运行时 macOS sandbox 拒绝 `os.nice`，线程初始化仅记录警告后继续；断言和发送计数全部完成。后台任务能排空并不表示峰值任务数有硬边界。用户锁随历史用户数增长已有直接证据，需要后续按真实生命周期单独处理。
 
-## Linux 可复现预算与命令（待执行）
+## Linux 可复现预算与命令（由主会话统一收集结果）
 
-组合代码准备后，由主会话指定 integration commit，在隔离 checkout 构建原项目镜像。构建阶段可能安装依赖；下面**测试运行阶段断网**。不修改 Dockerfile、CI workflow 或生产依赖。先记录 commit、image ID、Docker/Linux/CPU 架构与 cgroup 版本，输出与提交对应。
+主会话已安排 CI 专责按以下预算准备断网资源 probe job；本会话不修改 workflow、不启动本机 Docker。执行时由主会话指定 integration commit，在隔离 checkout 构建原项目镜像。构建阶段可能安装依赖；下面**测试运行阶段断网**。不修改 Dockerfile、CI workflow 或生产依赖。先记录 commit、image ID、Docker/Linux/CPU 架构与 cgroup 版本，输出与提交对应。
 
 建议第一档预算：1 vCPU、512 MiB 内存、禁止 swap、128 pids、1024 FDs；固定集合和 churn 各运行 60 轮，随后固定集合延长到 1800 轮。脚本明确使用 HTTP 全局 32、单域 4、单进程，生产默认值未修改。
 
@@ -106,10 +106,10 @@ docker run --rm --network none --read-only \
 
 组合版 100 来源 × 10 目的地 × 2 条，稳定/churn 各 10 轮（每组 20,000 次 mock 发送）都通过完整性与顺序断言，原始数据为 `pr-08-integration-stable-smoke.jsonl` / `pr-08-integration-churn-smoke.jsonl`。两组抽样任务峰值均 1,708，最大 loop lag 分别 28.595 / 26.350 ms；空闲任务数均 1，Monitor/域名缓存每轮归零。稳定用户锁保持 10，churn 两类用户锁各增长到 100，剩余增长没有消失。进程峰值 RSS 分别约 150.1 / 152.7 MiB；macOS 缺少当前 RSS，因此仍不证明长期内存平台。
 
-组合版全套 `pytest` 结果为 **146 passed / 3 failed**，本 PR 新增 Bot/生命周期测试通过。失败证据已交由主会话协调，未跨范围修补：
+**以下为旧组合 `4df444f` 的历史失败，均已修复，不属于当前未完成项。** 当时全套 `pytest` 为 **146 passed / 3 failed**，本 PR 新增 Bot/生命周期测试通过；本会话未跨范围修补：
 
 - `test_backups.py::test_extensions_hourly_and_queue_exclusion`：测试再次 `CREATE TABLE metrics_hourly`，但统计初始化已建表，抛 `sqlite3.OperationalError: table metrics_hourly already exists`。
-- `test_backups_restart.py::test_web_staging_then_real_offline_process_restart`：自建 8746 端口子进程启动等待超时；脚本清理了自己的子进程，具体原因尚未确认。
+- `test_backups_restart.py::test_web_staging_then_real_offline_process_restart`：自建 8746 端口子进程启动等待超时；脚本清理了自己的子进程，当时具体原因未确认，后续主会话修正启动测试后已通过。
 - `test_statistics.py::test_cancellation_rolls_back_and_two_connections_agree`：第二个 Store 打开同一路径时被备份的 InstanceLock 拒绝，报“实例正在运行”；测试的双连接前提与独占锁相冲突。
 
 pytest 已打印上述结果后因失败路径遗留线程未退出，手动中断测试进程；没有将该全套测试标记为成功。当前功能分支自身仍为 **64 passed**。组合版压力脚本通过不覆盖这些备份/统计失败，也未启动完整生产管理通知生命周期。当时 Linux 预算测试、长测及跨模块失败仍待完成；后续状态见下段。
@@ -119,3 +119,9 @@ pytest 已打印上述结果后因失败路径遗留线程未退出，手动中�
 主会话修正上述测试后，将 `27aa590577852a185471cff2b72851f975774863` 合入独立验证 worktree，得到本地测试提交 `14fa60ccd351f51c0db3f3874f04dada1be8298f`。完整后端结果 **149 passed, 1 warning，10.55s**，测试进程正常退出；先前 3 个失败已不再复现。相对 `4df444f` 的改动只有测试/文档，无生产源码变化，因此保留原组合性能测量，不重复同组负载。主会话给出的其他浏览器验证结果未作为本会话实测证据。
 
 资源脚本新增 `--require-cgroup-limits`；在当前 macOS 上已验证该标志以退出码 2 拒绝运行，不能把普通本机运行误当成 Linux 受限环境。未运行任何 Linux 容器/长测，尚不能宣布用户第 16 项全部通过。当前可交给 CI 的预算为 1 vCPU / 512 MiB（禁 swap）/ 128 pids / 1024 FDs，运行命令见上文。
+
+### 主会话最终组合确认（2026-10-26）
+
+主会话确认 integration `ef2e166b8a85e108935c41de29116333156fda07` 已包含本 PR 的 `1847015` 及生命周期修复，实际后端 **149/149**、浏览器 **24/24，0 skip** 通过。此处明确引用主会话验收报告，不冒充本会话再次运行。旧 3 项失败已全部修复，本会话没有继续重复同套测试。
+
+CI 专责已收到按本文件新增 1 CPU / 512 MiB、网络禁用资源 probe job 的安排；job 建立及运行结果由主会话统一收集。本文件尚无 Linux 限额/长期增长通过结论；剩余用户锁历史增长、监控任务无总量硬上限和真实 Telegram 未验证的边界仍有效。
