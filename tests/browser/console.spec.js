@@ -21,7 +21,7 @@ test("dashboard, navigation, search and compact settings", async ({ page }) => {
     await page.getByPlaceholder("搜索名称、用户名或 ID").fill("技术");
     await expect(page.getByRole("row").filter({ hasText: "技术与创造" })).toHaveCount(1);
     await expect(page.locator("tbody tr")).toHaveCount(1);
-    await page.getByRole("button", { name: "查看订阅", exact: true }).click();
+    await page.getByRole("button", { name: "管理订阅", exact: true }).click();
     await expect(page.getByRole("heading", { name: "全部订阅" })).toBeVisible();
     await expect(page.getByText("当前目的地：技术与创造")).toBeVisible();
     await page.getByPlaceholder("搜索名称或网址").fill("Hacker");

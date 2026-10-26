@@ -103,7 +103,13 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
 
     @routes.get('/api/public')
     async def public(request):
-        return web.json_response({'demo': demo, 'snapshot': snapshot})
+        paths = {route.resource.canonical for route in request.app.router.routes()}
+        features = {name: path in paths for name, path in {
+            'security': '/api/auth/account', 'runtime': '/api/runtime-config',
+            'notifications': '/api/notifications', 'backups': '/api/backups',
+            'recipients': '/api/feeds/{id}/recipients', 'statistics': '/api/statistics',
+        }.items()}
+        return web.json_response({'demo': demo, 'snapshot': snapshot, 'features': features})
 
     @routes.post('/api/login')
     async def login(request):
@@ -437,7 +443,7 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
     @routes.get('/assets/{name}')
     async def assets(request):
         name = request.match_info['name']
-        if name not in ('app.js', 'app.css', 'mark.svg'):
+        if name not in ('app.js', 'app.css', 'mark.svg', 'i18n.js', 'messages.js'):
             raise web.HTTPNotFound()
         return web.FileResponse(STATIC / name)
 
