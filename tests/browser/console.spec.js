@@ -2,6 +2,9 @@ const { test, expect } = require("@playwright/test");
 
 test.beforeEach(async ({ page }) => {
     await page.goto("/");
+    await expect(page.locator("#login-form")).toBeVisible();
+    await page.getByLabel("管理台密码", { exact: true }).fill(process.env.WEB_PASSWORD);
+    await page.getByRole("button", { name: /进入管理台/ }).click();
     await expect(page.getByRole("heading", { name: "一切动态，尽在眼前。" })).toBeVisible();
 });
 
@@ -135,4 +138,23 @@ test("snapshot preview distinguishes real copies from unavailable history", asyn
     await expect(page.getByRole("img", { name: /最近 14 天/ })).toHaveCount(0);
     await page.setViewportSize({ width: 390, height: 844 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+});
+
+test("account security revokes sessions and rotates the persistent password", async ({ page }) => {
+    await page.getByRole("link", { name: "设置", exact: true }).click();
+    await page.getByRole("button", { name: "账户安全", exact: true }).click();
+    await expect(page.getByText(/preview-admin/)).toBeVisible();
+    await page.getByRole("button", { name: "撤销全部网页登录会话" }).click();
+    await expect(page.locator("#login-form")).toBeVisible();
+    await page.getByLabel("管理台密码", { exact: true }).fill(process.env.WEB_PASSWORD);
+    await page.getByRole("button", { name: /进入管理台/ }).click();
+    await expect(page.getByRole("heading", { name: "账户安全", exact: true })).toBeVisible();
+    const next = process.env.WEB_PASSWORD + "-rotated";
+    await page.getByLabel("当前密码", { exact: true }).fill(process.env.WEB_PASSWORD);
+    await page.getByLabel("新密码", { exact: true }).fill(next);
+    await page.getByRole("button", { name: "修改密码并退出" }).click();
+    await expect(page.locator("#login-form")).toBeVisible();
+    await page.getByLabel("管理台密码", { exact: true }).fill(next);
+    await page.getByRole("button", { name: /进入管理台/ }).click();
+    await expect(page.getByRole("link", { name: "设置", exact: true })).toBeVisible();
 });
