@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG = Path(os.environ.get('WEB_DEMO_CONFIG', os.environ.get('RSSTT_DEMO_CONFIG', ROOT / '.demo'))).resolve()
-PORT = int(os.environ.get('WEB_PORT', os.environ.get('RSSTT_DEMO_PORT', '8730')))
+PORT = int(os.environ.get('WEB_PORT', os.environ.get('RSSTT_DEMO_PORT', os.environ.get('DEMO_PORT', '8730'))))
 ORIGIN = f'http://127.0.0.1:{PORT}'
 os.environ.update(TOKEN='test', MANAGER='1', MULTIPROCESSING='0', DATABASE_URL=f'sqlite:{CONFIG / "db.sqlite3"}')
 sys.argv = [sys.argv[0], '-c', str(CONFIG)]
