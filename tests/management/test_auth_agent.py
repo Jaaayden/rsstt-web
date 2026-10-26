@@ -18,17 +18,24 @@ async def test_password_persistence_rotation_and_sessions(logged):
     c = logged.client
     headers = await token(logged)
     new = 'new-private-password-1234'
-    assert (await c.post('/api/auth/password', json={'current_password': PASSWORD, 'new_password': new}, headers=WRITE)).status == 200
-    assert (await c.get('/api/session')).status == 401
-    assert (await c.get('/api/session', headers=headers)).status == 200
+    result = await c.post('/api/auth/password', json={'current_password': PASSWORD, 'new_password': new}, headers=WRITE)
+    assert result.status == 200
+    result = await c.get('/api/session')
+    assert result.status == 401
+    result = await c.get('/api/session', headers=headers)
+    assert result.status == 200
     auth = await Auth.load(logged.store, PASSWORD)
     await auth.verify(new, 'test')
     with pytest.raises(Problem):
         await auth.verify(PASSWORD, 'test')
-    assert (await c.post('/api/login', json={'password': new}, headers=WRITE)).status == 200
-    assert (await c.delete('/api/auth/sessions', headers=WRITE)).status == 200
-    assert (await c.get('/api/session')).status == 401
-    assert new not in json.dumps(await logged.store.settings())
+    result = await c.post('/api/login', json={'password': new}, headers=WRITE)
+    assert result.status == 200
+    result = await c.delete('/api/auth/sessions', headers=WRITE)
+    assert result.status == 200
+    result = await c.get('/api/session')
+    assert result.status == 401
+    result = await logged.store.settings()
+    assert new not in json.dumps(result)
 
 
 async def test_agent_fail_closed_and_no_auth_downgrade(logged):
@@ -37,10 +44,13 @@ async def test_agent_fail_closed_and_no_auth_downgrade(logged):
     for path in ('/api/settings', '/api/dashboard', '/api/auth/account', '/api/auth/sessions', '/api/tokens', '/api/future/backup'):
         response = await c.get(path, headers=headers)
         assert response.status == 403
-        assert (await response.json())['code'] == 'FORBIDDEN'
-    assert (await c.get('/api/session', headers={'Authorization': 'Basic forged'})).status == 401
+        result = await response.json()
+        assert result['code'] == 'FORBIDDEN'
+    result = await c.get('/api/session', headers={'Authorization': 'Basic forged'})
+    assert result.status == 401
     _, forged = await logged.store.issue('forged', 'token', 'admin')
-    assert (await c.get('/api/settings', headers={'Authorization': 'Bearer ' + forged})).status == 403
+    result = await c.get('/api/settings', headers={'Authorization': 'Bearer ' + forged})
+    assert result.status == 403
     contract = await (await c.get('/api/openapi.json', headers=headers)).json()
     assert contract['openapi'] == '3.1.0'
     assert '/api/settings' not in contract['paths']
@@ -58,9 +68,12 @@ async def test_preview_default_login_and_cookie_isolation(context, aiohttp_clien
     old = response.cookies['rsstt_session_8741'].value
     # Both apps deliberately share a test credential store so only cookie-name
     # isolation (not an unrelated hash lookup failure) can make this fail.
-    assert (await clients[0].get('/api/session')).status == 200
-    assert (await clients[1].get('/api/session', headers={'Cookie': 'rsstt_session_8741=' + old})).status == 401
-    assert (await clients[1].post('/api/login', json={'password': 'rsstt-local-preview'}, headers={'Origin': 'http://127.0.0.1:8742'})).status == 401
+    result = await clients[0].get('/api/session')
+    assert result.status == 200
+    result = await clients[1].get('/api/session', headers={'Cookie': 'rsstt_session_8741=' + old})
+    assert result.status == 401
+    result = await clients[1].post('/api/login', json={'password': 'rsstt-local-preview'}, headers={'Origin': 'http://127.0.0.1:8742'})
+    assert result.status == 401
     public = await (await clients[1].get('/api/public')).json()
     assert 'password' not in public
     js = await (await clients[1].get('/assets/app.js')).text()
@@ -86,14 +99,19 @@ async def test_cli_end_to_end_and_safe_default(logged, tmp_path):
     assert code == 0 and json.loads(out)['dry_run']
     await logged.sub.refresh_from_db()
     assert logged.sub.state == 1
-    assert (await run('--method', 'PATCH', '--data', str(data), '--apply', path))[0] == 0
+    result = await run('--method', 'PATCH', '--data', str(data), '--apply', path)
+    assert result[0] == 0
     await logged.sub.refresh_from_db()
     assert logged.sub.state == 0
-    assert (await run('--method', 'DELETE', '--apply', path))[0] != 0
-    assert (await run('--method', 'DELETE', '--apply', '--confirm-delete', path))[0] == 0
-    assert (await run('/api/settings'))[0] == 1
+    result = await run('--method', 'DELETE', '--apply', path)
+    assert result[0] != 0
+    result = await run('--method', 'DELETE', '--apply', '--confirm-delete', path)
+    assert result[0] == 0
+    result = await run('/api/settings')
+    assert result[0] == 1
     await logged.store.execute("DELETE FROM credentials WHERE kind='token'")
-    assert (await run('/api/session'))[0] == 1
+    result = await run('/api/session')
+    assert result[0] == 1
 
 
 def test_cli_credential_file_permissions(tmp_path):
@@ -169,12 +187,17 @@ async def test_optional_route_contract_permissions_and_cli_put(context, aiohttp_
     write = await token(context, 'write')
     path = '/api/feeds/1/recipients'
     body = {'mode': 'replace', 'targets': ['-1001']}
-    assert (await client.get(path, headers=read)).status == 200
-    assert (await client.put(path, headers=read, json=body)).status == 403
-    assert (await client.put(path, headers=write, json={**body, 'targets': ['-1002']})).status == 403
+    result = await client.get(path, headers=read)
+    assert result.status == 200
+    result = await client.put(path, headers=read, json=body)
+    assert result.status == 403
+    result = await client.put(path, headers=write, json={**body, 'targets': ['-1002']})
+    assert result.status == 403
     for method, route in privileged:
-        assert (await client.request(method, route.replace('{id}', '1'), headers=write)).status == 403
-    assert (await client.get('/api/subscriptions/opml', headers=read)).status == 200
+        result = await client.request(method, route.replace('{id}', '1'), headers=write)
+        assert result.status == 403
+    result = await client.get('/api/subscriptions/opml', headers=read)
+    assert result.status == 200
     contract = await (await client.get('/api/openapi.json', headers=read)).json()
     operation = contract['paths']['/api/feeds/{id}/recipients']['put']
     assert operation['x-required-capability'] == 'subscriptions:write'
@@ -192,9 +215,11 @@ async def test_optional_route_contract_permissions_and_cli_put(context, aiohttp_
         out, err = await process.communicate()
         assert process.returncode == 0, err.decode()
         return json.loads(out)
-    assert (await cli())['dry_run'] is True
+    result = await cli()
+    assert result['dry_run'] is True
     assert calls == ['GET']
-    assert (await cli(True))['feed_id'] == 1
+    result = await cli(True)
+    assert result['feed_id'] == 1
     assert calls == ['GET', 'PUT']
 
 
@@ -207,7 +232,8 @@ def test_cli_non_posix_file_credentials_fail_cleanly(tmp_path, monkeypatch, caps
     assert 'use RSSTT_TOKEN or --token-stdin' in stderr
     assert 'Traceback' not in stderr
     monkeypatch.setenv('RSSTT_TOKEN', 'rst_test_private')
-    assert main(['--url', 'http://127.0.0.1:8741', '--method', 'PUT', '/api/feeds/1/recipients']) == 0
+    result = main(['--url', 'http://127.0.0.1:8741', '--method', 'PUT', '/api/feeds/1/recipients'])
+    assert result == 0
 
 
 def test_cli_replace_requires_explicit_deletion_confirmation(tmp_path, monkeypatch, capsys):
