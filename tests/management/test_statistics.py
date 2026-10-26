@@ -4,7 +4,7 @@ import sqlite3
 from types import SimpleNamespace
 
 import aiosqlite
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 import pytest
 
