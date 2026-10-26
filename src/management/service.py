@@ -46,7 +46,7 @@ def feed_url(value):
 
 
 def kind(user):
-    return 'channel' if user.state == 50 else 'group' if user.id < 0 else 'private'
+    return 'private' if user.id > 0 else 'channel' if user.state == 50 else 'group' if user.state == 51 else 'unknown'
 
 
 def options(obj):
@@ -135,7 +135,10 @@ class Service:
                      membership=metadata.get(str(u.id), {}).get('membership', 'unknown'),
                      username=metadata.get(str(u.id), {}).get('username'),
                      checked_at=metadata.get(str(u.id), {}).get('checked_at'), state=u.state,
-                     sub_limit=u.sub_limit, subscriptions=counts.get(str(u.id), 0),
+                     sub_limit=u.sub_limit, lang=u.lang,
+                     role=('manager' if u.id in env.MANAGER else 'banned' if u.state == -1 else
+                           'admin' if u.id > 0 and u.state == 100 else 'guest' if u.state == 0 else 'user'),
+                     role_protected=u.id in env.MANAGER, subscriptions=counts.get(str(u.id), 0),
                      attention=attention.get(str(u.id), 0), options=options(u)) for u in users]
 
     async def targets(self, principal, query):
@@ -148,10 +151,11 @@ class Service:
                 ids.append(chat_id(search))
             qs = qs.filter(id__in=ids)
         target_kind = query.get('kind')
-        if target_kind == 'channel':
-            qs = qs.filter(state=50)
-        elif target_kind == 'group':
-            qs = qs.filter(id__lt=0).exclude(state=50)
+        if target_kind in ('channel', 'group'):
+            records = await self.store.rows('SELECT id, kind FROM targets')
+            known = [int(r['id']) for r in records]
+            matches = [int(r['id']) for r in records if r['kind'] == target_kind]
+            qs = qs.filter(Q(id__in=matches) | (Q(state=50 if target_kind == 'channel' else 51) & ~Q(id__in=known)))
         elif target_kind == 'private':
             qs = qs.filter(id__gt=0)
         page, size = self.pagination(query)
@@ -235,12 +239,17 @@ class Service:
         if not isinstance(values, dict) or not values:
             raise Problem('没有可保存的设置。')
         is_sub = isinstance(obj, db.Sub)
-        allowed = set(SUB_OPTIONS_EXHAUSTIVE_VALUES) | {'interval', 'length_limit'} | ({'title', 'tags', 'state'} if is_sub else {'sub_limit'})
+        allowed = set(SUB_OPTIONS_EXHAUSTIVE_VALUES) | {'interval', 'length_limit'} | ({'title', 'tags', 'state'} if is_sub else {'sub_limit', 'lang'})
         if set(values) - allowed:
             raise Problem('包含不支持的设置项。')
         clean = {}
         for key, value in values.items():
-            if key in ('title', 'tags'):
+            if key == 'lang':
+                from ..i18n import ALL_LANGUAGES
+                if value not in (*ALL_LANGUAGES, 'null'):
+                    raise Problem('语言代码无效。')
+                clean[key] = value
+            elif key in ('title', 'tags'):
                 if value is not None and (not isinstance(value, str) or len(value) > (1024 if key == 'title' else 255)):
                     raise Problem('标题或标签过长。')
                 clean[key] = value or None
@@ -260,6 +269,10 @@ class Service:
                 if key == 'length_limit' and not (0 <= value <= 4096 or (is_sub and value == -100)):
                     raise Problem('长度阈值应为 0–4096。')
                 clean[key] = value
+        if is_sub and clean.get('state') == 1:
+            user = await db.User.get(id=obj.user_id)
+            if user.state == -1:
+                raise Problem('这个用户已被封禁。', 409)
         for key, value in clean.items():
             setattr(obj, key, value)
         await obj.save(update_fields=list(clean))

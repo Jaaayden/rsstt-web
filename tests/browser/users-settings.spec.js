@@ -1,0 +1,30 @@
+const {test, expect} = require('@playwright/test');
+
+test('runtime config and role forms use isolated offline database', async ({page}) => {
+    const errors = [];
+    page.on('pageerror', e => errors.push(e.message));
+    await page.goto('/');
+    await page.getByRole('link', {name: '设置', exact: true}).click();
+    await page.getByRole('button', {name: '运行配置', exact: true}).click();
+    await page.getByLabel('HTTP_TIMEOUT 操作', {exact: true}).selectOption('set');
+    await page.locator('#runtime-HTTP_TIMEOUT').fill('31');
+    await page.getByRole('button', {name: '保存，重启后生效'}).click();
+    await expect(page.locator('#runtime-form')).toContainText('有配置待重启');
+    await page.reload();
+    await page.getByRole('button', {name: '运行配置', exact: true}).click();
+    await expect(page.locator('#runtime-HTTP_TIMEOUT')).toHaveValue('31');
+    await expect(page.locator('#runtime-TOKEN')).toHaveValue('');
+    await page.getByLabel('HTTP_TIMEOUT 操作', {exact: true}).selectOption('reset');
+    await page.getByRole('button', {name: '保存，重启后生效'}).click();
+    await expect(page.locator('#runtime-HTTP_TIMEOUT')).toHaveValue('');
+    await page.getByRole('link', {name: '会话与频道', exact: true}).click();
+    await page.getByRole('button', {name: '管理 Alex Chen', exact: true}).click();
+    await page.locator('#target-role').selectOption('admin');
+    await page.getByRole('button', {name: '保存角色', exact: true}).click();
+    await expect(page.locator('#target-role')).toHaveValue('admin');
+    await page.getByLabel('Bot 语言').fill('en');
+    await page.getByRole('button', {name: '保存默认设置', exact: true}).click();
+    await page.getByRole('button', {name: '管理 Jayden', exact: true}).click();
+    await expect(page.locator('#target-role')).toBeDisabled();
+    expect(errors).toEqual([]);
+});

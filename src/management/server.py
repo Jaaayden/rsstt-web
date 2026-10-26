@@ -83,6 +83,10 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
     # Cookies are shared across ports; keep parallel local previews independent.
     cookie_name = f'rsstt_session_{parsed.port}' if demo else 'rsstt_session'
     service = Service(store, gateway, demo)
+    from ..runtime_config import RuntimeConfig, ConfigError
+    runtime = RuntimeConfig(store.path.parent,
+                            applied=getattr(env, 'RUNTIME_CONFIG_OVERRIDES', {}),
+                            environment=getattr(env, 'RUNTIME_CONFIG_ENVIRONMENT', {}))
     auth = Auth(password)
     # Re-authenticate after restart/password rotation; integration tokens persist.
     await store.execute("DELETE FROM credentials WHERE kind='session'")
@@ -201,6 +205,29 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
         await store.audit(request['principal']['name'], '修改会话默认设置', str(user.id))
         return web.json_response((await service.target_data([user]))[0])
 
+    @routes.patch('/api/targets/{id}/role')
+    async def patch_role(request):
+        admin(request)
+        values = await body(request)
+        roles = {'banned': -1, 'guest': 0, 'user': 1, 'admin': 100}
+        if set(values) != {'role'} or not isinstance(values.get('role'), str) or values['role'] not in roles:
+            raise Problem('角色必须是 banned、guest、user 或 admin。')
+        from ..command.inner.users import set_user_state
+        async with service.mutation:
+            user = await service.user(request.match_info['id'], request['principal'])
+            # Preserve destination type separately before changing upstream state.
+            current = (await service.target_data([user]))[0]
+            meta = (await store.target_map([user.id])).get(str(user.id))
+            if not meta:
+                await store.target(user.id, current['title'], current['username'], current['kind'], current['membership'])
+            actor_id = request['principal'].get('telegram_id')
+            try:
+                await set_user_state(user, roles[values['role']], int(actor_id) if actor_id is not None else None)
+            except ValueError as error:
+                raise Problem(str(error), 409)
+        await store.audit(request['principal']['name'], '修改用户角色', f'{user.id}: {values["role"]}')
+        return web.json_response((await service.target_data([user]))[0])
+
     @routes.post('/api/targets/{id}/leave')
     async def leave(request):
         admin(request)
@@ -291,7 +318,7 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
         admin(request)
         return web.json_response({'options': db.EffectiveOptions.options, 'console': await store.settings(),
                                   'bot': service.gateway.status(), 'origin': origin, 'demo': demo,
-                                  'database': env.DATABASE_URL.split(':', 1)[0]})
+                                  'database': env.DATABASE_URL.split(':', 1)[0], 'version': env.VERSION})
 
     @routes.patch('/api/settings')
     async def patch_settings(request):
@@ -321,6 +348,28 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
                     await inner.utils.update_interval(feed)
         await store.audit(request['principal']['name'], '更新设置', '、'.join(clean))
         return web.json_response({'ok': True})
+
+    @routes.get('/api/runtime-config')
+    async def runtime_config(request):
+        admin(request)
+        try:
+            return web.json_response(runtime.describe())
+        except ConfigError as error:
+            raise Problem(str(error), 409)
+
+    @routes.patch('/api/runtime-config')
+    async def patch_runtime_config(request):
+        admin(request)
+        values = await body(request)
+        if not values:
+            raise Problem('没有可保存的运行配置。')
+        async with service.mutation:
+            try:
+                result = runtime.save(values)
+            except ConfigError as error:
+                raise Problem(str(error))
+        await store.audit(request['principal']['name'], '保存运行配置（待重启）', '、'.join(sorted(values)))
+        return web.json_response(result)
 
     @routes.get('/api/tokens')
     async def tokens(request):
