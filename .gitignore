@@ -243,3 +243,10 @@ icon/
 docker-compose*.yml
 docker-compose*.yaml
 .version
+.demo/
+.preview/
+.test-data/
+node_modules/
+test-results/
+playwright-report/
+!compose.console.yaml

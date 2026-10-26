@@ -1,3 +1,5 @@
+> **RSStT Web fork (local development)** — 新增仪表盘、会话与频道、订阅管理和连接授权。查看[网页管理台文档](docs/web-console.md)，或运行 `.venv/bin/python -m src.management.demo` 预览。下方保留上游项目说明。
+
 <p align="center">
 <img src="docs/resources/RSStT_icon.svg" alt="RSS to Telegram Bot" width="100">
 </p>

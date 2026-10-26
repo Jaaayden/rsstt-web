@@ -282,6 +282,8 @@ class Monitor(Singleton):
                 return
 
             if rss_d is None:  # error occurred
+                from ..management.metrics import record
+                await record(failed=1)
                 new_error_count = feed.error_count + 1
                 if new_error_count >= 100:
                     logger.error(
@@ -358,6 +360,8 @@ class Monitor(Singleton):
             if feed_updated_fields:
                 await feed.save(update_fields=feed_updated_fields)
 
+        from ..management.metrics import record
+        await record(fetched=len(updated_entries))
         updated_entries.reverse()  # send the earliest entry first
         await Notifier(feed=feed, subs=subs, entries=updated_entries).notify_all()
         stat.updated()

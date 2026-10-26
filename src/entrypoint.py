@@ -122,6 +122,9 @@ async def pre():
     # wait for pre tasks
     await asyncio.gather(*pre_tasks)
 
+    from .management import server as management_server
+    await management_server.start()
+
     bare_target_matcher = r'(?P<target>@\w{4,}|(-100|\+)\d+)'
     target_matcher = rf'(\s+{bare_target_matcher})?'
     _command_matcher = r'(?P<command>{}(?=[\s@]|$))(@\w+)?'
@@ -279,6 +282,8 @@ async def lazy():
 
 async def post():
     logger.info('Exiting gracefully...')
+    from .management import server as management_server
+    await management_server.stop()
     tasks = [
         asyncio.shield(loop.create_task(db.close())),
         loop.create_task(tgraph.close()),

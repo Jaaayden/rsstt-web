@@ -1,0 +1,19 @@
+services:
+  rsstt:
+    build: .
+    image: rsstt-web:local
+    restart: unless-stopped
+    environment:
+      TOKEN: ${TOKEN:?Set the Telegram bot TOKEN}
+      MANAGER: ${MANAGER:?Set the Telegram MANAGER ID}
+      API_ID: ${API_ID:-}
+      API_HASH: ${API_HASH:-}
+      WEB_ENABLED: "1"
+      WEB_HOST: "0.0.0.0"
+      WEB_PORT: "8730"
+      WEB_ORIGIN: ${WEB_ORIGIN:-http://127.0.0.1:8730}
+      WEB_PASSWORD: ${WEB_PASSWORD:?Set a console password of at least 16 characters}
+    ports:
+      - "127.0.0.1:8730:8730"
+    volumes:
+      - ./config:/app/config
