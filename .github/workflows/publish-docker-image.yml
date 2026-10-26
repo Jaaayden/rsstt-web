@@ -13,6 +13,7 @@ on:
 jobs:
   push:
     name: Push Docker image to Docker Hub
+    if: github.repository == 'Rongronggg9/RSS-to-Telegram-Bot'
     runs-on: ubuntu-latest
     steps:
       - name: Check out the repo
@@ -74,6 +75,7 @@ jobs:
 
   description:
     name: Update repository description on Docker Hub
+    if: github.repository == 'Rongronggg9/RSS-to-Telegram-Bot'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

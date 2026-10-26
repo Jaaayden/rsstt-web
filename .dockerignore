@@ -1,6 +1,10 @@
 .venv
 node_modules
 .demo
+.preview
+.legacy-venv
+legacy-fixture
+.ci-artifacts
 .test-data
 test-results
 playwright-report
