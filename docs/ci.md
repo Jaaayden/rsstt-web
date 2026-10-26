@@ -33,6 +33,6 @@ python -m build --wheel --outdir dist
 python scripts/ci_wheel_resources.py dist
 ```
 
-浏览器测试须使用独立预览端口与测试数据库；不要复用正在供用户检查的真实数据预览。Docker 上下文检查需要正在运行的 Docker daemon：`python scripts/ci_docker_context.py`。本机 daemon 未运行时，镜像与上下文检查由 Actions 执行。
+Bot/迁移辅助脚本在检测到项目 `.env` 时会拒绝运行，防止本地配置覆盖 `TOKEN=test`。浏览器测试须使用独立预览端口与测试数据库；不要复用正在供用户检查的真实数据预览。Docker 上下文检查需要正在运行的 Docker daemon：`python scripts/ci_docker_context.py`。本机 daemon 未运行时，镜像与上下文检查由 Actions 执行。
 
 Actions 失败时应区分代码回归、测试/工作流问题与 runner/外部依赖故障；不能直接删除失败检查或把取消的旧运行描述为通过。每次交付以对应提交的最新检查结果为准。
