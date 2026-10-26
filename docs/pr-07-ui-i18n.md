@@ -80,3 +80,9 @@ PR1–6 实际后端尚未合入本工作分支；新增功能现阶段通过 UI
 - 新增四个真实后端浏览器用例：subscriptions、users-settings、notifications、backups。共用 support/live.js，从 WEB_PASSWORD 显式登录；仅当 public.features 缺少对应能力时明确 skip。要求离线演示且不是 snapshot，防止把写入测试用于真实数据副本。组合版能力齐全时四项都必须执行；未用路由 mock 代替。
 - i18n 的导出断言按 recipients 能力选择完整筛选导出或旧版会话导出。既有 features.spec.js 仍为独立契约替身测试，不能混称为实连验证。
 - 本次基础分支浏览器结果：18 passed、4 skipped；4 项均因对应后端未安装明确跳过。手机提示、已知审计码／用户输入隔离、UTC 日标签和按能力导出断言通过。四项实连结果等待组合版执行，不能将 skip 计为通过。
+
+## 主会话组合验收证据
+
+主会话回报：独立组合树 `integration/v2-preview` 的 `ef2e166`（包含本 PR 的 `45050ef`）执行后端 **149/149 passed**、浏览器 **24/24 passed、0 skip**，包括四项真实 feature API 用例。这是主会话提供的组合执行结果，不是本独立 UI 分支运行了全部后端测试，也不代表真实 Telegram／通知投递或部署通过。
+
+后续兼容修正：`GET /api/backups.restore_supported === false` 时禁用恢复预检并显示中英文说明，导出保持可用；true 或字段缺失沿用可恢复行为。此修正在本分支只运行两项备份 UI 契约专项检查，**2 passed**（含 false/true/undefined 与中英文），语法和 diff 检查通过；尚不包含在上述 ef2e166 组合结果中。
