@@ -9,6 +9,8 @@ from pathlib import Path
 
 def run_smoke(database=None):
     root = Path(__file__).resolve().parents[1]
+    if (root / '.env').exists():
+        raise RuntimeError('CI smoke requires a clean checkout without a project .env file')
     with tempfile.TemporaryDirectory(prefix='rsstt-ci-') as temporary:
         config = Path(temporary)
         environment = os.environ.copy()
