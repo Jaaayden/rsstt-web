@@ -27,7 +27,7 @@ from . import inner
 from .list_page import get_list_page
 from .types import *
 from .utils import (
-    command_gatekeeper, parse_command, escape_html, parse_callback_data_with_page,
+    command_gatekeeper, parse_command, parse_callback_data_with_page,
     send_success_and_failure_msg, get_callback_tail, check_sub_limit,
 )
 
