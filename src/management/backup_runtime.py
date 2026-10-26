@@ -1,5 +1,4 @@
 """Optional PR2 adapter. Only nonsecret overrides; TOKEN is never portable."""
-from pathlib import Path
 
 
 def available():
