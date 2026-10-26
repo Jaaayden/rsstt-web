@@ -1,14 +1,9 @@
 import asyncio
 import json
-import time
-from datetime import datetime, timezone
 
 import pytest
 
 from src import db
-from src.command import inner
-from src.management import metrics
-from src.management.service import Service
 from src.management.store import Store
 from conftest import ORIGIN, PASSWORD, token
 
@@ -50,7 +45,8 @@ async def test_scoped_permissions_and_batch_atomic_authorization(context):
     assert (await db.Sub.get(id=context.sub.id)).state==1
     read=await token(context,'read')
     assert (await c.get('/api/subscriptions',headers=read)).status==200
-    assert (await c.delete(f'/api/subscriptions/{context.sub.id}',headers=read)).status==403
+    response=await c.delete(f'/api/subscriptions/{context.sub.id}',headers=read)
+    assert response.status==403
 
 
 async def test_scoped_token_revoke_and_expiry(logged):
@@ -62,7 +58,8 @@ async def test_scoped_token_revoke_and_expiry(logged):
     assert data['token'] not in json.dumps(stored)
     headers={'Authorization':'Bearer '+data['token']}
     assert (await c.get('/api/subscriptions',headers=headers)).status==200
-    assert (await c.delete('/api/tokens/'+data['id'],headers=WRITE)).status==200
+    response=await c.delete('/api/tokens/'+data['id'],headers=WRITE)
+    assert response.status==200
     assert (await c.get('/api/subscriptions',headers=headers)).status==401
     ident,secret=await logged.store.issue('Expired','token','read',['-1001'],days=-1)
     assert (await c.get('/api/subscriptions',headers={'Authorization':'Bearer '+secret})).status==401
@@ -100,7 +97,8 @@ async def test_add_existing_feed_and_pause_updates_scheduler(logged):
 
 
 async def test_delete_only_removes_target_subscription(logged):
-    assert (await logged.client.delete(f'/api/subscriptions/{logged.sub.id}',headers=WRITE)).status==200
+    response=await logged.client.delete(f'/api/subscriptions/{logged.sub.id}',headers=WRITE)
+    assert response.status==200
     assert await db.Sub.filter(id=logged.other.id).exists()
     assert await db.Feed.filter(id=logged.feed.id).exists()
 
