@@ -154,6 +154,11 @@ for dot_env_path in dict.fromkeys(dot_env_paths):  # remove duplicates while kee
         logger.info(f'Found .env file at "{dot_env_path}", loaded')
 
 
+# Load saved overrides before deriving any client, proxy or scheduler settings.
+from .runtime_config import load_startup, KEYS as _RUNTIME_KEYS
+RUNTIME_CONFIG_OVERRIDES = load_startup(config_folder_path, os.environ)
+RUNTIME_CONFIG_ENVIRONMENT = {key: os.environ.get(key) for key in _RUNTIME_KEYS}
+
 # ----- get version -----
 def __get_version():
     version = 'dirty'

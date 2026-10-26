@@ -209,8 +209,12 @@ async def cmd_user_info_or_callback_set_user(
 
     user, user_created = await db.User.get_or_create(id=user_id, defaults={'lang': 'null'})
     if state is not None:
-        user.state = state
-        await user.save()
+        from .inner.users import set_user_state
+        try:
+            await set_user_state(user, state)
+        except ValueError:
+            await event.respond(i18n[lang]['permission_denied_no_permission'])
+            return
     state = None if user_id in env.MANAGER else user.state
     default_sub_limit = (
         db.EffectiveOptions.user_sub_limit
