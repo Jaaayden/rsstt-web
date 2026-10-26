@@ -1,4 +1,3 @@
-import asyncio
 from contextlib import contextmanager
 import hashlib
 import json
@@ -7,7 +6,7 @@ from pathlib import Path
 
 import pytest
 from tortoise import Tortoise
-from src import db, env
+from src import db
 from src.management import backups
 from src.management.store import Store
 from conftest import ORIGIN, token
