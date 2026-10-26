@@ -1,33 +1,60 @@
-name: Test Docker build for PR
+name: Docker build
 on:
   pull_request:
     paths:
+      - 'Dockerfile'
+      - '.dockerignore'
       - 'requirements.txt'
-  workflow_dispatch: ~
-
+      - 'setup.*'
+      - 'src/**'
+      - 'scripts/health_check.py'
+      - '.github/workflows/pr-test-docker-build.yml'
+      - 'scripts/ci_docker_context.py'
+  push:
+    branches: [main, 'integration/**']
+    paths:
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'requirements.txt'
+      - 'setup.*'
+      - 'src/**'
+      - 'scripts/health_check.py'
+      - '.github/workflows/pr-test-docker-build.yml'
+      - 'scripts/ci_docker_context.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: docker-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
   build:
-    strategy:
-      matrix:
-        platform: [ 'linux/amd64', 'linux/arm64' ]
-        EXP_DEPS: [ 0, 1 ]
-    name: ${{ matrix.platform }} - EXP_DEPS=${{ matrix.EXP_DEPS }}
+    name: Docker amd64 build and offline import
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - name: Check out the repo
-        uses: actions/checkout@v7
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
-      - name: Set up Docker Buildx
-        id: buildx
-        uses: docker/setup-buildx-action@v4
-      - name: Test Docker build
+      - uses: docker/setup-buildx-action@v4
+      - name: Verify private files stay outside Docker context
+        run: python scripts/ci_docker_context.py
+      - name: Build local test image
         uses: docker/build-push-action@v7
         with:
           push: false
+          load: true
+          tags: rsstt-web:ci
           context: .
-          build-args: EXP_DEPS=${{ matrix.EXP_DEPS }}
-          platforms: ${{ matrix.platform }}
-          cache-from: type=gha,scope=docker-release
+          platforms: linux/amd64
+          build-args: EXP_DEPS=0
+          cache-from: type=gha,scope=console-docker
+          cache-to: type=gha,scope=console-docker,mode=max
+      - name: Verify Web modules and assets without network
+        run: >-
+          docker run --rm --network none --entrypoint python
+          -e TOKEN=test -e MANAGER=1 -e MULTIPROCESSING=0
+          rsstt-web:ci -c
+          "from pathlib import Path; from src.management.server import create_app;
+          assert Path('src/management/static/index.html').is_file();
+          assert Path('src/management/static/app.js').is_file()"
