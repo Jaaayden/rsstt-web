@@ -7,7 +7,9 @@ from pathlib import Path
 from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[2]
-CONFIG = ROOT / '.demo'
+CONFIG = Path(os.environ.get('RSSTT_DEMO_CONFIG', str(ROOT / '.demo')))
+PORT = int(os.environ.get('RSSTT_DEMO_PORT', '8730'))
+ORIGIN = f'http://127.0.0.1:{PORT}'
 os.environ.update(TOKEN='test', MANAGER='1', MULTIPROCESSING='0', DATABASE_URL=f'sqlite:{CONFIG / "db.sqlite3"}')
 sys.argv = [sys.argv[0], '-c', str(CONFIG)]
 
@@ -76,12 +78,12 @@ async def main():
     gateway = DemoGateway()
     gateway.store = store
     upstream_web.feed_get = offline_feed
-    app = await create_app(store, 'rsstt-local-preview', 'http://127.0.0.1:8730', gateway, demo=True)
+    app = await create_app(store, 'rsstt-local-preview', ORIGIN, gateway, demo=True)
     runner = web.AppRunner(app, access_log=None)
     await runner.setup()
     try:
-        await web.TCPSite(runner, '127.0.0.1', 8730).start()
-        print('离线预览：http://127.0.0.1:8730（仅示例数据，不连接 Telegram）', flush=True)
+        await web.TCPSite(runner, '127.0.0.1', PORT).start()
+        print(f'离线预览：{ORIGIN}（仅示例数据，不连接 Telegram）', flush=True)
         await asyncio.Event().wait()
     finally:
         await runner.cleanup()

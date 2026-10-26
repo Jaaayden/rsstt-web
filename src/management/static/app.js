@@ -141,6 +141,7 @@ async function render(quiet = false) {
             html = targets(data);
         }
         if (S.route === "subscriptions") {
+            history.replaceState(null, "", "#subscriptions?" + subscriptionQuery());
             const data = await api(
                 "/subscriptions?" +
                     new URLSearchParams({
@@ -280,6 +281,9 @@ function targets(d) {
     );
 }
 
+function subscriptionQuery() {
+    return new URLSearchParams({target:S.target, q:S.q, state:S.status, attention:S.attention ? "1" : "0", page:S.page});
+}
 function subscriptions(d) {
     return (
         header(
@@ -297,7 +301,7 @@ function subscriptions(d) {
                 ["0", "已暂停"],
             ],
             S.status,
-        )}<button data-action="toggle-attention" class="${S.attention ? "primary" : ""} small">${icon("alert", 14)}需要检查</button>${S.target ? '<button class="quiet small" data-action="clear-target">清除会话筛选 ×</button>' : ""}<span class="count">${n(d.total)} 条订阅</span></div>${S.selected.size ? `<div class="bulkbar"><span>已选择 ${S.selected.size} 条</span><button data-batch="pause">暂停</button><button data-batch="resume">恢复</button><button class="danger" data-batch="delete">取消订阅</button><button class="quiet" data-action="clear-selection">清空选择</button></div>` : ""}${d.items.length ? `<div class="table-wrap"><table><thead><tr><th class="selection"><input type="checkbox" id="select-page" aria-label="全选本页" ${d.items.every((i) => S.selected.has(i.id)) ? "checked" : ""}></th><th>订阅内容</th><th>目的地</th><th>状态</th><th>间隔</th><th></th></tr></thead><tbody>${d.items.map((item) => `<tr><td><input type="checkbox" data-select="${item.id}" aria-label="选择 ${esc(item.title)}" ${S.selected.has(item.id) ? "checked" : ""}></td><td><div class="table-feed">${feedMark(item.title)}<div class="feed-info"><strong>${esc(item.title)}</strong><small title="${esc(item.url)}">${esc(item.url)}</small></div></div></td><td>${esc(item.target_title)}</td><td>${pill(item.state === 0 ? "已暂停" : item.errors ? `失败 ${item.errors} 次` : S.snapshot ? "已启用" : "更新中", item.state === 0 ? "gray" : item.errors ? "warn" : "")}</td><td class="muted">${n(item.effective_interval)} 分钟</td><td><div class="table-actions"><button data-sub-toggle="${item.id}" title="${item.state ? "暂停" : "恢复"}" aria-label="${item.state ? "暂停" : "恢复"} ${esc(item.title)}">${icon(item.state ? "pause" : "play", 15)}</button><button data-sub-edit="${item.id}" aria-label="编辑 ${esc(item.title)}">${icon("edit", 15)}</button><button data-sub-delete="${item.id}" aria-label="取消订阅 ${esc(item.title)}">${icon("trash", 15)}</button></div></td></tr>`).join("")}</tbody></table></div>` : empty(S.attention ? "目前没有需要检查的订阅" : "没有匹配的订阅", S.attention ? "偶发失败会自动重试，连续失败达到设置的次数后才会出现在这里。" : "试试调整筛选，或添加一个新的 RSS 地址。")}${pager(d)}</section>`
+        )}<button data-action="filter-target">选择会话筛选</button><a class="text-link" href="/api/subscriptions/opml?${esc(subscriptionQuery())}" download>导出筛选结果</a><button data-action="toggle-attention" class="${S.attention ? "primary" : ""} small">${icon("alert", 14)}需要检查</button>${S.target ? '<button class="quiet small" data-action="clear-target">清除会话筛选 ×</button>' : ""}<span class="count">${n(d.total)} 条订阅</span></div>${S.selected.size ? `<div class="bulkbar"><span>已选择 ${S.selected.size} 条</span><a href="/api/subscriptions/opml?ids=${[...S.selected].join(",")}" download>导出选中项</a><button data-batch="pause">暂停</button><button data-batch="resume">恢复</button><button class="danger" data-batch="delete">取消订阅</button><button class="quiet" data-action="clear-selection">清空选择</button></div>` : ""}${d.items.length ? `<div class="table-wrap"><table><thead><tr><th class="selection"><input type="checkbox" id="select-page" aria-label="全选本页" ${d.items.every((i) => S.selected.has(i.id)) ? "checked" : ""}></th><th>订阅内容</th><th>目的地</th><th>状态</th><th>间隔</th><th></th></tr></thead><tbody>${d.items.map((item) => `<tr><td><input type="checkbox" data-select="${item.id}" aria-label="选择 ${esc(item.title)}" ${S.selected.has(item.id) ? "checked" : ""}></td><td><div class="table-feed">${feedMark(item.title)}<div class="feed-info"><strong>${esc(item.title)}</strong><small title="${esc(item.url)}">${esc(item.url)}</small></div></div></td><td>${esc(item.target_title)}</td><td>${pill(item.state === 0 ? "已暂停" : item.errors ? `失败 ${item.errors} 次` : S.snapshot ? "已启用" : "更新中", item.state === 0 ? "gray" : item.errors ? "warn" : "")}</td><td class="muted">${n(item.effective_interval)} 分钟</td><td><div class="table-actions"><button data-sub-toggle="${item.id}" title="${item.state ? "暂停" : "恢复"}" aria-label="${item.state ? "暂停" : "恢复"} ${esc(item.title)}">${icon(item.state ? "pause" : "play", 15)}</button><button data-recipients="${item.id}">接收会话</button><button data-feed-ua="${item.id}">来源 UA</button><button data-sub-edit="${item.id}" aria-label="编辑 ${esc(item.title)}">${icon("edit", 15)}</button><button data-sub-delete="${item.id}" aria-label="取消订阅 ${esc(item.title)}">${icon("trash", 15)}</button></div></td></tr>`).join("")}</tbody></table></div>` : empty(S.attention ? "目前没有需要检查的订阅" : "没有匹配的订阅", S.attention ? "偶发失败会自动重试，连续失败达到设置的次数后才会出现在这里。" : "试试调整筛选，或添加一个新的 RSS 地址。")}${pager(d)}</section>`
     );
 }
 
@@ -532,7 +536,7 @@ document.addEventListener("click", async (event) => {
             S.page = 1;
             S.target = "";
             S.q = "";
-            location.hash = "subscriptions";
+            location.hash = "subscriptions?attention=1";
             if (S.route === "subscriptions") render();
             return;
         }
@@ -543,6 +547,7 @@ document.addEventListener("click", async (event) => {
             return render(true);
         }
         if (d.action === "clear-target") {
+            S.selected.clear();
             S.target = "";
             S.page = 1;
             return render(true);
@@ -556,7 +561,26 @@ document.addEventListener("click", async (event) => {
             S.q = "";
             S.attention = false;
             S.status = "";
-            location.hash = "subscriptions";
+            location.hash = "subscriptions?target=" + encodeURIComponent(S.target);
+            return;
+        }
+        if (d.action === "filter-target") {
+            modalState = {action:"filter-target", chosen:S.target ? [S.target] : []};
+            modal("筛选接收会话", pickerHtml(false), saveFooter("应用筛选"));
+            return await targetPicker();
+        }
+        if (d.recipients) {
+            const item = S.items.find(i => i.id === Number(d.recipients));
+            const data = await api(`/feeds/${item.feed_id}/recipients`);
+            modalState = {action:"recipients", item, chosen:data.items.map(i => i.target)};
+            modal("编辑来源接收会话", `<p>保留的接收关系保持原标题、格式和暂停状态。新增接收关系继承会话默认设置。</p><label>操作<select name="mode"><option value="replace">将授权范围内接收者替换为所选集合</option><option value="append">仅追加所选接收者（不删除）</option></select></label>${pickerHtml(true)}`, saveFooter("保存接收会话"));
+            return await targetPicker(true);
+        }
+        if (d.feedUa) {
+            const item = S.items.find(i => i.id === Number(d.feedUa));
+            const data = await api(`/feeds/${item.feed_id}/fetch-options`);
+            modalState = {action:"feed-ua", item};
+            modal("来源抓取 User-Agent", `<p>同一来源的全部接收者共享此设置，下次抓取生效。留空恢复全局 User-Agent。</p><label>User-Agent<input name="user_agent" maxlength="512" value="${esc(data.user_agent || "")}"></label>`, saveFooter("保存"));
             return;
         }
         if (d.subEdit) return editSub(S.items.find((i) => i.id === Number(d.subEdit)));
@@ -705,6 +729,16 @@ document.addEventListener("submit", async (event) => {
             await api("/targets", { method: "POST", body: { id: f.get("id") } });
             toast("会话已登记");
         }
+        if (m.action === "filter-target") {
+            S.target = [...m.chosen][0] || ""; S.page = 1; S.selected.clear();
+        }
+        if (m.action === "recipients") {
+            await api(`/feeds/${m.item.feed_id}/recipients`, {method:"PUT", body:{mode:f.get("mode"), targets:[...m.chosen]}});
+            S.selected.clear();
+        }
+        if (m.action === "feed-ua") {
+            await api(`/feeds/${m.item.feed_id}/fetch-options`, {method:"PATCH", body:{user_agent:f.get("user_agent")}});
+        }
         if (m.action === "edit-sub" || m.action === "edit-target") {
             const v = Object.fromEntries(f);
             for (const k of Object.keys(v))
@@ -774,7 +808,12 @@ function route() {
     S.route = labels[next] ? next : "dashboard";
     S.page = 1;
     S.selected.clear();
-    S.q = "";
+    const query = new URLSearchParams(location.hash.split("?")[1] || "");
+    S.q = query.get("q") || "";
+    S.target = query.get("target") || "";
+    S.status = query.get("state") || "";
+    S.attention = query.get("attention") === "1";
+    S.page = Math.max(1, Number(query.get("page")) || 1);
     document.body.classList.remove("menu-open");
     if (S.session) render();
 }

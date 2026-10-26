@@ -370,6 +370,8 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
             raise web.HTTPNotFound()
         return web.FileResponse(STATIC / name)
 
+    from .subscriptions import install
+    install(routes, service, body, admin)
     app.add_routes(routes)
     return app
 
@@ -393,6 +395,8 @@ async def start():
         await _runner.setup()
         await web.TCPSite(_runner, host, port).start()
         metrics.store = _store
+        from . import feed_options
+        feed_options.store = _store
     except BaseException:
         await stop()
         raise
@@ -402,6 +406,8 @@ async def start():
 async def stop():
     global _runner, _store
     metrics.store = None
+    from . import feed_options
+    feed_options.store = None
     if _runner:
         await _runner.cleanup()
         _runner = None
