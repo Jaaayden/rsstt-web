@@ -80,7 +80,7 @@ async def main():
     gateway = DemoGateway()
     gateway.store = store
     upstream_web.feed_get = offline_feed
-    app = await create_app(store, 'rsstt-local-preview', f'http://127.0.0.1:{PORT}', gateway, demo=True)
+    app = await create_app(store, os.environ.get('WEB_PASSWORD', 'rsstt-local-preview'), f'http://127.0.0.1:{PORT}', gateway, demo=True)
     runner = web.AppRunner(app, access_log=None)
     await runner.setup()
     try:
