@@ -13,6 +13,7 @@ from aiohttp import web
 from .. import db, env
 from ..command import inner
 from . import metrics
+from .statistics import usage
 from .service import Problem, Service, chat_id, integer, BANNED_RESUME_MESSAGE
 from .store import Store
 from .auth import Auth, revoke_browser_sessions
@@ -172,23 +173,34 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
     async def dashboard(request):
         admin(request)
         threshold = await service.threshold()
-        total, active, feeds, users, channels, groups, attention = await asyncio.gather(
+        total, active, feeds, attention = await asyncio.gather(
             db.Sub.all().count(), db.Sub.filter(state=1).count(), db.Feed.all().count(),
-            db.User.filter(id__gt=0).count(), db.User.filter(state=50).count(),
-            db.User.filter(id__lt=0).exclude(state=50).count(),
             db.Sub.filter(state=1, feed__error_count__gte=threshold).count())
         settings = await store.settings()
+        usage_counts = await usage(store)
         statistics = await store.statistics()
         if snapshot:
             statistics = {'available': False, 'totals': {'fetched': None, 'delivered': None, 'failed': None}, 'daily': []}
         return web.json_response({
-            'counts': dict(subscriptions=total, active=active, feeds=feeds, users=users, channels=channels, groups=groups, attention=attention),
+            'counts': dict(subscriptions=total, active=active, feeds=feeds, users=usage_counts['known']['private'], channels=usage_counts['known']['channel'], groups=usage_counts['known']['group'], unknown=usage_counts['known']['unknown'], attention=attention),
+            'usage': usage_counts,
             'statistics': statistics, 'started_at': settings['started_at'],
             'bot': service.gateway.status(), 'uptime_seconds': round((datetime.now(service.started.tzinfo) - service.started).total_seconds()),
             'threshold': threshold, 'metrics_error': metrics.last_error,
             'activity': await store.rows('SELECT * FROM activity ORDER BY id DESC LIMIT 8'),
             'attention': (await service.subscriptions(request['principal'], {'attention': '1', 'size': '5'}))['items'],
         })
+
+    @routes.get('/api/statistics')
+    async def statistics_window(request):
+        admin(request)
+        try:
+            result = await store.statistics_window(
+                request.query.get('granularity', 'hour'), request.query.get('start'),
+                request.query.get('end'), unavailable=bool(snapshot))
+        except (ValueError, OverflowError) as error:
+            raise Problem(str(error), 400)
+        return web.json_response(result)
 
     @routes.get('/api/targets')
     async def targets(request):
