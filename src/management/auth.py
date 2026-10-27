@@ -55,11 +55,11 @@ class Auth:
         if count >= 10:
             raise Problem('尝试次数过多，请在 5 分钟后重试。', 429)
         if not isinstance(password, str) or len(password) > 512:
-            raise Problem('登录凭据不正确。', 401)
+            raise Problem('登录凭据不正确。', 401, code='INVALID_CREDENTIALS')
         async with self.lock:
             result = await asyncio.to_thread(self.hash, password)
         if not hmac.compare_digest(result, self.password):
-            raise Problem('登录凭据不正确。', 401)
+            raise Problem('登录凭据不正确。', 401, code='INVALID_CREDENTIALS')
         self.attempts.pop(address, None)
 
     async def change(self, password):
@@ -67,7 +67,7 @@ class Auth:
         try:
             self.validate(password)
         except ValueError:
-            raise Problem('新密码需为 16–512 个字符。')
+            raise Problem('新密码需为 16–512 个字符。', code='NEW_PASSWORD_INVALID')
         salt = secrets.token_bytes(16)
         hashed = await asyncio.to_thread(hashlib.scrypt, password.encode(), salt=salt, n=16384, r=8, p=1)
         async with self.store.lock:

@@ -14,8 +14,9 @@ from ..command.inner.customization import SUB_OPTIONS_EXHAUSTIVE_VALUES
 
 
 class Problem(Exception):
-    def __init__(self, message, status=400):
+    def __init__(self, message, status=400, *, code=None):
         self.message, self.status = message, status
+        self.code = code
         super().__init__(message)
 
 

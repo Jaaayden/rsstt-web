@@ -106,7 +106,7 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
             await auth.verify(values.get('password'), request.remote)
             await store.execute("DELETE FROM credentials WHERE kind='session' AND id NOT IN (SELECT id FROM credentials WHERE kind='session' ORDER BY created_at DESC LIMIT 19)")
             if values.get('username', auth.username) != auth.username:
-                raise Problem('登录凭据不正确。', 401)
+                raise Problem('登录凭据不正确。', 401, code='INVALID_CREDENTIALS')
             _, secret = await store.issue(auth.username, days=1 / 3)
         await store.audit(auth.username, 'login', 'success')
         response = web.json_response({'ok': True})
@@ -128,7 +128,12 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
         admin(request)
         values = await body(request)
         async with auth.change_lock:
-            await auth.verify(values.get('current_password'), request.remote)
+            try:
+                await auth.verify(values.get('current_password'), request.remote)
+            except Problem as error:
+                if error.code == 'INVALID_CREDENTIALS':
+                    raise Problem('当前密码不正确，密码未修改。', code='CURRENT_PASSWORD_INCORRECT') from None
+                raise
             await auth.change(values.get('new_password'))
         await store.audit(auth.username, 'password_changed', 'all browser sessions revoked')
         response = web.json_response({'ok': True})
