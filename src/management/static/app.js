@@ -37,8 +37,8 @@ const paths = {
 const icon = (name, size = 18) =>
     `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${paths[name] || paths.rss}"/></svg>`;
 const labels = { dashboard: "仪表盘", targets: "会话与频道", subscriptions: "全部订阅", settings: "设置" };
-const kindName = { private: "私聊", channel: "频道", group: "群组" };
-const kindIcon = { private: "user", channel: "channel", group: "group" };
+const kindName = { private: "私聊", channel: "频道", group: "群组", unknown: "群组/频道" };
+const kindIcon = { unknown: "chats", private: "user", channel: "channel", group: "group" };
 const S = {
     route: "dashboard",
     session: null,
@@ -150,6 +150,7 @@ async function render(quiet = false) {
             html = targets(data);
         }
         if (S.route === "subscriptions") {
+            history.replaceState(null, "", "#subscriptions?" + subscriptionQuery());
             const data = await api(
                 "/subscriptions?" +
                     new URLSearchParams({
@@ -169,7 +170,7 @@ async function render(quiet = false) {
                 api("/settings"),
                 S.settings === "tokens" ? api("/tokens") : Promise.resolve(null),
             ]);
-            html = settings(data, tokens);
+            html = settings(data, tokens, S.settings === "runtime" ? await api("/runtime-config") : null);
         }
         if (serial !== S.serial) return;
         $("#main").innerHTML = html + credit();
@@ -289,6 +290,9 @@ function targets(d) {
     );
 }
 
+function subscriptionQuery() {
+    return new URLSearchParams({target:S.target, q:S.q, state:S.status, attention:S.attention ? "1" : "0", page:S.page});
+}
 function subscriptions(d) {
     return (
         header(
@@ -306,11 +310,11 @@ function subscriptions(d) {
                 ["0", "已暂停"],
             ],
             S.status,
-        )}<button data-action="toggle-attention" class="${S.attention ? "primary" : ""} small">${icon("alert", 14)}需要检查</button>${S.target ? '<button class="quiet small" data-action="clear-target">清除会话筛选 ×</button>' : ""}<span class="count">${n(d.total)} 条订阅</span></div>${S.selected.size ? `<div class="bulkbar"><span>已选择 ${S.selected.size} 条</span><button data-batch="pause">暂停</button><button data-batch="resume">恢复</button><button class="danger" data-batch="delete">取消订阅</button><button class="quiet" data-action="clear-selection">清空选择</button></div>` : ""}${d.items.length ? `<div class="table-wrap"><table><thead><tr><th class="selection"><input type="checkbox" id="select-page" aria-label="全选本页" ${d.items.every((i) => S.selected.has(i.id)) ? "checked" : ""}></th><th>订阅内容</th><th>目的地</th><th>状态</th><th>间隔</th><th></th></tr></thead><tbody>${d.items.map((item) => `<tr><td><input type="checkbox" data-select="${item.id}" aria-label="选择 ${esc(item.title)}" ${S.selected.has(item.id) ? "checked" : ""}></td><td><div class="table-feed">${feedMark(item.title)}<div class="feed-info"><strong>${esc(item.title)}</strong><small title="${esc(item.url)}">${esc(item.url)}</small></div></div></td><td>${esc(item.target_title)}</td><td>${pill(item.state === 0 ? "已暂停" : item.errors ? `失败 ${item.errors} 次` : S.snapshot ? "已启用" : "更新中", item.state === 0 ? "gray" : item.errors ? "warn" : "")}</td><td class="muted">${n(item.effective_interval)} 分钟</td><td><div class="table-actions"><button data-sub-toggle="${item.id}" title="${item.state ? "暂停" : "恢复"}" aria-label="${item.state ? "暂停" : "恢复"} ${esc(item.title)}">${icon(item.state ? "pause" : "play", 15)}</button><button data-sub-edit="${item.id}" aria-label="编辑 ${esc(item.title)}">${icon("edit", 15)}</button><button data-sub-delete="${item.id}" aria-label="取消订阅 ${esc(item.title)}">${icon("trash", 15)}</button></div></td></tr>`).join("")}</tbody></table></div>` : empty(S.attention ? "目前没有需要检查的订阅" : "没有匹配的订阅", S.attention ? "偶发失败会自动重试，连续失败达到设置的次数后才会出现在这里。" : "试试调整筛选，或添加一个新的 RSS 地址。")}${pager(d)}</section>`
+        )}<button data-action="filter-target">选择会话筛选</button><a class="text-link" href="/api/subscriptions/opml?${esc(subscriptionQuery())}" download>导出筛选结果</a><button data-action="toggle-attention" class="${S.attention ? "primary" : ""} small">${icon("alert", 14)}需要检查</button>${S.target ? '<button class="quiet small" data-action="clear-target">清除会话筛选 ×</button>' : ""}<span class="count">${n(d.total)} 条订阅</span></div>${S.selected.size ? `<div class="bulkbar"><span>已选择 ${S.selected.size} 条</span><a href="/api/subscriptions/opml?ids=${[...S.selected].join(",")}" download>导出选中项</a><button data-batch="pause">暂停</button><button data-batch="resume">恢复</button><button class="danger" data-batch="delete">取消订阅</button><button class="quiet" data-action="clear-selection">清空选择</button></div>` : ""}${d.items.length ? `<div class="table-wrap"><table><thead><tr><th class="selection"><input type="checkbox" id="select-page" aria-label="全选本页" ${d.items.every((i) => S.selected.has(i.id)) ? "checked" : ""}></th><th>订阅内容</th><th>目的地</th><th>状态</th><th>间隔</th><th></th></tr></thead><tbody>${d.items.map((item) => `<tr><td><input type="checkbox" data-select="${item.id}" aria-label="选择 ${esc(item.title)}" ${S.selected.has(item.id) ? "checked" : ""}></td><td><div class="table-feed">${feedMark(item.title)}<div class="feed-info"><strong>${esc(item.title)}</strong><small title="${esc(item.url)}">${esc(item.url)}</small></div></div></td><td>${esc(item.target_title)}</td><td>${pill(item.state === 0 ? "已暂停" : item.errors ? `失败 ${item.errors} 次` : S.snapshot ? "已启用" : "更新中", item.state === 0 ? "gray" : item.errors ? "warn" : "")}</td><td class="muted">${n(item.effective_interval)} 分钟</td><td><div class="table-actions"><button data-sub-toggle="${item.id}" title="${item.state ? "暂停" : "恢复"}" aria-label="${item.state ? "暂停" : "恢复"} ${esc(item.title)}">${icon(item.state ? "pause" : "play", 15)}</button><button data-recipients="${item.id}">接收会话</button><button data-feed-ua="${item.id}">来源 UA</button><button data-sub-edit="${item.id}" aria-label="编辑 ${esc(item.title)}">${icon("edit", 15)}</button><button data-sub-delete="${item.id}" aria-label="取消订阅 ${esc(item.title)}">${icon("trash", 15)}</button></div></td></tr>`).join("")}</tbody></table></div>` : empty(S.attention ? "目前没有需要检查的订阅" : "没有匹配的订阅", S.attention ? "偶发失败会自动重试，连续失败达到设置的次数后才会出现在这里。" : "试试调整筛选，或添加一个新的 RSS 地址。")}${pager(d)}</section>`
     );
 }
 
-function settings(d, tokens) {
+function settings(d, tokens, runtime) {
     const o = d.options;
     const settingRow = (key, label, hint, min = 1, max = 32767, value = o[key]) =>
         `<div class="form-row"><label for="setting-${key}">${label}<p>${hint}</p></label><input id="setting-${key}" name="${key}" type="number" min="${min}" max="${max}" value="${value}" required></div>`;
@@ -319,13 +323,19 @@ function settings(d, tokens) {
         content = `<form id="settings-form" class="panel"><div class="panel-head"><div><h2>更新与订阅</h2><p>新订阅使用的默认值，以及管理台提醒方式</p></div></div><div class="form-body">${settingRow("default_interval", "默认更新间隔", "单位：分钟。影响使用默认值的订阅。")}${settingRow("minimal_interval", "最短更新间隔", "单位：分钟。限制今后设置的更新间隔。")}${settingRow("user_sub_limit", "私聊订阅上限", "-1 表示不限，0 表示不允许添加。", -1)}${settingRow("channel_or_group_sub_limit", "频道 / 群组订阅上限", "每个目的地的默认上限，-1 表示不限。", -1)}${settingRow("attention_threshold", "需要检查的失败次数", "仅改变管理台提醒，不改变上游重试和停用策略。", 1, 100, d.console.attention_threshold)}<div class="form-row"><label for="limit-message">订阅上限提示<p>达到上限时机器人显示的附加说明。</p></label><textarea id="limit-message" name="sub_limit_reached_message" maxlength="2000">${esc(o.sub_limit_reached_message)}</textarea></div></div><div class="form-footer"><button class="primary" type="submit">保存设置</button></div></form>`;
     if (S.settings === "tokens")
         content = `<section class="panel"><div class="panel-head"><div><h2>连接授权</h2><p>允许外部应用通过 API 管理选定的会话</p></div><button class="primary" data-action="new-token">${icon("plus", 14)}创建授权</button></div>${tokens.items.length ? tokens.items.map((t) => `<div class="token-row">${icon("key", 20)}<div><p>${esc(t.name)} ${pill(t.permission === "write" ? "读写" : "只读", "gray")}</p><small>${t.targets === null ? "全部会话（含今后新增）" : `${t.targets.length} 个指定会话`} · ${dateText(t.expires_at * 1000)} 到期</small></div><button class="danger" data-revoke="${esc(t.id)}">撤销</button></div>`).join("") : empty("还没有连接授权", "未来接入 FeedLantern 时，在这里创建专用授权。")}<div class="form-body"><div class="notice">授权只允许访问指定会话的订阅，不包含管理台设置、创建授权或退出频道等管理员操作。完整密钥只显示一次。</div></div></section>`;
+    if (S.settings === "security")
+        content = `<form id="password-form" class="panel"><div class="panel-head"><h2>账户安全</h2></div><div class="form-body"><p>当前账户：${esc(S.session.name)} · ${S.demo ? "预览管理员" : "管理台管理员"}。此账户独立于 Telegram 机器人管理员。</p><label>当前密码<input name="current_password" type="password" autocomplete="current-password" required></label><label>新密码<input name="new_password" type="password" autocomplete="new-password" minlength="16" maxlength="512" required></label><p>修改后所有网页登录会话失效，连接授权保持有效。</p><p class="error" role="alert"></p></div><div class="form-footer"><button class="primary" type="submit">修改密码并退出</button><button type="button" data-action="revoke-sessions">撤销全部网页登录会话</button></div></form>`;
+    if (S.settings === "runtime")
+        content = `<form id="runtime-form" class="panel"><div class="panel-head"><h2>运行配置</h2></div><div class="form-body"><p class="notice">${runtime.pending_restart ? "有配置待重启。" : "没有待应用的覆盖。"} 保存不会改变当前连接；请在部署端安排重启。每项选择“修改”才会保存；“恢复部署值”会删除覆盖。敏感值只显示配置状态。</p>${runtime.items.map(r => `<div class="form-row"><label for="runtime-${r.key}">${esc(r.key)}<p>${r.pending_restart ? "待重启 · " : ""}${r.configured ? "已保存网页覆盖" : "使用部署或默认值"}${r.sensitive ? (r.effective_configured ? " · 当前已配置" : " · 当前未配置") : ""}</p></label><div><select name="mode-${r.key}" aria-label="${esc(r.key)} 操作"><option value="keep">保持不变</option><option value="set">修改</option><option value="reset">恢复部署值</option></select>${r.type === "boolean" ? `<select id="runtime-${r.key}" name="${r.key}" data-type="boolean"><option value="true" ${r.value === true ? "selected" : ""}>启用</option><option value="false" ${r.value === false ? "selected" : ""}>禁用</option></select>` : `<input id="runtime-${r.key}" name="${r.key}" data-type="${r.type}" type="${r.sensitive ? "password" : r.type === "integer" ? "number" : "text"}" autocomplete="off" value="${r.sensitive ? "" : esc(r.value ?? "")}" ${r.min !== undefined ? `min="${r.min}" max="${r.max}"` : ""}>`}</div></div>`).join("")}<p class="hint">必须由部署管理：${runtime.deployment_only.map(esc).join("、")}。网页登录凭据请使用连接授权／登录设置。</p></div><div class="form-footer"><button class="primary" type="submit">保存，重启后生效</button></div></form>`;
     if (S.settings === "instance")
-        content = `<section class="panel"><div class="panel-head"><h2>实例信息</h2></div><div class="form-body"><dl class="info-grid"><div><dt>机器人</dt><dd>${esc(d.bot.name)} · @${esc(d.bot.username || "未设置")}</dd></div><div><dt>连接状态</dt><dd>${S.snapshot ? "真实数据离线预览" : d.demo ? "离线演示" : d.bot.connected ? "在线" : "未连接"}</dd></div><div><dt>管理台地址</dt><dd>${esc(d.origin)}</dd></div><div><dt>RSStT 数据库</dt><dd>${esc(d.database)}</dd></div><div><dt>${S.snapshot ? "快照时间" : "统计开始时间"}</dt><dd>${dateText(S.snapshot ? S.snapshot.captured_at : d.console.started_at)}</dd></div><div><dt>统计存储</dt><dd>${S.snapshot ? "原版无历史统计" : "独立 SQLite · 累计值永久保留"}</dd></div></dl><div class="notice">机器人 Token、Telegram API 凭证、代理与管理台密码通过部署环境配置。修改这些配置后重启实例即可生效。管理台不会读取或显示这些密钥。</div></div></section>`;
+        content = `<section class="panel"><div class="panel-head"><h2>实例信息</h2></div><div class="form-body"><dl class="info-grid"><div><dt>机器人</dt><dd>${esc(d.bot.name)} · @${esc(d.bot.username || "未设置")}</dd></div><div><dt>连接状态</dt><dd>${S.snapshot ? "真实数据离线预览" : d.demo ? "离线演示" : d.bot.connected ? "在线" : "未连接"}</dd></div><div><dt>管理台地址</dt><dd>${esc(d.origin)}</dd></div><div><dt>RSStT 数据库</dt><dd>${esc(d.database)}</dd></div><div><dt>${S.snapshot ? "快照时间" : "统计开始时间"}</dt><dd>${dateText(S.snapshot ? S.snapshot.captured_at : d.console.started_at)}</dd></div><div><dt>统计存储</dt><dd>${S.snapshot ? "原版无历史统计" : "独立 SQLite · 累计值永久保留"}</dd></div></dl><div class="notice">机器人 Token、Telegram API 凭证与代理可在运行配置中保存，重启后应用。管理者身份由部署管理；网页登录密码通过账户安全修改。敏感值不会回显。</div></div></section>`;
     return (
         header("设置", "熟悉的管理方式，按需调整。") +
         `<div class="settings"><nav class="settings-nav" aria-label="设置栏目">${[
             ["general", "settings", "更新与订阅"],
+            ["runtime", "settings", "运行配置"],
             ["tokens", "key", "连接授权"],
+            ["security", "key", "账户安全"],
             ["instance", "rss", "实例信息"],
         ]
             .map(
@@ -472,7 +482,7 @@ function editTarget(item) {
     modalState = { action: "edit-target", item };
     modal(
         item.title,
-        `<div class="spread"><span class="muted mono small">${esc(item.id)} · ${targetKindName(item)}</span><button type="button" data-refresh-target="${item.id}" class="small">${icon("refresh", 13)}同步名称与权限</button></div><div class="inline"><a class="text-link" href="/api/targets/${item.id}/opml" download>导出 OPML</a><button type="button" class="text-link" data-import-target="${item.id}">导入 OPML</button></div><label>此会话的订阅上限<input name="sub_limit" type="number" min="-1" max="32767" value="${item.sub_limit ?? ""}" placeholder="使用实例默认值"><span class="hint">-1 表示不限，留空则继承实例设置。</span></label>${formatFields(item.options, false)}${item.id.startsWith("-") ? `<div class="spread"><span class="hint">退出后保留订阅记录，并暂停更新。</span><button type="button" class="danger small" data-leave-target="${item.id}">退出会话</button></div>` : ""}`,
+        `<div class="spread"><span class="muted mono small">${esc(item.id)} · ${targetKindName(item)}</span><button type="button" data-refresh-target="${item.id}" class="small">${icon("refresh", 13)}同步名称与权限</button></div><div class="inline"><a class="text-link" href="/api/targets/${item.id}/opml" download>导出 OPML</a><button type="button" class="text-link" data-import-target="${item.id}">导入 OPML</button></div><label>用户角色<select id="target-role" ${item.role_protected ? "disabled" : ""}>${(item.role_protected ? [["manager","MANAGER（部署管理）"]] : [["banned","封禁"],["guest","访客"],["user","普通用户"],...(!item.id.startsWith("-") ? [["admin","管理员（原版状态 100）"]] : [])]).map(([v,l]) => `<option value="${v}" ${item.role === v ? "selected" : ""}>${l}</option>`).join("")}</select><span class="hint">原版管理员状态不等于 MANAGER，不授予管理台登录或管理者命令权限。封禁会暂停订阅，解封不会自动恢复。</span></label><button type="button" data-save-role="${item.id}" ${item.role_protected ? "disabled" : ""}>保存角色</button><label>Bot 语言<input name="lang" value="${esc(item.lang || "null")}" maxlength="16"><span class="hint">例如 zh-Hans、en；null 使用自动语言。</span></label><label>此会话的订阅上限<input name="sub_limit" type="number" min="-1" max="32767" value="${item.sub_limit ?? ""}" placeholder="使用实例默认值"><span class="hint">-1 表示不限，留空则继承实例设置。</span></label>${formatFields(item.options, false)}${item.id.startsWith("-") ? `<div class="spread"><span class="hint">退出后保留订阅记录，并暂停更新。</span><button type="button" class="danger small" data-leave-target="${item.id}">退出会话</button></div>` : ""}`,
         saveFooter("保存默认设置"),
     );
 }
@@ -506,6 +516,12 @@ document.addEventListener("click", async (event) => {
             document.body.classList.toggle("menu-open");
             return;
         }
+        if (d.action === "revoke-sessions") {
+            await api("/auth/sessions", { method: "DELETE" });
+            S.session = null;
+            login();
+            return;
+        }
         if (d.action === "logout") {
             await api("/logout", { method: "POST" });
             S.session = null;
@@ -521,6 +537,12 @@ document.addEventListener("click", async (event) => {
             S.page = Number(d.page);
             S.selected.clear();
             return render(true);
+        }
+        if (d.saveRole) {
+            const updated = await api(`/targets/${d.saveRole}/role`, { method: "PATCH", body: {role: $("#target-role").value} });
+            toast("角色已保存");
+            editTarget(updated);
+            return;
         }
         if (d.settings) {
             S.settings = d.settings;
@@ -541,7 +563,7 @@ document.addEventListener("click", async (event) => {
             S.page = 1;
             S.target = "";
             S.q = "";
-            location.hash = "subscriptions";
+            location.hash = "subscriptions?attention=1";
             if (S.route === "subscriptions") render();
             return;
         }
@@ -552,6 +574,7 @@ document.addEventListener("click", async (event) => {
             return render(true);
         }
         if (d.action === "clear-target") {
+            S.selected.clear();
             S.target = "";
             S.page = 1;
             return render(true);
@@ -565,7 +588,26 @@ document.addEventListener("click", async (event) => {
             S.q = "";
             S.attention = false;
             S.status = "";
-            location.hash = "subscriptions";
+            location.hash = "subscriptions?target=" + encodeURIComponent(S.target);
+            return;
+        }
+        if (d.action === "filter-target") {
+            modalState = {action:"filter-target", chosen:S.target ? [S.target] : []};
+            modal("筛选接收会话", pickerHtml(false), saveFooter("应用筛选"));
+            return await targetPicker();
+        }
+        if (d.recipients) {
+            const item = S.items.find(i => i.id === Number(d.recipients));
+            const data = await api(`/feeds/${item.feed_id}/recipients`);
+            modalState = {action:"recipients", item, chosen:data.items.map(i => i.target)};
+            modal("编辑来源接收会话", `<p>保留的接收关系保持原标题、格式和暂停状态。新增接收关系继承会话默认设置。</p><label>操作<select name="mode"><option value="replace">将授权范围内接收者替换为所选集合</option><option value="append">仅追加所选接收者（不删除）</option></select></label>${pickerHtml(true)}`, saveFooter("保存接收会话"));
+            return await targetPicker(true);
+        }
+        if (d.feedUa) {
+            const item = S.items.find(i => i.id === Number(d.feedUa));
+            const data = await api(`/feeds/${item.feed_id}/fetch-options`);
+            modalState = {action:"feed-ua", item};
+            modal("来源抓取 User-Agent", `<p>同一来源的全部接收者共享此设置，下次抓取生效。留空恢复全局 User-Agent。</p><label>User-Agent<input name="user_agent" maxlength="512" value="${esc(data.user_agent || "")}"></label>`, saveFooter("保存"));
             return;
         }
         if (d.subEdit) return editSub(S.items.find((i) => i.id === Number(d.subEdit)));
@@ -694,6 +736,24 @@ document.addEventListener("submit", async (event) => {
             await boot();
             return;
         }
+        if (form.id === "runtime-form") {
+            const values = {};
+            for (const [key, mode] of f) {
+                if (!key.startsWith("mode-") || mode === "keep") continue;
+                const name = key.slice(5), field = form.elements.namedItem(name), value = f.get(name);
+                values[name] = mode === "reset" ? null : field.dataset.type === "boolean" ? value === "true" : field.dataset.type === "integer" ? Number(value) : value;
+            }
+            if (!Object.keys(values).length) throw new Error("请先选择需要修改的项目。");
+            await api("/runtime-config", {method: "PATCH", body: values});
+            toast("已保存；需要在部署端重启后生效");
+            return render(true);
+        }
+        if (form.id === "password-form") {
+            await api("/auth/password", { method: "POST", body: Object.fromEntries(f) });
+            S.session = null;
+            login();
+            return;
+        }
         if (form.id === "settings-form") {
             const values = Object.fromEntries(f);
             for (const k of Object.keys(values)) if (k !== "sub_limit_reached_message") values[k] = Number(values[k]);
@@ -714,10 +774,20 @@ document.addEventListener("submit", async (event) => {
             await api("/targets", { method: "POST", body: { id: f.get("id") } });
             toast("会话已登记");
         }
+        if (m.action === "filter-target") {
+            S.target = [...m.chosen][0] || ""; S.page = 1; S.selected.clear();
+        }
+        if (m.action === "recipients") {
+            await api(`/feeds/${m.item.feed_id}/recipients`, {method:"PUT", body:{mode:f.get("mode"), targets:[...m.chosen]}});
+            S.selected.clear();
+        }
+        if (m.action === "feed-ua") {
+            await api(`/feeds/${m.item.feed_id}/fetch-options`, {method:"PATCH", body:{user_agent:f.get("user_agent")}});
+        }
         if (m.action === "edit-sub" || m.action === "edit-target") {
             const v = Object.fromEntries(f);
             for (const k of Object.keys(v))
-                if (!["title", "tags"].includes(k)) v[k] = v[k] === "" ? null : Number(v[k]);
+                if (!["title", "tags", "lang"].includes(k)) v[k] = v[k] === "" ? null : Number(v[k]);
             await api(`/${m.action === "edit-sub" ? "subscriptions" : "targets"}/${m.item.id}`, {
                 method: "PATCH",
                 body: v,
@@ -783,7 +853,12 @@ function route() {
     S.route = labels[next] ? next : "dashboard";
     S.page = 1;
     S.selected.clear();
-    S.q = "";
+    const query = new URLSearchParams(location.hash.split("?")[1] || "");
+    S.q = query.get("q") || "";
+    S.target = query.get("target") || "";
+    S.status = query.get("state") || "";
+    S.attention = query.get("attention") === "1";
+    S.page = Math.max(1, Number(query.get("page")) || 1);
     document.body.classList.remove("menu-open");
     if (S.session) render();
 }
@@ -801,9 +876,7 @@ async function boot() {
             S.session = await api("/session");
         } catch (e) {
             if (e.status !== 401) throw e;
-            if (!pub.demo) return login();
-            await api("/login", { method: "POST", body: { password: "rsstt-local-preview" } });
-            S.session = await api("/session");
+            return login();
         }
         shell();
         route();

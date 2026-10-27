@@ -1,13 +1,9 @@
 """Authenticated, same-origin API and dependency-free static web application."""
 import asyncio
-import hashlib
-import hmac
 import json
 import logging
 import os
-import secrets
 import time
-from collections import OrderedDict
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -18,43 +14,14 @@ from .. import db, env
 from ..command import inner
 from . import metrics
 from .statistics import usage
-from .service import Problem, Service, chat_id, integer
+from .service import Problem, Service, chat_id, integer, BANNED_RESUME_MESSAGE
 from .store import Store
+from .auth import Auth, revoke_browser_sessions
+from .agent_contract import authorize_agent, openapi
 
 LOGGER = logging.getLogger('RSStT.management')
 STATIC = Path(__file__).parent / 'static'
 SAFE = {'GET', 'HEAD', 'OPTIONS'}
-
-
-class Auth:
-    def __init__(self, password):
-        if len(password) < 16:
-            raise ValueError('WEB_PASSWORD must contain at least 16 characters')
-        self.salt = secrets.token_bytes(16)
-        self.password = self.hash(password)
-        self.attempts = OrderedDict()
-        self.lock = asyncio.Semaphore(2)
-
-    def hash(self, password):
-        return hashlib.scrypt(password.encode(), salt=self.salt, n=16384, r=8, p=1)
-
-    async def verify(self, password, address):
-        now = time.monotonic()
-        count, since = self.attempts.pop(address, (0, now))
-        if now - since > 300:
-            count, since = 0, now
-        self.attempts[address] = (count + 1, since)
-        while len(self.attempts) > 1024:
-            self.attempts.popitem(last=False)
-        if count >= 10:
-            raise Problem('尝试次数过多，请在 5 分钟后重试。', 429)
-        if not isinstance(password, str) or len(password) > 512:
-            raise Problem('登录密码不正确。', 401)
-        async with self.lock:
-            result = await asyncio.to_thread(self.hash, password)
-        if not hmac.compare_digest(result, self.password):
-            raise Problem('登录密码不正确。', 401)
-        self.attempts.pop(address, None)
 
 
 async def body(request):
@@ -70,7 +37,7 @@ async def body(request):
 
 
 def admin(request):
-    if request['principal']['permission'] != 'admin':
+    if request['principal']['kind'] != 'session' or request['principal']['permission'] != 'admin':
         raise Problem('此操作需要管理台管理员权限。', 403)
 
 
@@ -84,9 +51,13 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
     # Cookies are shared across ports; keep parallel local previews independent.
     cookie_name = f'rsstt_session_{parsed.port}' if demo else 'rsstt_session'
     service = Service(store, gateway, demo)
-    auth = Auth(password)
+    from ..runtime_config import RuntimeConfig, ConfigError
+    runtime = RuntimeConfig(store.path.parent,
+                            applied=getattr(env, 'RUNTIME_CONFIG_OVERRIDES', {}),
+                            environment=getattr(env, 'RUNTIME_CONFIG_ENVIRONMENT', {}))
+    auth = await Auth.load(store, password, "preview-admin" if demo else "admin")
     # Re-authenticate after restart/password rotation; integration tokens persist.
-    await store.execute("DELETE FROM credentials WHERE kind='session'")
+    await revoke_browser_sessions(store)
 
     @web.middleware
     async def boundary(request, handler):
@@ -94,11 +65,13 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
             if request.path.startswith('/api/'):
                 if request.path not in ('/api/login', '/api/public'):
                     bearer = request.headers.get('Authorization', '')
-                    secret = bearer[7:] if bearer.startswith('Bearer ') else request.cookies.get(cookie_name, '')
+                    secret = bearer[7:] if bearer.startswith('Bearer ') else '' if bearer else request.cookies.get(cookie_name, '')
                     principal = await store.credential(secret) if secret else None
                     if not principal or (bearer and principal['kind'] != 'token') or (not bearer and principal['kind'] != 'session'):
                         raise Problem('请先登录管理台。', 401)
                     request['principal'] = principal
+                    if bearer:
+                        authorize_agent(request, principal)
                     if request.method not in SAFE:
                         if principal['permission'] == 'read':
                             raise Problem('这个连接授权只有读取权限。', 403)
@@ -108,12 +81,14 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
                     raise Problem('登录来源与 WEB_ORIGIN 不匹配。', 403)
             response = await handler(request)
         except Problem as error:
-            response = web.json_response({'error': error.message}, status=error.status)
+            response = web.json_response({'error': error.message, 'code': getattr(error, 'code', None) or {400: 'INVALID_REQUEST', 401: 'UNAUTHENTICATED', 403: 'FORBIDDEN', 404: 'NOT_FOUND', 409: 'CONFLICT', 415: 'UNSUPPORTED_MEDIA_TYPE', 429: 'RATE_LIMITED'}.get(error.status, 'REQUEST_FAILED')}, status=error.status)
         except web.HTTPException as error:
-            response = web.json_response({'error': '请求过大。' if error.status == 413 else '请求地址或方法无效。'}, status=error.status)
+            response = web.json_response({'error': '请求过大。' if error.status == 413 else '请求地址或方法无效。', 'code': 'PAYLOAD_TOO_LARGE' if error.status == 413 else 'INVALID_ROUTE'}, status=error.status)
         except Exception:
             LOGGER.exception('Console request failed: %s %s', request.method, request.path)
-            response = web.json_response({'error': '操作未完成，请查看服务日志后重试。'}, status=500)
+            response = web.json_response({'error': '操作未完成，请查看服务日志后重试。', 'code': 'INTERNAL_ERROR'}, status=500)
+        if request.get('principal', {}).get('kind') == 'token':
+            await store.audit(request['principal']['id'], 'agent_request', f"{request.method} {request.match_info.route.resource.canonical if request.match_info.route.resource else '/unknown'} {response.status}")
         response.headers.update({
             'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
             'Referrer-Policy': 'no-referrer', 'X-Frame-Options': 'DENY',
@@ -132,9 +107,13 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
     @routes.post('/api/login')
     async def login(request):
         values = await body(request)
-        await auth.verify(values.get('password'), request.remote)
-        await store.execute("DELETE FROM credentials WHERE kind='session' AND id NOT IN (SELECT id FROM credentials WHERE kind='session' ORDER BY created_at DESC LIMIT 20)")
-        _, secret = await store.issue('管理员', days=1 / 3)
+        async with auth.change_lock:
+            await auth.verify(values.get('password'), request.remote)
+            await store.execute("DELETE FROM credentials WHERE kind='session' AND id NOT IN (SELECT id FROM credentials WHERE kind='session' ORDER BY created_at DESC LIMIT 19)")
+            if values.get('username', auth.username) != auth.username:
+                raise Problem('登录凭据不正确。', 401, code='INVALID_CREDENTIALS')
+            _, secret = await store.issue(auth.username, days=1 / 3)
+        await store.audit(auth.username, 'login', 'success')
         response = web.json_response({'ok': True})
         response.set_cookie(cookie_name, secret, httponly=True, secure=parsed.scheme == 'https', samesite='Strict', max_age=28800, path='/')
         return response
@@ -142,7 +121,46 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
     @routes.get('/api/session')
     async def session(request):
         p = request['principal']
-        return web.json_response({'name': p['name'], 'permission': p['permission'], 'targets': p['targets'], 'demo': demo})
+        return web.json_response({'name': p['name'], 'permission': p['permission'], 'targets': p['targets'], 'demo': demo, 'account_type': 'agent' if p['kind'] == 'token' else 'preview_admin' if demo else 'console_admin', 'expires_at': p['expires_at'], 'capabilities': ['subscriptions:read', 'subscriptions:write'] if p['permission'] == 'write' else ['subscriptions:read'] if p['permission'] == 'read' else ['console:admin']})
+
+    @routes.get('/api/auth/account')
+    async def account(request):
+        admin(request)
+        return web.json_response({'username': auth.username, 'account_type': 'preview_admin' if demo else 'console_admin'})
+
+    @routes.post('/api/auth/password')
+    async def password_change(request):
+        admin(request)
+        values = await body(request)
+        async with auth.change_lock:
+            try:
+                await auth.verify(values.get('current_password'), request.remote)
+            except Problem as error:
+                if error.code == 'INVALID_CREDENTIALS':
+                    raise Problem('当前密码不正确，密码未修改。', code='CURRENT_PASSWORD_INCORRECT') from None
+                raise
+            await auth.change(values.get('new_password'))
+        await store.audit(auth.username, 'password_changed', 'all browser sessions revoked')
+        response = web.json_response({'ok': True})
+        response.del_cookie(cookie_name)
+        return response
+
+    @routes.get('/api/auth/sessions')
+    async def sessions(request):
+        admin(request)
+        return web.json_response({'items': await store.rows("SELECT id,name,created_at,expires_at FROM credentials WHERE kind='session' AND expires_at>?", (time.time(),))})
+
+    @routes.delete('/api/auth/sessions')
+    async def revoke_sessions(request):
+        admin(request)
+        async with auth.change_lock:
+            await revoke_browser_sessions(store)
+        await store.audit(auth.username, 'sessions_revoked', 'all')
+        return web.json_response({'ok': True})
+
+    @routes.get('/api/openapi.json')
+    async def contract(request):
+        return web.json_response(openapi(request.app.router))
 
     @routes.post('/api/logout')
     async def logout(request):
@@ -213,6 +231,29 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
         await store.audit(request['principal']['name'], '修改会话默认设置', str(user.id))
         return web.json_response((await service.target_data([user]))[0])
 
+    @routes.patch('/api/targets/{id}/role')
+    async def patch_role(request):
+        admin(request)
+        values = await body(request)
+        roles = {'banned': -1, 'guest': 0, 'user': 1, 'admin': 100}
+        if set(values) != {'role'} or not isinstance(values.get('role'), str) or values['role'] not in roles:
+            raise Problem('角色必须是 banned、guest、user 或 admin。')
+        from ..command.inner.users import set_user_state
+        async with service.mutation:
+            user = await service.user(request.match_info['id'], request['principal'])
+            # Preserve destination type separately before changing upstream state.
+            current = (await service.target_data([user]))[0]
+            meta = (await store.target_map([user.id])).get(str(user.id))
+            if not meta:
+                await store.target(user.id, current['title'], current['username'], current['kind'], current['membership'])
+            actor_id = request['principal'].get('telegram_id')
+            try:
+                await set_user_state(user, roles[values['role']], int(actor_id) if actor_id is not None else None)
+            except ValueError as error:
+                raise Problem(str(error), 409)
+        await store.audit(request['principal']['name'], '修改用户角色', f'{user.id}: {values["role"]}')
+        return web.json_response((await service.target_data([user]))[0])
+
     @routes.post('/api/targets/{id}/leave')
     async def leave(request):
         admin(request)
@@ -258,7 +299,7 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
             sub = await service.subscription(request.match_info['id'], request['principal'])
             if values.get('state') == 1:
                 if sub.user.state == -1:
-                    raise Problem('这个用户已被封禁。', 409)
+                    raise Problem(BANNED_RESUME_MESSAGE, 409, code='TARGET_BANNED')
                 await service.refresh(sub.user_id, request['principal'])
             await service.patch(sub, values)
         await store.audit(request['principal']['name'], '修改订阅', str(sub.id))
@@ -289,12 +330,12 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
                     else:
                         if action == 'resume':
                             if sub.user.state == -1:
-                                raise Problem('这个用户已被封禁。', 409)
+                                raise Problem(BANNED_RESUME_MESSAGE, 409, code='TARGET_BANNED')
                             await service.refresh(sub.user_id, request['principal'])
                         await service.patch(sub, {'state': 1 if action == 'resume' else 0})
                     result.append({'id': sub.id, 'ok': True})
                 except Problem as error:
-                    result.append({'id': sub.id, 'ok': False, 'error': error.message})
+                    result.append({'id': sub.id, 'ok': False, 'error': error.message, 'code': error.code, 'status': error.status})
         await store.audit(request['principal']['name'], '批量处理订阅', f'{action} · {len(result)} 条')
         return web.json_response({'results': result})
 
@@ -303,7 +344,7 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
         admin(request)
         return web.json_response({'options': db.EffectiveOptions.options, 'console': await store.settings(),
                                   'bot': service.gateway.status(), 'origin': origin, 'demo': demo,
-                                  'database': env.DATABASE_URL.split(':', 1)[0]})
+                                  'database': env.DATABASE_URL.split(':', 1)[0], 'version': env.VERSION})
 
     @routes.patch('/api/settings')
     async def patch_settings(request):
@@ -333,6 +374,28 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
                     await inner.utils.update_interval(feed)
         await store.audit(request['principal']['name'], '更新设置', '、'.join(clean))
         return web.json_response({'ok': True})
+
+    @routes.get('/api/runtime-config')
+    async def runtime_config(request):
+        admin(request)
+        try:
+            return web.json_response(runtime.describe())
+        except ConfigError as error:
+            raise Problem(str(error), 409)
+
+    @routes.patch('/api/runtime-config')
+    async def patch_runtime_config(request):
+        admin(request)
+        values = await body(request)
+        if not values:
+            raise Problem('没有可保存的运行配置。')
+        async with service.mutation:
+            try:
+                result = runtime.save(values)
+            except ConfigError as error:
+                raise Problem(str(error))
+        await store.audit(request['principal']['name'], '保存运行配置（待重启）', '、'.join(sorted(values)))
+        return web.json_response(result)
 
     @routes.get('/api/tokens')
     async def tokens(request):
@@ -382,6 +445,8 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
             raise web.HTTPNotFound()
         return web.FileResponse(STATIC / name)
 
+    from .subscriptions import install
+    install(routes, service, body, admin)
     app.add_routes(routes)
     return app
 
@@ -405,6 +470,8 @@ async def start():
         await _runner.setup()
         await web.TCPSite(_runner, host, port).start()
         metrics.store = _store
+        from . import feed_options
+        feed_options.store = _store
     except BaseException:
         await stop()
         raise
@@ -414,6 +481,8 @@ async def start():
 async def stop():
     global _runner, _store
     metrics.store = None
+    from . import feed_options
+    feed_options.store = None
     if _runner:
         await _runner.cleanup()
         _runner = None
