@@ -111,12 +111,10 @@ const S = {
     q: "",
     kind: "",
     visibility: "unbanned",
-    archive: "visible",
     target: "",
     status: "",
     attention: false,
     selected: new Set(),
-    selectedChats: new Set(),
     items: [],
     serial: 0,
 };
@@ -259,7 +257,7 @@ function header(title, description, button = "") {
         ${button}
     </div>`;
 }
-const targetKindName = (item) => kindName[item.kind] || tr("类型待核验");
+const targetKindName = (item) => kindName[item.kind] || tr("未知");
 const newButton = () => html`<button class="primary" data-action="new-sub">${icon("plus", 16)}添加订阅</button>`;
 const credit = () =>
     html`<footer class="credit">
@@ -276,7 +274,6 @@ async function render(quiet = false) {
     const focus = document.activeElement,
         focusData = [
             "select",
-            "selectChat",
             "subToggle",
             "subEdit",
             "subDelete",
@@ -325,19 +322,10 @@ async function render(quiet = false) {
         }
         if (S.route === "targets") {
             const data = await api(
-                "/targets?" +
-                    new URLSearchParams({
-                        page: S.page,
-                        q: S.q,
-                        kind: S.kind,
-                        visibility: S.visibility,
-                        archive: S.archive,
-                    }),
+                "/targets?" + new URLSearchParams({ page: S.page, q: S.q, kind: S.kind, visibility: S.visibility }),
             );
             if (serial !== S.serial) return;
             S.items = data.items;
-            const selectable = new Set(data.items.filter((item) => !item.role_protected).map((item) => item.id));
-            for (const id of S.selectedChats) if (!selectable.has(id)) S.selectedChats.delete(id);
             html = targets(data);
         }
         if (S.route === "subscriptions") {
@@ -380,8 +368,6 @@ async function render(quiet = false) {
         if (serial !== S.serial) return;
         $("#main").innerHTML = html + credit();
         syncTableHints();
-        const chatPageToggle = $("#select-chat-page");
-        if (chatPageToggle) chatPageToggle.indeterminate = S.selectedChats.size > 0 && !chatPageToggle.checked;
         if (quiet && (focusId || focusSelector)) {
             const next = focusId ? document.getElementById(focusId) : $(focusSelector);
             if (next) {
@@ -684,11 +670,9 @@ const select = (id, entries, value) =>
         id="${id}"
         aria-label="${id === "kind-filter"
             ? tr("会话类型")
-            : id === "archive-filter"
-              ? tr("归档范围")
-              : id === "visibility-filter"
-                ? tr("会话显示范围")
-                : tr("订阅状态")}"
+            : id === "visibility-filter"
+              ? tr("会话显示范围")
+              : tr("订阅状态")}"
     >
         ${entries
             .map(
@@ -713,34 +697,11 @@ function pager(d) {
     </div>`;
 }
 
-function chatBulkActions() {
-    if (!S.selectedChats.size) return "";
-    return html`<div class="bulkbar chat-bulkbar">
-        <span>${message("selectedChats", { count: n(S.selectedChats.size) })}</span>
-        ${S.archive !== "archived" ? html`<button data-chat-archive="archive">归档所选会话</button>` : ""}
-        ${S.archive !== "visible" ? html`<button data-chat-archive="restore">取消归档</button>` : ""}
-        <button class="quiet" data-action="clear-chat-selection">清空选择</button>
-    </div>`;
-}
-function syncChatSelection() {
-    $$("[data-select-chat]").forEach((input) => {
-        input.checked = S.selectedChats.has(input.dataset.selectChat);
-    });
-    const toggle = $("#select-chat-page");
-    const eligible = S.items.filter((item) => !item.role_protected);
-    if (toggle) {
-        toggle.checked = eligible.length > 0 && eligible.every((item) => S.selectedChats.has(item.id));
-        toggle.indeterminate = S.selectedChats.size > 0 && !toggle.checked;
-    }
-    const actions = $("#chat-bulk-actions");
-    if (actions) actions.innerHTML = chatBulkActions();
-}
-
 function targets(d) {
     return (
         header(
             tr("会话与频道"),
-            tr("查看已记录的私聊、群组和频道，管理各自的订阅与推送设置。"),
+            tr("管理已接入机器人的会话，查看启用订阅并控制使用权限。"),
             html`<button class="primary" data-action="register">${icon("plus", 16)}添加已有会话</button>`,
         ) +
         html`<section class="panel">
@@ -749,10 +710,9 @@ function targets(d) {
                         "kind-filter",
                         [
                             ["", tr("全部类型")],
-                            ["channel", tr("频道")],
-                            ["group", tr("群组")],
-                            ["unknown", tr("类型待核验")],
                             ["private", tr("私聊")],
+                            ["group", tr("群组")],
+                            ["channel", tr("频道")],
                         ],
                         S.kind,
                     )}${select(
@@ -765,43 +725,18 @@ function targets(d) {
                             ["all", tr("全部")],
                         ],
                         S.visibility,
-                    )}${select(
-                        "archive-filter",
-                        [
-                            ["visible", tr("未归档")],
-                            ["archived", tr("已归档")],
-                            ["all", tr("全部（含归档）")],
-                        ],
-                        S.archive,
                     )}<span class="count">${count(d.total, "destination")}</span>
                 </div>
                 <p class="filter-help">
                     ${tr(
-                        "未归档列表隐藏已归档会话，默认也隐藏已封禁会话。归档只整理列表，不暂停订阅；已启用的订阅继续推送。活跃指未封禁且有启用订阅和启用订阅源。",
+                        "默认隐藏已封禁会话；可选择“已封禁”或“全部”查看。机器人已退出或被移除的会话不再显示。活跃指未封禁且有已启用订阅和已启用订阅源的会话。",
                     )}
                 </p>
-                <div id="chat-bulk-actions">${chatBulkActions()}</div>
                 ${d.items.length
                     ? html`<div class="table-wrap">
                           <table class="chat-table">
                               <thead>
                                   <tr>
-                                      <th class="selection">
-                                          <input
-                                              type="checkbox"
-                                              id="select-chat-page"
-                                              aria-label="全选本页会话（管理者除外）"
-                                              ${d.items.filter((item) => !item.role_protected).length === 0
-                                                  ? "disabled"
-                                                  : ""}
-                                              ${d.items.some((item) => !item.role_protected) &&
-                                              d.items
-                                                  .filter((item) => !item.role_protected)
-                                                  .every((item) => S.selectedChats.has(item.id))
-                                                  ? "checked"
-                                                  : ""}
-                                          />
-                                      </th>
                                       <th>会话</th>
                                       <th>类型</th>
                                       <th>订阅数</th>
@@ -815,26 +750,13 @@ function targets(d) {
                                       .map(
                                           (item) =>
                                               html`<tr>
-                                                  <td class="selection">
-                                                      <input
-                                                          type="checkbox"
-                                                          data-select-chat="${item.id}"
-                                                          aria-label="${message("selectChat", {
-                                                              name: esc(item.title),
-                                                          })}"
-                                                          ${item.role_protected
-                                                              ? `disabled title="${tr("机器人管理者不可归档")}"`
-                                                              : ""}
-                                                          ${S.selectedChats.has(item.id) ? "checked" : ""}
-                                                      />
-                                                  </td>
                                                   <td>
                                                       <div class="table-feed">
                                                           <div class="feed-mark">${icon(kindIcon[item.kind], 17)}</div>
                                                           <div class="feed-info">
                                                               <strong title="${esc(item.title)}"
                                                                   >${esc(item.title)}</strong
-                                                              >${item.archived ? pill(tr("已归档"), "gray") : ""}<small
+                                                              ><small
                                                                   >${item.username
                                                                       ? "@" + esc(item.username) + " · "
                                                                       : ""}${esc(item.id)}</small
@@ -843,7 +765,15 @@ function targets(d) {
                                                       </div>
                                                   </td>
                                                   <td>${targetKindName(item)}</td>
-                                                  <td class="mono">${n(item.subscriptions)}</td>
+                                                  <td class="mono">
+                                                      ${n(item.subscriptions)}<small class="enabled-subscriptions"
+                                                          >${Number.isInteger(item.active_subscriptions)
+                                                              ? message("enabledSubs", {
+                                                                    count: n(item.active_subscriptions),
+                                                                })
+                                                              : tr("启用数未记录")}</small
+                                                      >
+                                                  </td>
                                                   <td>
                                                       ${item.attention
                                                           ? pill(item.attention, "warn")
@@ -855,6 +785,7 @@ function targets(d) {
                                                               ? tr("已封禁")
                                                               : {
                                                                     available: tr("上次核验可发送"),
+                                                                    joined: tr("已加入，发送权限待确认"),
                                                                     known: tr("已记录私聊"),
                                                                     left: tr("机器人已退出"),
                                                                     unknown: tr("尚未核验"),
@@ -863,7 +794,13 @@ function targets(d) {
                                                           item.membership === "available" && item.state !== -1
                                                               ? ""
                                                               : "gray",
-                                                      )}
+                                                      )}${item.checked_at && !S.snapshot
+                                                          ? html`<small class="last-verified"
+                                                                >${message("lastVerified", {
+                                                                    time: dateText(item.checked_at),
+                                                                })}</small
+                                                            >`
+                                                          : ""}
                                                   </td>
                                                   <td>
                                                       <div class="table-actions">
@@ -890,10 +827,10 @@ function targets(d) {
             <p class="muted small page-note">
                 ${S.snapshot
                     ? tr(
-                          "会话名称来自 Telegram 本地缓存，可能已过时；缺失名称显示 ID。“类型待核验”表示尚未确定群组或频道类型，当前访问权限未联网验证。",
+                          "会话名称来自 Telegram 本地缓存，可能已过时；缺失名称显示 ID。离线快照未记录的会话类型显示为“未知”；联网核验后会归入私聊、群组或频道。当前访问权限未联网验证。",
                       )
                     : tr(
-                          "会话列表来自 RSStT 记录；名称和权限在手动同步或添加订阅时更新。机器人需先在 Telegram 中加入频道或群组。",
+                          "会话状态在启动核验和 Telegram 成员事件后更新。已加入不代表已确认发送权限；页面显示最近记录的状态，不会每次打开都实时查询 Telegram。类型缺失时仅显示“未知”，核验后归入私聊、群组或频道。",
                       )}
             </p>`
     );
@@ -1526,6 +1463,308 @@ function editSub(item) {
         saveFooter(tr("保存设置")),
     );
 }
+const activityActions = {
+    "subscriptions.add": "添加订阅",
+    "subscriptions.remove": "取消订阅",
+    "subscriptions.update": "修改订阅设置",
+    "subscriptions.batch": "批量处理订阅",
+    "subscriptions.import": "导入订阅",
+    "subscriptions.reset": "重置订阅设置",
+    "subscriptions.list": "查看订阅列表",
+    "subscriptions.export": "导出订阅",
+    "subscriptions.settings": "查看订阅设置",
+    "settings.update": "修改会话设置",
+    "settings.view": "查看会话设置",
+    "role.update": "修改 Bot 用户角色",
+    "role.view": "查看 Bot 用户角色",
+    "language.update": "修改 Bot 回复语言",
+    "language.view": "查看 Bot 回复语言",
+    "recipients.update": "修改接收会话",
+    "destination.settings": "修改会话推送默认值",
+    "destination.leave": "让机器人退出",
+    "destination.refresh": "核验会话信息",
+    "destination.register": "登记已有会话",
+    "destination.join": "机器人加入会话",
+    "bot.start": "Bot 命令 /start",
+    "bot.help": "Bot 命令 /help",
+    "bot.version": "Bot 命令 /version",
+    "bot.test": "Bot 测试命令",
+    "bot.inline": "Bot 内联操作",
+    "bot.callback": "Bot 按钮操作",
+    "bot.other": "其他 Bot 操作",
+    "bot.lifecycle": "机器人会话关系变更",
+    "command.list": "Bot 命令 /list",
+};
+const activityFields = {
+    state: "状态",
+    role: "Bot 用户角色",
+    lang: "Bot 回复语言",
+    interval: "检查间隔（分钟）",
+    sub_limit: "订阅上限",
+    title: "订阅显示名称",
+    tags: "推送附加标签",
+    notify: "Telegram 推送声音",
+    send_mode: "推送格式",
+    length_limit: "Telegraph 长度阈值",
+    link_preview: "链接预览",
+    display_author: "作者显示",
+    display_via: "原文出处显示方式",
+    display_title: "标题显示",
+    display_entry_tags: "文章自带标签",
+    display_media: "文章媒体",
+    style: "消息排版样式",
+    membership: "机器人访问状态",
+    kind: "会话类型",
+    subscriptions_count: "订阅总数",
+    exists: "记录是否存在",
+    feed_id: "订阅源 ID",
+};
+function activityValue(change, value) {
+    if (value === null || value === undefined) return tr("未设置");
+    if (change.field === "state") {
+        const values =
+            change.entity === "subscription"
+                ? { 0: "已暂停", 1: "已启用" }
+                : { [-1]: "已封禁", 0: "访客", 1: "普通用户", 50: "普通用户", 51: "普通用户", 100: "Bot 管理员" };
+        if (Object.hasOwn(values, value)) return tr(values[value]);
+    }
+    if (change.field === "role" && ["banned", "guest", "user", "admin", "manager"].includes(value))
+        return roleName(value);
+    if (change.field === "lang") {
+        if (value === "null") return tr("自动识别");
+        try {
+            return languageNames.of(String(value)) || String(value);
+        } catch {
+            return String(value);
+        }
+    }
+    if (change.field === "membership") {
+        const labels = {
+            available: "上次核验可发送",
+            joined: "已加入，发送权限待确认",
+            known: "已记录私聊",
+            left: "机器人已退出",
+            banned: "机器人已被移除",
+            disabled: "已禁用",
+            unknown: "未知",
+            snapshot: "离线快照",
+        };
+        return Object.hasOwn(labels, value) ? tr(labels[value]) : String(value);
+    }
+    if (change.field === "kind") return kindName[value] || tr("未知");
+    if (value === -100) return tr("继承会话默认值");
+    if (Object.hasOwn(formatLabels, change.field)) {
+        const option = formatLabels[change.field][1].find(([code]) => code === value);
+        if (option) return option[1];
+    }
+    if (change.field === "exists") return tr(value ? "存在" : "已移除");
+    if (typeof value === "boolean") return tr(value ? "是" : "否");
+    return typeof value === "object" ? JSON.stringify(value) : String(value);
+}
+function chatActivityContent(data) {
+    const items = Array.isArray(data.items) ? data.items : [];
+    return html`<p class="hint">
+            ${tr(
+                "仅记录本版本启用后的 Bot 命令、管理操作和设置变更，保留有限的近期记录。不记录普通聊天内容或密钥，升级前的日志无法补回。",
+            )}
+        </p>
+        ${data.degraded
+            ? html`<p class="notice warning">
+                  ${tr("会话记录存储暂不可用，当前显示可能不完整。请检查服务日志后重试。")}
+              </p>`
+            : ""}
+        ${items.length
+            ? html`<div class="chat-activity-list">
+                  ${items
+                      .map((item) => {
+                          const source = { bot: "Bot", web: "管理台", agent: "API" }[item.source];
+                          const action = Object.hasOwn(activityActions, item.action)
+                              ? tr(activityActions[item.action])
+                              : String(item.action || "");
+                          const outcomes = { completed: "已完成", denied: "已拒绝", error: "执行失败" };
+                          const outcome = Object.hasOwn(outcomes, item.outcome)
+                              ? tr(outcomes[item.outcome])
+                              : String(item.outcome || "");
+                          const actor =
+                              item.actor === "administrator"
+                                  ? tr("管理台管理员")
+                                  : item.actor === "anonymous"
+                                    ? tr("未记录发起人")
+                                    : String(item.actor ?? tr("未记录发起人"));
+                          const changes = Array.isArray(item.changes) ? item.changes : [];
+                          return html`<article class="chat-activity-entry">
+                              <div class="spread">
+                                  <time>${esc(dateText(item.at))}</time>
+                                  <div class="inline">
+                                      ${pill(source ? tr(source) : String(item.source || ""), "gray")}${pill(
+                                          outcome,
+                                          item.outcome === "completed" ? "" : "warn",
+                                      )}
+                                  </div>
+                              </div>
+                              <strong>${esc(action)}</strong>
+                              <p class="hint">${message("activityActor", { actor: esc(actor) })}</p>
+                              ${changes.length
+                                  ? html`<details>
+                                        <summary>${message("activityChanges", { count: n(changes.length) })}</summary>
+                                        <div class="table-wrap">
+                                            <table class="change-table">
+                                                <thead>
+                                                    <tr>
+                                                        <th>设置项</th>
+                                                        <th>变更前</th>
+                                                        <th>变更后</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    ${changes
+                                                        .map(
+                                                            (change) =>
+                                                                html`<tr>
+                                                                    <th>
+                                                                        <span
+                                                                            >${esc(
+                                                                                Object.hasOwn(
+                                                                                    activityFields,
+                                                                                    change.field,
+                                                                                )
+                                                                                    ? tr(activityFields[change.field])
+                                                                                    : String(change.field || ""),
+                                                                            )}</span
+                                                                        ><small class="hint"
+                                                                            >${tr(
+                                                                                change.entity === "subscription"
+                                                                                    ? "订阅"
+                                                                                    : "会话",
+                                                                            )}${change.entity === "subscription"
+                                                                                ? " #" + esc(change.id)
+                                                                                : ""}</small
+                                                                        >
+                                                                    </th>
+                                                                    <td>
+                                                                        <span class="change-value"
+                                                                            >${esc(
+                                                                                activityValue(change, change.before),
+                                                                            )}</span
+                                                                        >
+                                                                    </td>
+                                                                    <td>
+                                                                        <span class="change-value"
+                                                                            >${esc(
+                                                                                activityValue(change, change.after),
+                                                                            )}</span
+                                                                        >
+                                                                    </td>
+                                                                </tr>`,
+                                                        )
+                                                        .join("")}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </details>`
+                                  : html`<p class="hint">${tr("本条记录没有设置变更详情。")}</p>`}
+                              ${item.truncated ? html`<p class="hint">${tr("本条记录仅保留了部分变更详情。")}</p>` : ""}
+                          </article>`;
+                      })
+                      .join("")}
+              </div>`
+            : empty(
+                  tr(data.degraded ? "当前没有可显示的会话记录" : "尚无此会话的操作记录"),
+                  tr("记录从本版本启用后开始；升级前的交互和设置变更无法从旧日志补回。"),
+              )}
+        <div class="pager">
+            <span
+                >${message("pager", {
+                    total: n(data.total || 0),
+                    page: n(data.page || 1),
+                    pages: n(Math.max(1, Math.ceil((data.total || 0) / (data.size || 20)))),
+                })}</span
+            >
+            <div class="inline">
+                <button
+                    type="button"
+                    data-activity-page="${(data.page || 1) - 1}"
+                    ${(data.page || 1) <= 1 ? "disabled" : ""}
+                >
+                    上一页</button
+                ><button
+                    type="button"
+                    data-activity-page="${(data.page || 1) + 1}"
+                    ${(data.page || 1) * (data.size || 20) >= (data.total || 0) ? "disabled" : ""}
+                >
+                    下一页
+                </button>
+            </div>
+        </div>`;
+}
+async function showChatActivity(id, title, page = 1) {
+    const context = { action: "chat-activity", id: String(id), title: String(title), page: Math.max(1, page || 1) };
+    modalState = context;
+    const heading = message("chatActivityTitle", { name: context.title });
+    modal(heading, html`<p role="status">${tr("正在加载会话记录…")}</p>`);
+    try {
+        const data = await api(
+            `/targets/${encodeURIComponent(context.id)}/activity?` +
+                new URLSearchParams({ page: context.page, size: 20 }),
+        );
+        if (modalState !== context || !$("#dialog").open) return;
+        modal(heading, chatActivityContent(data));
+        $("#dialog [data-action=close]").focus({ preventScroll: true });
+    } catch (error) {
+        if (modalState !== context || !$("#dialog").open) return;
+        modal(
+            heading,
+            html`<p class="notice warning" role="alert">${esc(error.message)}</p>
+                <button type="button" data-activity-page="${context.page}">重试加载记录</button>`,
+        );
+        $("#dialog [data-activity-page]").focus({ preventScroll: true });
+    }
+}
+function chatServiceControls(item) {
+    const active = Number.isInteger(item.active_subscriptions) ? item.active_subscriptions : null;
+    return html`<section class="service-controls" aria-label="${tr("服务控制")}">
+        <h3>服务控制</h3>
+        <div class="spread">
+            <span>Bot 用户角色：${esc(roleName(item.role))}</span>${item.role_protected
+                ? html`<span class="hint">机器人管理者受保护</span>`
+                : html`<button type="button" data-role-target="${item.id}">修改角色</button>`}
+        </div>
+        <p>
+            ${pill(
+                tr(active === null ? "启用数未记录" : active > 0 ? "有启用订阅" : "尚无启用订阅"),
+                active ? "" : "gray",
+            )}${active === null
+                ? ""
+                : html` <span class="hint"
+                      >${message("chatEnabledCount", { total: n(item.subscriptions), enabled: n(active) })}</span
+                  >`}
+        </p>
+        ${item.role === "banned"
+            ? html`<p class="notice">
+                  ${tr("此会话已停止服务并封禁，订阅保持暂停。解除封禁后不会自动恢复订阅，请在管理订阅中手动恢复。")}
+              </p>`
+            : item.role_protected
+              ? ""
+              : html`<div>
+                        <button type="button" class="danger" data-stop-service="${item.id}">停止服务并封禁</button>
+                    </div>
+                    <p class="hint">
+                        ${tr(
+                            "暂停该会话的全部订阅并拒绝其常规命令，保留已有订阅和设置；不会自动让机器人退出群组或频道。",
+                        )}
+                    </p>`}
+        <div class="inline">
+            ${S.features.chat_activity
+                ? html`<button type="button" data-target-activity="${item.id}">查看会话记录</button>`
+                : ""}${item.id.startsWith("-")
+                ? html`<button type="button" class="danger small" data-leave-target="${item.id}">让机器人退出</button>`
+                : ""}
+        </div>
+        ${item.id.startsWith("-")
+            ? html`<p class="hint">让机器人退出此群组或频道后，保留本地订阅记录并暂停该会话的订阅。</p>`
+            : ""}
+    </section>`;
+}
 function editTarget(item) {
     modalState = { action: "edit-target", item };
     modal(
@@ -1536,58 +1775,55 @@ function editTarget(item) {
                     ${icon("refresh", 13)}更新 Telegram 会话信息
                 </button>
             </div>
-            <div class="inline">
-                <a class="text-link" href="/api/targets/${item.id}/opml" download>导出订阅源（OPML）</a
-                ><button type="button" class="text-link" data-import-target="${item.id}">导入 OPML</button>
-            </div>
-            <label
-                >此会话的订阅上限<input
-                    name="sub_limit"
-                    type="number"
-                    min="-1"
-                    max="32767"
-                    value="${item.sub_limit ?? ""}"
-                    placeholder="使用实例默认值"
-                /><span class="hint">-1 表示不限，0 禁止新增；留空使用全局上限，不删除现有订阅。</span></label
-            >${item.role
-                ? html`<div class="spread">
-                      <span>Bot 用户角色：${esc(roleName(item.role))}</span>${item.role_protected
-                          ? html`<span class="hint">机器人管理者受保护</span>`
-                          : html`<button type="button" data-role-target="${item.id}">修改角色</button>`}
-                  </div>`
-                : ""}${item.lang !== undefined
-                ? html`<label
-                      >Bot 回复语言<select name="lang">
-                          ${[
-                              ["null", tr("自动识别")],
-                              ...botLanguages,
-                              ...(item.lang &&
-                              !botLanguages.some(([code]) => code === item.lang) &&
-                              item.lang !== "null"
-                                  ? [[item.lang, item.lang]]
-                                  : []),
-                          ]
-                              .map(
-                                  ([value, label]) =>
-                                      html`<option
-                                          value="${esc(value)}"
-                                          ${(item.lang || "null") === value ? "selected" : ""}
-                                      >
-                                          ${esc(label)}
-                                      </option>`,
-                              )
-                              .join("")}</select
-                      ><span class="hint">Bot 回复语言与管理台界面语言独立。自动识别沿用原版语言规则。</span></label
-                  >`
-                : ""}${formatFields(item.options, false)}${item.id.startsWith("-")
-                ? html`<div class="spread">
-                      <span class="hint">让机器人退出此群组或频道后，保留本地订阅记录并暂停该会话的订阅。</span
-                      ><button type="button" class="danger small" data-leave-target="${item.id}">让机器人退出</button>
-                  </div>`
-                : ""}`,
+            ${chatServiceControls(item)}
+            <section class="chat-defaults">
+                <h3>推送默认值</h3>
+                <p class="hint">${tr("以下默认值仅影响继承此会话设置的订阅；尚无启用订阅不等于不能使用机器人。")}</p>
+                <div class="inline">
+                    <a class="text-link" href="/api/targets/${item.id}/opml" download>导出订阅源（OPML）</a
+                    ><button type="button" class="text-link" data-import-target="${item.id}">导入 OPML</button>
+                </div>
+                <label
+                    >此会话的订阅上限<input
+                        name="sub_limit"
+                        type="number"
+                        min="-1"
+                        max="32767"
+                        value="${item.sub_limit ?? ""}"
+                        placeholder="使用实例默认值"
+                    /><span class="hint">-1 表示不限，0 禁止新增；留空使用全局上限，不删除现有订阅。</span></label
+                >
+                ${item.lang !== undefined
+                    ? html`<label
+                          >Bot 回复语言<select name="lang">
+                              ${[
+                                  ["null", tr("自动识别")],
+                                  ...botLanguages,
+                                  ...(item.lang &&
+                                  !botLanguages.some(([code]) => code === item.lang) &&
+                                  item.lang !== "null"
+                                      ? [[item.lang, item.lang]]
+                                      : []),
+                              ]
+                                  .map(
+                                      ([value, label]) =>
+                                          html`<option
+                                              value="${esc(value)}"
+                                              ${(item.lang || "null") === value ? "selected" : ""}
+                                          >
+                                              ${esc(label)}
+                                          </option>`,
+                                  )
+                                  .join("")}</select
+                          ><span class="hint">Bot 回复语言与管理台界面语言独立。自动识别沿用原版语言规则。</span></label
+                      >`
+                    : ""}
+                ${formatFields(item.options, false)}
+            </section>`,
         saveFooter(tr("保存会话默认设置")),
     );
 }
+
 function confirmation(title, description, action, extra = {}) {
     modalState = { action, ...extra };
     modal(
@@ -1614,7 +1850,7 @@ function confirmation(title, description, action, extra = {}) {
                     "notify-test": S.demo ? "执行离线模拟" : "发送测试通知",
                     "notify-delete": "删除此渠道配置",
                     "cancel-restore": "取消已安排的恢复",
-                    "archive-chats": extra.archived ? "确认归档" : "确认取消归档",
+                    "stop-service": "确认停止服务并封禁",
                 }[action] || "确认操作",
             ),
         ),
@@ -1695,21 +1931,6 @@ document.addEventListener("click", async (event) => {
                 "revoke-sessions",
             );
         }
-        if (d.action === "clear-chat-selection") {
-            S.selectedChats.clear();
-            return syncChatSelection();
-        }
-        if (d.chatArchive) {
-            const ids = [...S.selectedChats];
-            if (!ids.length) return;
-            const archived = d.chatArchive === "archive";
-            return confirmation(
-                tr(archived ? "归档所选会话" : "取消所选会话归档"),
-                message(archived ? "archiveChatsConfirm" : "restoreChatsConfirm", { count: n(ids.length) }),
-                "archive-chats",
-                { ids, archived },
-            );
-        }
         if (d.action === "retry") return render();
         if (d.period) {
             S.period = Number(d.period);
@@ -1719,12 +1940,30 @@ document.addEventListener("click", async (event) => {
         if (d.page) {
             S.page = Number(d.page);
             S.selected.clear();
-            S.selectedChats.clear();
             return render(true);
         }
         if (d.settings) {
             S.settings = d.settings;
             return render(true);
+        }
+        if (d.stopService) {
+            const item = S.items.find((item) => item.id === d.stopService);
+            if (!item || item.role_protected) return;
+            return confirmation(
+                tr("停止服务并封禁此会话"),
+                message("stopServiceConfirm", { name: item.title }),
+                "stop-service",
+                { id: item.id },
+            );
+        }
+        if (d.targetActivity) {
+            return showChatActivity(
+                d.targetActivity,
+                S.items.find((item) => item.id === d.targetActivity)?.title || d.targetActivity,
+            );
+        }
+        if (d.activityPage) {
+            return showChatActivity(modalState.id, modalState.title, Number(d.activityPage));
         }
         if (d.roleTarget) {
             const item = S.items.find((i) => i.id === d.roleTarget);
@@ -1865,7 +2104,7 @@ document.addEventListener("click", async (event) => {
                     >${pickerHtml(true)}
                     <p class="hint">
                         ${tr(
-                            "未勾选的可选会话将取消对此订阅源的订阅。已封禁、已归档会话的已有订阅，以及 API 令牌范围外的订阅保持不变。",
+                            "未勾选的可选会话将取消对此订阅源的订阅。已封禁、机器人已退出或被移除的会话，其已有订阅保持不变；API 令牌范围外的订阅也保持不变。",
                         )}
                     </p>`,
                 saveFooter(tr("保存接收会话")),
@@ -1928,7 +2167,6 @@ document.addEventListener("click", async (event) => {
             S.attention = !S.attention;
             S.page = 1;
             S.selected.clear();
-            S.selectedChats.clear();
             return render(true);
         }
         if (d.action === "clear-target") {
@@ -1938,7 +2176,6 @@ document.addEventListener("click", async (event) => {
         }
         if (d.action === "clear-selection") {
             S.selected.clear();
-            S.selectedChats.clear();
             return render(true);
         }
         if (d.targetSubs) {
@@ -2051,7 +2288,6 @@ document.addEventListener("input", (e) => {
         S.q = e.target.value;
         S.page = 1;
         S.selected.clear();
-        S.selectedChats.clear();
         clearTimeout(searchTimer);
         searchTimer = setTimeout(() => render(true), 250);
     }
@@ -2074,40 +2310,20 @@ document.addEventListener("change", (e) => {
         return;
     }
     if (t.id === "kind-filter") {
-        S.selectedChats.clear();
         S.kind = t.value;
         S.page = 1;
         render(true);
-    }
-    if (t.id === "archive-filter") {
-        S.archive = t.value;
-        if (S.archive === "archived") S.visibility = "all";
-        S.page = 1;
-        S.selectedChats.clear();
-        render(true);
-    }
-    if (t.dataset.selectChat) {
-        if (!S.items.some((item) => item.id === t.dataset.selectChat && !item.role_protected)) return;
-        t.checked ? S.selectedChats.add(t.dataset.selectChat) : S.selectedChats.delete(t.dataset.selectChat);
-        syncChatSelection();
-    }
-    if (t.id === "select-chat-page") {
-        for (const item of S.items.filter((item) => !item.role_protected))
-            t.checked ? S.selectedChats.add(item.id) : S.selectedChats.delete(item.id);
-        syncChatSelection();
     }
     if (t.id === "visibility-filter") {
         S.visibility = t.value;
         S.page = 1;
         S.selected.clear();
-        S.selectedChats.clear();
         render(true);
     }
     if (t.id === "status-filter") {
         S.status = t.value;
         S.page = 1;
         S.selected.clear();
-        S.selectedChats.clear();
         render(true);
     }
     if (t.dataset.select) {
@@ -2240,16 +2456,9 @@ document.addEventListener("submit", async (event) => {
         }
         let result;
         const m = modalState;
-        if (m.action === "archive-chats") {
-            await api("/targets/archive", { method: "POST", body: { ids: m.ids, archived: m.archived } });
-            S.selectedChats.clear();
-            toast(
-                tr(
-                    m.archived
-                        ? "会话已归档。订阅、设置和封禁状态已保留；已启用订阅继续推送。可在已归档中找回。"
-                        : "会话已取消归档，封禁和订阅状态未改变。",
-                ),
-            );
+        if (m.action === "stop-service") {
+            await api(`/targets/${m.id}/role`, { method: "PATCH", body: { role: "banned" } });
+            toast(tr("服务已停止并封禁，订阅已暂停。可切换到“已封禁”查看；解除封禁后需手动恢复订阅。"));
         }
         if (m.action === "role") {
             await api(`/targets/${m.id}/role`, { method: "PATCH", body: { role: f.get("role") } });
@@ -2303,7 +2512,6 @@ document.addEventListener("submit", async (event) => {
                 body: { mode: f.get("mode"), targets: [...m.chosen] },
             });
             S.selected.clear();
-            S.selectedChats.clear();
             toast(tr("接收会话已保存"));
         }
         if (m.action === "feed-fetch") {
@@ -2325,7 +2533,6 @@ document.addEventListener("submit", async (event) => {
             S.target = [...m.chosen][0];
             S.page = 1;
             S.selected.clear();
-            S.selectedChats.clear();
         }
         if (m.action === "new-sub") {
             if (!m.chosen?.size) throw new Error(tr("请选择接收会话。"));
@@ -2356,11 +2563,10 @@ document.addEventListener("submit", async (event) => {
         if (m.action === "batch") {
             result = await api("/subscriptions/batch", { method: "POST", body: { ids: m.ids, action: m.batchAction } });
             S.selected.clear();
-            S.selectedChats.clear();
         }
         if (m.action === "leave") {
             await api(html`/targets/${m.id}/leave`, { method: "POST", body: { confirm: f.get("confirm") } });
-            toast(tr("机器人已退出，订阅已暂停"));
+            toast(tr(S.demo ? "已在本地预览中模拟退出，订阅已暂停。" : "机器人已退出，订阅已暂停"));
         }
         if (m.action === "import") {
             const file = f.get("opml");
@@ -2411,12 +2617,10 @@ function route() {
     const params = new URLSearchParams(location.hash.split("?")[1] || "");
     S.page = Math.max(1, Number(params.get("page")) || 1);
     S.q = params.get("q") || "";
-    S.kind = params.get("kind") || "";
+    S.kind = ["private", "group", "channel"].includes(params.get("kind")) ? params.get("kind") : "";
     S.visibility = ["unbanned", "active", "inactive", "banned", "all"].includes(params.get("visibility"))
         ? params.get("visibility")
         : "unbanned";
-    S.archive = ["visible", "archived", "all"].includes(params.get("archive")) ? params.get("archive") : "visible";
-    if (S.archive === "archived" && !params.has("visibility")) S.visibility = "all";
     S.target = params.get("target") || "";
     S.status = params.get("state") || "";
     S.attention = params.get("attention") === "1";
@@ -2426,7 +2630,6 @@ function route() {
         ? params.get("section")
         : "general";
     S.selected.clear();
-    S.selectedChats.clear();
     document.body.classList.remove("menu-open");
     $$(".mobile-menu").forEach((el) => el.setAttribute("aria-expanded", "false"));
     if (S.session) render();
@@ -2482,7 +2685,6 @@ function syncURL() {
         q: S.q,
         kind: S.kind,
         visibility: S.route === "targets" ? S.visibility : "",
-        archive: S.route === "targets" ? S.archive : "",
         target: S.target,
         state: S.status,
         attention: S.attention ? "1" : "",
@@ -2676,6 +2878,7 @@ const backupCountLabel = (key) =>
             "console.metrics": "日统计",
             "console.metrics_hourly": "小时统计",
             "console.activity": "管理操作记录",
+            "console.chat_events": "会话操作记录",
             "console.credentials": "API 访问令牌",
             "console.console_admin": "管理台管理员凭据",
             "console.notify_config": "通知渠道配置",
@@ -2803,7 +3006,7 @@ function featureSettings(key, data) {
                         type="checkbox"
                         name="new_users"
                         ${data.policy.new_users ? "checked" : ""}
-                    />有新用户、群组或频道开始使用机器人时通知我</label
+                    />新会话接入时通知我</label
                 >
                 <div class="field-grid">
                     <label
@@ -2827,6 +3030,11 @@ function featureSettings(key, data) {
                 <p class="hint">
                     ${tr(
                         "连续抓取失败达到阈值时通知；同一事件去重并遵守最短间隔，恢复后再次失败可重新通知。此设置不控制 RSS 重试频率。",
+                    )}
+                </p>
+                <p class="hint">
+                    ${tr(
+                        "用户首次私聊机器人，或机器人新加入群组、频道时通知；被拒绝的新使用尝试也会记录。发送通知需要同时开启自动通知总开关和至少一个通知渠道。",
                     )}
                 </p>
                 <p class="error" role="alert"></p>
@@ -2997,8 +3205,6 @@ function auditAction(action) {
         password_changed: "修改密码",
         sessions_revoked: "退出所有网页登录会话",
         agent_request: "API 访问",
-        归档会话: "归档会话",
-        恢复归档会话: "恢复归档会话",
         登记会话: "添加已有会话",
         修改会话默认设置: "修改会话默认设置",
         修改用户角色: "修改 Bot 用户角色",

@@ -29,7 +29,7 @@ COMPONENTS = {
     'runtime_config': (),
     'notification_secrets': ('notify_config',),
 }
-EXTENSION_DATA = ('metrics_hourly', 'notify_seen', 'feed_fetch_options', 'chat_archive')
+EXTENSION_DATA = ('metrics_hourly', 'notify_seen', 'feed_fetch_options', 'chat_events')
 META_KEYS = ('started_at', 'attention_threshold', 'hourly_started_at')
 OPTION_KEYS = ('default_interval', 'minimal_interval', 'user_sub_limit',
                'channel_or_group_sub_limit', 'sub_limit_reached_message')
@@ -295,14 +295,6 @@ def apply_rows(connection, package, options):
                 for field, size in (('salt', 16), ('hash', 64)):
                     if not isinstance(values.get(field), dict) or len(base64.b64decode(values[field]['blob'], validate=True)) != size:
                         raise BackupError('管理员密码哈希格式无效。')
-            if table == 'chat_archive':
-                value = values.get('id')
-                if not isinstance(value, str) or not re.fullmatch(r'-?[1-9]\d{0,18}', value) or not -(2**63) <= int(value) < 2**63:
-                    raise BackupError('归档会话 ID 无效。')
-                try:
-                    datetime.fromisoformat(values['archived_at'])
-                except (ValueError, TypeError):
-                    raise BackupError('归档时间无效。') from None
             if table == 'meta' and values.get('key') not in META_KEYS:
                 raise BackupError('备份包含未注册的管理配置。')
             if table == 'option':
@@ -329,10 +321,9 @@ def apply_rows(connection, package, options):
         placeholders = ','.join('?' for _ in item['columns'])
         decoded = [[base64.b64decode(v['blob'], validate=True) if isinstance(v, dict) else v for v in row] for row in item['rows']]
         connection.executemany(f'INSERT INTO {schema}.{ident(table)} ({cols}) VALUES ({placeholders})', decoded)
-    # Old backups predate archiving; do not carry current archive flags into restored data.
-    if 'chat_archive' not in package['manifest'].get('extensions', []) and connection.execute(
-            "SELECT 1 FROM console.sqlite_master WHERE type='table' AND name='chat_archive'").fetchone():
-        connection.execute('DELETE FROM console.chat_archive')
+    if 'chat_events' not in package['manifest'].get('extensions', []) and connection.execute(
+            "SELECT 1 FROM console.sqlite_master WHERE type='table' AND name='chat_events'").fetchone():
+        connection.execute('DELETE FROM console.chat_events')
     if connection.execute("SELECT 1 FROM console.sqlite_master WHERE type='table' AND name='notify_jobs'").fetchone():
         connection.execute('DELETE FROM console.notify_jobs')
     # Restore invalidates target sessions too. Source sessions are never included.

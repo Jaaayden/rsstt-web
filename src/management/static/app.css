@@ -1778,35 +1778,22 @@ footer.credit {
     line-height: 1.45;
 }
 .chat-table th:nth-child(1) {
-    width: 4%;
+    width: 30%;
 }
 .chat-table th:nth-child(2) {
-    width: 28%;
-}
-.chat-table th:nth-child(3) {
     width: 11%;
 }
-.chat-table th:nth-child(4) {
+.chat-table th:nth-child(3) {
     width: 8%;
+}
+.chat-table th:nth-child(4) {
+    width: 9%;
 }
 .chat-table th:nth-child(5) {
-    width: 8%;
+    width: 15%;
 }
 .chat-table th:nth-child(6) {
-    width: 14%;
-}
-.chat-table th:nth-child(7) {
     width: 27%;
-}
-.chat-table .selection {
-    padding-left: 12px;
-    padding-right: 6px;
-}
-.chat-table .selection input {
-    padding: 0;
-}
-.chat-bulkbar {
-    flex-wrap: wrap;
 }
 .chat-table .table-feed {
     min-width: 0;
@@ -1841,4 +1828,87 @@ footer.credit {
     .filter-help {
         padding: 0 14px 14px;
     }
+}
+
+.enabled-subscriptions,
+.last-verified {
+    display: block;
+    margin-top: 5px;
+    color: var(--muted);
+    font-size: 11px;
+    font-family: inherit;
+    line-height: 1.45;
+}
+.service-controls,
+.chat-defaults {
+    display: grid;
+    gap: 12px;
+    padding: 16px 0;
+    border-top: 1px solid var(--line);
+}
+.service-controls h3,
+.chat-defaults h3 {
+    margin: 0;
+    font-size: 15px;
+}
+.service-controls .inline {
+    flex-wrap: wrap;
+}
+
+.chat-activity-list {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+    min-width: 0;
+}
+.chat-activity-entry {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+    padding: 14px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+.chat-activity-entry .spread {
+    flex-wrap: wrap;
+    gap: 8px;
+}
+.chat-activity-entry .inline {
+    flex-wrap: wrap;
+}
+.chat-activity-entry time {
+    font-size: 12px;
+    color: var(--muted);
+}
+.chat-activity-entry summary {
+    cursor: pointer;
+}
+.chat-activity-entry details,
+.chat-activity-entry .table-wrap {
+    min-width: 0;
+    max-width: 100%;
+}
+.change-table {
+    table-layout: fixed;
+    white-space: normal;
+    min-width: 420px;
+}
+.change-table th,
+.change-table td {
+    vertical-align: top;
+    padding: 10px;
+}
+.change-table th {
+    width: 30%;
+}
+.change-table th small {
+    display: block;
+    margin-top: 4px;
+}
+.change-value {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-size: 12px;
 }

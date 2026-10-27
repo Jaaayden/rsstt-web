@@ -263,19 +263,22 @@ async def test_imported_token_cannot_escalate_to_admin(files):
     assert rows(console, "SELECT permission FROM credentials WHERE kind='token'") == [('read',)]
 
 
-async def test_archive_backup_roundtrip_and_legacy_restore(files):
+async def test_chat_history_backup_and_legacy_restore(files):
+    from src.management import chat_audit
     main, console = files
-    with sql(console) as c:
-        c.execute("INSERT INTO chat_archive VALUES ('1', '2026-10-27T00:00:00+00:00')")
+    store = await Store(console).open()
+    await chat_audit.initialize(store)
+    await chat_audit.record(1, 'role.update', store=store, changes=[
+        {'entity': 'user', 'id': '1', 'field': 'state', 'before': 0, 'after': 1}])
+    await store.close()
     raw = backups.export(main, console)
-    assert 'console.chat_archive' in backups.validate(main, console, raw)['counts']
+    assert backups.validate(main, console, raw)['counts']['console.chat_events'] == 1
     with sql(console) as c:
-        c.execute('DELETE FROM chat_archive')
+        c.execute('DELETE FROM chat_events')
     backups.restore(main, console, raw)
-    assert rows(console, 'SELECT id FROM chat_archive') == [('1',)]
+    assert rows(console, 'SELECT COUNT(*) FROM chat_events') == [(1,)]
     def legacy(package):
-        package['manifest']['extensions'].remove('chat_archive')
-        del package['data']['console.chat_archive']
-    old = changed(raw, legacy)
-    backups.restore(main, console, old)
-    assert rows(console, 'SELECT id FROM chat_archive') == []
+        package['manifest']['extensions'].remove('chat_events')
+        del package['data']['console.chat_events']
+    backups.restore(main, console, changed(raw, legacy))
+    assert rows(console, 'SELECT COUNT(*) FROM chat_events') == [(0,)]

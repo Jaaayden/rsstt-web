@@ -2,35 +2,6 @@
 // arbitrary server error, submitted value, filesystem path, or traceback.
 const messages = new Map([
     [
-        "归档范围无效，请选择未归档、已归档或全部。",
-        [
-            "归档范围无效，请选择未归档、已归档或全部。",
-            "Choose a valid archive view: Not archived, Archived, or All (including archived).",
-        ],
-    ],
-    [
-        "请选择 1–100 个会话，并指定归档或恢复操作。",
-        [
-            "请选择 1–100 个会话，并指定归档或恢复操作。",
-            "Choose 1–100 chats and specify whether to archive them or restore them to the Not archived view.",
-        ],
-    ],
-    [
-        "不能归档机器人管理者的会话。请取消选择管理者后重试。",
-        [
-            "不能归档机器人管理者的会话。请取消选择管理者后重试。",
-            "Bot manager chats cannot be archived. Deselect the manager and try again.",
-        ],
-    ],
-    [
-        "已归档会话不能作为新的接收会话。请先从已归档列表恢复，再重试。",
-        [
-            "已归档会话不能作为新的接收会话。请先从已归档列表恢复，再重试。",
-            "An archived chat cannot be a new receiving chat. Unarchive it from the Archived view, then try again.",
-        ],
-    ],
-
-    [
         "会话显示范围无效，请选择未封禁、活跃、不活跃、已封禁或全部。",
         [
             "会话显示范围无效，请选择未封禁、活跃、不活跃、已封禁或全部。",

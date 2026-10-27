@@ -17,8 +17,8 @@ async def source(service, ident, principal):
 
 
 async def recipients(service, feed, principal):
-    archived = list(map(int, await service.store.archived_ids()))
-    subs = await service.scope(db.Sub.filter(feed_id=feed.id), principal).exclude(user__state=-1).exclude(user_id__in=archived).select_related('feed', 'user')
+    departed = await service.store.departed_ids()
+    subs = await service.scope(db.Sub.filter(feed_id=feed.id), principal).exclude(user__state=-1).exclude(user_id__in=departed).select_related('feed', 'user')
     return {'feed_id': feed.id, 'scope': 'all' if principal['targets'] is None else 'authorized_targets',
             'items': await service.sub_data(subs)}
 
@@ -29,9 +29,6 @@ async def replace_recipients(service, feed, principal, values):
         raise Problem('mode 必须为 append 或 replace；targets 最多 100 个会话。')
     # Resolve and authorize every destination before any relation mutation.
     users = {u.id: u for u in [await service.user(t, principal) for t in targets]}
-    archived = list(map(int, await service.store.archived_ids()))
-    if set(users) & set(archived):
-        raise Problem('已归档会话不能作为新的接收会话。请先从已归档列表恢复，再重试。', 409, code='CHAT_ARCHIVED')
     for user in users.values():
         if user.state == -1:
             raise Problem('该会话已被封禁，无法添加订阅。请先在会话设置中解除封禁，再重试。', 409, code='TARGET_BANNED')
@@ -57,7 +54,10 @@ async def replace_recipients(service, feed, principal, values):
             for ident in users.keys() - existing:
                 await db.Sub.create(user_id=ident, feed_id=feed.id, **defaults)
             if mode == 'replace':
-                await service.scope(db.Sub.filter(feed_id=feed.id), principal).exclude(user_id__in=Subquery(db.User.filter(state=-1).values('id'))).exclude(user_id__in=archived).exclude(user_id__in=list(users)).delete()
+                departed = await service.store.departed_ids()
+                await service.scope(db.Sub.filter(feed_id=feed.id), principal).exclude(
+                    user_id__in=Subquery(db.User.filter(state=-1).values('id'))
+                ).exclude(user_id__in=departed).exclude(user_id__in=list(users)).delete()
             await inner.utils.update_interval(await db.Feed.get(id=feed.id), update_tasks=False)
             committed = await db.Feed.get_or_none(id=feed.id)
     except BaseException:
@@ -73,7 +73,7 @@ async def replace_recipients(service, feed, principal, values):
 
 
 async def export_filtered(service, principal, query):
-    qs = service.sub_query(principal, query)
+    qs = await service.sub_query(principal, query)
     if query.get('attention') == '1':
         qs = qs.filter(state=1, feed__error_count__gte=await service.threshold())
     if 'ids' in query:
