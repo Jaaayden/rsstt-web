@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
 from lxml import etree
-from tortoise.expressions import Q
+from tortoise.expressions import Q, Subquery
 from tortoise.functions import Count
 
 from .. import db, env
@@ -144,6 +144,19 @@ class Service:
 
     async def targets(self, principal, query):
         qs = self.scope(db.User.all(), principal, 'id')
+        # Keep the API default inclusive for existing Agent clients and pickers.
+        # The console list explicitly requests "unbanned" by default.
+        visibility = query.get('visibility', 'all')
+        if visibility not in ('all', 'unbanned', 'active', 'inactive', 'banned'):
+            raise Problem('会话显示范围无效，请选择未封禁、活跃、不活跃、已封禁或全部。',
+                          code='INVALID_CHAT_VISIBILITY')
+        if visibility == 'banned':
+            qs = qs.filter(state=-1)
+        elif visibility != 'all':
+            qs = qs.exclude(state=-1)
+        if visibility in ('active', 'inactive'):
+            enabled = Subquery(db.Sub.filter(state=1, feed__state=1).values('user_id'))
+            qs = qs.filter(id__in=enabled) if visibility == 'active' else qs.exclude(id__in=enabled)
         search = query.get('q', '').strip()[:200]
         if search:
             matches = await self.store.rows('SELECT id FROM targets WHERE title LIKE ? OR username LIKE ?', (f'%{search}%', f'%{search}%'))
@@ -152,11 +165,17 @@ class Service:
                 ids.append(chat_id(search))
             qs = qs.filter(id__in=ids)
         target_kind = query.get('kind')
-        if target_kind in ('channel', 'group'):
+        if target_kind in ('channel', 'group', 'unknown'):
             records = await self.store.rows('SELECT id, kind FROM targets')
             known = [int(r['id']) for r in records]
-            matches = [int(r['id']) for r in records if r['kind'] == target_kind]
-            qs = qs.filter(Q(id__in=matches) | (Q(state=50 if target_kind == 'channel' else 51) & ~Q(id__in=known)))
+            if target_kind == 'unknown':
+                matches = [int(r['id']) for r in records
+                           if int(r['id']) < 0 and r['kind'] not in ('private', 'channel', 'group')]
+                fallback = Q(id__lt=0) & ~Q(state__in=(50, 51))
+            else:
+                matches = [int(r['id']) for r in records if r['kind'] == target_kind]
+                fallback = Q(state=50 if target_kind == 'channel' else 51)
+            qs = qs.filter(Q(id__in=matches) | (fallback & ~Q(id__in=known)))
         elif target_kind == 'private':
             qs = qs.filter(id__gt=0)
         page, size = self.pagination(query)

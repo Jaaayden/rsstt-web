@@ -90,7 +90,9 @@ def query_parameters(path):
             fields.update(page={'type': 'integer', 'minimum': 1, 'maximum': 100000, 'default': 1},
                           size={'type': 'integer', 'minimum': 1, 'maximum': 100, 'default': 20})
         if path == '/api/targets':
-            fields['kind'] = {'enum': ['private', 'channel', 'group']}
+            fields['kind'] = {'enum': ['private', 'channel', 'group', 'unknown']}
+            fields['visibility'] = {'enum': ['all', 'unbanned', 'active', 'inactive', 'banned'], 'default': 'all',
+                                    'description': 'Active: unbanned chat with an enabled subscription to an enabled feed. Inactive: unbanned chat without one. Applied before pagination; omitted means all authorized chats.'}
         else:
             fields.update(target=CHAT_ID, state={'enum': ['0', '1']}, attention={'enum': ['0', '1']})
         if path == '/api/subscriptions/opml':
