@@ -40,11 +40,24 @@ async def test_ban_pauses_and_blocks_all_web_resume_paths(logged):
     assert '-1001' in [item['id'] for item in channels]
     assert (await db.Sub.get(id=logged.sub.id)).state == 0
     assert (await db.Sub.get(id=logged.other.id)).state == 1
+    resume_message = '该会话已被封禁，无法恢复订阅。请先在会话设置中解除封禁，再手动恢复订阅。'
+    add_message = '该会话已被封禁，无法添加订阅。请先在会话设置中解除封禁，再重试。'
     for value in (1, '1'):
-        assert (await c.patch(f'/api/subscriptions/{logged.sub.id}', json={'state': value}, headers=WRITE)).status == 409
+        response = await c.patch(f'/api/subscriptions/{logged.sub.id}', json={'state': value}, headers=WRITE)
+        assert response.status == 409
+        assert await response.json() == {'error': resume_message, 'code': 'TARGET_BANNED'}
+        assert (await db.Sub.get(id=logged.sub.id)).state == 0
     batch = await c.post('/api/subscriptions/batch', json={'ids': [logged.sub.id], 'action': 'resume'}, headers=WRITE)
-    assert (await batch.json())['results'][0]['ok'] is False
-    assert (await c.post('/api/subscriptions', json={'target': '-1001', 'urls': [logged.feed.link]}, headers=WRITE)).status == 409
+    assert batch.status == 200  # Batch envelope preserves per-item outcomes.
+    assert (await batch.json())['results'][0] == {
+        'id': logged.sub.id, 'ok': False, 'error': resume_message,
+        'status': 409, 'code': 'TARGET_BANNED',
+    }
+    assert (await db.Sub.get(id=logged.sub.id)).state == 0
+    response = await c.post('/api/subscriptions', json={'target': '-1001', 'urls': [logged.feed.link]}, headers=WRITE)
+    assert response.status == 409
+    assert await response.json() == {'error': add_message, 'code': 'TARGET_BANNED'}
+    assert (await db.Sub.get(id=logged.sub.id)).state == 0
     assert (await c.patch('/api/targets/-1001/role', json={'role': 'user'}, headers=WRITE)).status == 200
     assert (await db.Sub.get(id=logged.sub.id)).state == 0
 

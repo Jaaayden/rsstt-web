@@ -112,3 +112,13 @@
 `Service.refresh()` 只更新管理库 targets 中的名称、kind、membership 等元数据，不写 User.state。`add()` 内部刷新同样不改变角色。首次 register 仍可按上游类别初始化 state=50/51；已有会话不会因同步或重复登记被重新初始化。新增参数化回归覆盖负数 ID 的 guest/user/banned：刷新后保持 state 与 role、类型筛选仍使用元数据；添加已有来源不提升角色，封禁时仍拒绝添加且保持暂停。
 
 本次修正后执行 `.venv/bin/python -m pytest -q`：45 passed；`git diff --check` 通过。仅修改后端刷新行为与对应回归测试，未重复浏览器测试，未连接真实 Telegram。
+
+### 2026-10-27 认证合入与封禁反馈
+
+合入认证分支指定提交 `983ef103fb513dc0f0042c688e039f42273b8c9b`。冲突处理：server 同时保留 `Auth.load()` 和 RuntimeConfig；app.js 同时保留账户安全、角色、运行配置；demo 采用认证分支的 WEB_PORT / WEB_DEMO_CONFIG 与独立登录，不恢复旧自动登录。PR02 Playwright 配置复用认证测试配置，固定 8742，使用每次新建的 `.test-data/browser-*` 数据库。
+
+单条恢复（包括字符串 state="1"）返回 HTTP 409、`code: TARGET_BANNED`、`error: 该会话已被封禁，无法恢复订阅。请先在会话设置中解除封禁，再手动恢复订阅。`。添加订阅返回 HTTP 409、同一 code、`error: 该会话已被封禁，无法添加订阅。请先在会话设置中解除封禁，再重试。`。
+
+批量接口保留 HTTP 200 的逐项结果协议，封禁失败项包含 `ok:false`、相同恢复文案、`status:409`、`code:TARGET_BANNED`，以免丢失同批成功项。此行为覆盖 service.add/service.patch、server.patch_subscription/server.batch。原前端直接显示服务端 error，单条 toast 和批量结果弹窗均已实际浏览器断言；未修改 integration 或新 UI 的翻译词典。
+
+本轮验证：后端 55 passed；独立端口浏览器 8 passed（含账户安全、角色、运行配置、单条／批量封禁恢复文案及订阅仍暂停）；JS 语法与差异检查通过。仅使用离线替身与新测试数据库，未访问真实预览、线上服务或 Telegram。
