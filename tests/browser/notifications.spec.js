@@ -1,5 +1,12 @@
 const { test, expect } = require('@playwright/test');
 
+test.beforeEach(async ({ page }) => {
+    await page.goto('/');
+    await page.getByLabel('管理台密码', { exact: true }).fill(process.env.WEB_PASSWORD);
+    await page.getByRole('button', { name: /进入管理台/ }).click();
+    await expect(page.getByRole('link', { name: '设置', exact: true })).toBeVisible();
+});
+
 test('notification configuration and offline explicit test', async ({ page }) => {
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
