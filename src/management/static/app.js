@@ -713,6 +713,29 @@ function pager(d) {
     </div>`;
 }
 
+function chatBulkActions() {
+    if (!S.selectedChats.size) return "";
+    return html`<div class="bulkbar chat-bulkbar">
+        <span>${message("selectedChats", { count: n(S.selectedChats.size) })}</span>
+        ${S.archive !== "archived" ? html`<button data-chat-archive="archive">归档所选会话</button>` : ""}
+        ${S.archive !== "visible" ? html`<button data-chat-archive="restore">取消归档</button>` : ""}
+        <button class="quiet" data-action="clear-chat-selection">清空选择</button>
+    </div>`;
+}
+function syncChatSelection() {
+    $$("[data-select-chat]").forEach((input) => {
+        input.checked = S.selectedChats.has(input.dataset.selectChat);
+    });
+    const toggle = $("#select-chat-page");
+    const eligible = S.items.filter((item) => !item.role_protected);
+    if (toggle) {
+        toggle.checked = eligible.length > 0 && eligible.every((item) => S.selectedChats.has(item.id));
+        toggle.indeterminate = S.selectedChats.size > 0 && !toggle.checked;
+    }
+    const actions = $("#chat-bulk-actions");
+    if (actions) actions.innerHTML = chatBulkActions();
+}
+
 function targets(d) {
     return (
         header(
@@ -757,16 +780,7 @@ function targets(d) {
                         "未归档列表隐藏已归档会话，默认也隐藏已封禁会话。归档只整理列表，不暂停订阅；已启用的订阅继续推送。活跃指未封禁且有启用订阅和启用订阅源。",
                     )}
                 </p>
-                ${S.selectedChats.size
-                    ? html`<div class="bulkbar chat-bulkbar">
-                          <span>${message("selectedChats", { count: n(S.selectedChats.size) })}</span>${S.archive !==
-                          "archived"
-                              ? html`<button data-chat-archive="archive">归档所选会话</button>`
-                              : ""}${S.archive !== "visible"
-                              ? html`<button data-chat-archive="restore">取消归档</button>`
-                              : ""}<button class="quiet" data-action="clear-chat-selection">清空选择</button>
-                      </div>`
-                    : ""}
+                <div id="chat-bulk-actions">${chatBulkActions()}</div>
                 ${d.items.length
                     ? html`<div class="table-wrap">
                           <table class="chat-table">
@@ -1683,7 +1697,7 @@ document.addEventListener("click", async (event) => {
         }
         if (d.action === "clear-chat-selection") {
             S.selectedChats.clear();
-            return render(true);
+            return syncChatSelection();
         }
         if (d.chatArchive) {
             const ids = [...S.selectedChats];
@@ -1850,8 +1864,9 @@ document.addEventListener("click", async (event) => {
                         </select></label
                     >${pickerHtml(true)}
                     <p class="hint">
-                        未勾选的可选会话将取消对此订阅源的订阅。已封禁、已归档会话的已有订阅，以及 API
-                        令牌范围外的订阅保持不变。
+                        ${tr(
+                            "未勾选的可选会话将取消对此订阅源的订阅。已封禁、已归档会话的已有订阅，以及 API 令牌范围外的订阅保持不变。",
+                        )}
                     </p>`,
                 saveFooter(tr("保存接收会话")),
             );
@@ -2074,12 +2089,12 @@ document.addEventListener("change", (e) => {
     if (t.dataset.selectChat) {
         if (!S.items.some((item) => item.id === t.dataset.selectChat && !item.role_protected)) return;
         t.checked ? S.selectedChats.add(t.dataset.selectChat) : S.selectedChats.delete(t.dataset.selectChat);
-        render(true);
+        syncChatSelection();
     }
     if (t.id === "select-chat-page") {
         for (const item of S.items.filter((item) => !item.role_protected))
             t.checked ? S.selectedChats.add(item.id) : S.selectedChats.delete(item.id);
-        render(true);
+        syncChatSelection();
     }
     if (t.id === "visibility-filter") {
         S.visibility = t.value;

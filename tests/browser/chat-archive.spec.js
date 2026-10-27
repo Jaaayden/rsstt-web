@@ -52,7 +52,7 @@ test("live API: bulk archive and restore preserve subscriptions, settings, and b
         await expect(page.locator('[data-select-chat="1"]')).toBeDisabled();
         await page.locator("#select-chat-page").check();
         await expect(page.locator('[data-select-chat="1"]')).not.toBeChecked();
-        expect(await page.locator("[data-select-chat]:checked").count()).toBeGreaterThan(1);
+        await expect.poll(() => page.locator("[data-select-chat]:checked").count()).toBeGreaterThan(1);
         await page.locator("#select-chat-page").uncheck();
         await page.locator('[data-select-chat="10002"]').check();
         await page.locator('[data-select-chat="-1001002"]').check();

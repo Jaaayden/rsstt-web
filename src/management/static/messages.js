@@ -1053,3 +1053,5 @@ Object.assign(english, {
     确认取消归档: "Confirm unarchive",
     取消所选会话归档: "Unarchive selected chats",
 });
+
+Object.assign(english, { 仅添加接收会话: "Add receiving chats only" });
