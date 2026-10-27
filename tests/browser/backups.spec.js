@@ -1,4 +1,11 @@
 const {test, expect} = require('@playwright/test');
+
+test.beforeEach(async ({ page }) => {
+    await page.goto('/');
+    await page.getByLabel('管理台密码', { exact: true }).fill(process.env.WEB_PASSWORD);
+    await page.getByRole('button', { name: /进入管理台/ }).click();
+    await expect(page.getByRole('link', { name: '设置', exact: true })).toBeVisible();
+});
 const fs = require('node:fs/promises');
 test('backup download, preflight, restart staging and cancel', async ({page}) => {
     await page.goto('/');
