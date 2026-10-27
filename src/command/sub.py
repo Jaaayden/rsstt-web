@@ -18,15 +18,18 @@ from __future__ import annotations
 from typing import Optional
 
 from telethon import Button
+from telethon.errors import EntitiesTooLongError
+from telethon.extensions import html
 from telethon.tl import types
 from telethon.tl.patched import Message
 
 from .. import env
 from ..i18n import i18n
 from . import inner
+from .list_page import FALLBACK_NOTICE_LIMIT, get_list_page, short_text
 from .types import *
 from .utils import (
-    command_gatekeeper, parse_command, escape_html, parse_callback_data_with_page,
+    command_gatekeeper, parse_command, parse_callback_data_with_page, logger,
     send_success_and_failure_msg, get_callback_tail, check_sub_limit,
 )
 
@@ -175,22 +178,14 @@ async def cmd_list_or_callback_get_list_page(
     else:
         page_number = 1
 
-    # Telegram only allow <= 100 parsing entities in a message
-    page_number, page_count, page, sub_count = await inner.utils.get_sub_list_by_page(
-        user_id=chat_id, page_number=page_number, size=99,
+    page_number, page_count, list_result, sub_count = await get_list_page(
+        chat_id, page_number, i18n[lang]['subscription_list'],
     )
 
     if page_count == 0:
-        await event.respond(i18n[lang]['no_subscription'])
+        await (event.edit(i18n[lang]['no_subscription'], buttons=None)
+               if is_callback else event.respond(i18n[lang]['no_subscription']))
         return
-
-    list_result = ''.join((
-        f'<b>{i18n[lang]["subscription_list"]}</b>\n',  # it occupies a parsing entity
-        '\n'.join(
-            f'<a href="{sub.feed.link}">{escape_html(sub.title or sub.feed.title)}</a>'
-            for sub in page
-        )
-    ))
 
     page_buttons = inner.utils.get_page_buttons(
         page_number=page_number,
@@ -201,11 +196,17 @@ async def cmd_list_or_callback_get_list_page(
         tail=callback_tail,
     )
 
-    await (
-        event.edit(list_result, parse_mode='html', buttons=page_buttons)
-        if is_callback
-        else event.respond(list_result, parse_mode='html', buttons=page_buttons)
-    )
+    send = event.edit if is_callback else event.respond
+    try:
+        await send(list_result, parse_mode='html', buttons=page_buttons)
+    except EntitiesTooLongError:
+        # A server may impose tighter entity-payload limits. Retry exactly once
+        # with the same page and buttons, avoiding lost entries or shifted pages.
+        # Never log request objects, which contain private titles and URLs.
+        logger.warning('List entity payload rejected; retrying plain text (page=%s)', page_number)
+        plain_text, _ = html.parse(list_result)
+        notice = short_text(i18n[lang]['subscription_list_plain_fallback'], FALLBACK_NOTICE_LIMIT)
+        await send(f'{plain_text}\n\n{notice}', parse_mode=None, formatting_entities=[], buttons=page_buttons)
 
 
 @command_gatekeeper(only_manager=False)

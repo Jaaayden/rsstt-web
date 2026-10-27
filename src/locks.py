@@ -24,7 +24,7 @@ from contextlib import AbstractAsyncContextManager
 import asyncio
 from time import time
 from collections import defaultdict
-from functools import partial
+from weakref import WeakValueDictionary
 from urllib.parse import urlparse
 
 from . import log, env
@@ -138,13 +138,18 @@ overall_web_semaphore = (asyncio.BoundedSemaphore(env.HTTP_CONCURRENCY)
                          else nullcontext())
 
 if env.HTTP_CONCURRENCY_PER_HOST > 0:
-    _hostname_semaphore_bucket: defaultdict[str, asyncio.BoundedSemaphore] = \
-        defaultdict(partial(asyncio.BoundedSemaphore, env.HTTP_CONCURRENCY_PER_HOST))
+    # Request locals / acquire waiters hold strong references while in use.
+    # Idle hosts should not accumulate forever after subscriptions are removed.
+    _hostname_semaphore_bucket: WeakValueDictionary[str, asyncio.BoundedSemaphore] = WeakValueDictionary()
 
 
     def hostname_semaphore(url: str, parse: bool = True) -> asyncio.BoundedSemaphore:
         hostname = urlparse(url).hostname if parse else url
-        return _hostname_semaphore_bucket[hostname]
+        semaphore = _hostname_semaphore_bucket.get(hostname)
+        if semaphore is None:
+            semaphore = asyncio.BoundedSemaphore(env.HTTP_CONCURRENCY_PER_HOST)
+            _hostname_semaphore_bucket[hostname] = semaphore
+        return semaphore
 
 else:
     _null_semaphore = nullcontext()
