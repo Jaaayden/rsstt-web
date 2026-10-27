@@ -210,6 +210,8 @@
         "user_state_description_-1": "can never use the bot",
         "user_state_0": "Guest",
         "user_state_description_0": "can use the bot only if multi-user mode is enabled",
+        "user_state_100": "Admin",
+        "user_state_description_100": "upstream state 100; manager commands still require MANAGER",
         "user_state_1": "User",
         "user_state_description_1": "can use the bot",
         "set_user_state_as": "Set user state as",

@@ -210,6 +210,8 @@
         "user_state_description_-1": "无法使用 bot",
         "user_state_0": "访客",
         "user_state_description_0": "只能在开启多用户模式时使用 bot",
+        "user_state_100": "管理员",
+        "user_state_description_100": "原版状态 100；管理者命令仍要求环境 MANAGER 身份",
         "user_state_1": "用户",
         "user_state_description_1": "可以使用 bot",
         "set_user_state_as": "更改用户状态为",

@@ -44,3 +44,14 @@ async def test_counter_failure_is_visible_and_does_not_interrupt_bot(monkeypatch
     monkeypatch.setattr(metrics, 'store', SimpleNamespace(increment=AsyncMock()))
     await metrics.record(delivered=1)
     assert metrics.last_error is None
+
+
+async def test_cancelled_delivery_never_counts_success(logged, monkeypatch):
+    import asyncio
+    monkeypatch.setattr(metrics, 'store', logged.store)
+    monkeypatch.setattr(env, 'bot', SimpleNamespace(get_input_entity=AsyncMock(return_value=object())))
+    post = SimpleNamespace(send_formatted_post_according_to_sub=AsyncMock(side_effect=asyncio.CancelledError))
+    notifier = Notifier(logged.feed, [logged.sub])
+    with pytest.raises(asyncio.CancelledError):
+        await notifier._send(logged.sub, post)
+    assert (await logged.store.statistics())['totals']['delivered'] == 0

@@ -4,10 +4,12 @@ import hashlib
 import json
 import secrets
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 import aiosqlite
+
+from . import statistics as aggregates
 
 
 def digest(value):
@@ -19,15 +21,27 @@ class Store:
         self.path = Path(path)
         self.lock = asyncio.Lock()
         self.db = None
+        self.backup_lock = None
 
     async def open(self):
+        try:
+            return await self._open()
+        except BaseException:
+            await self.close()
+            raise
+
+    async def _open(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        from .backups import InstanceLock
+        self.backup_lock = InstanceLock(self.path)
+        self.backup_lock.__enter__()
         self.db = await aiosqlite.connect(self.path)
         self.db.row_factory = aiosqlite.Row
         await self.db.executescript('''
             PRAGMA journal_mode=WAL;
             PRAGMA synchronous=FULL;
             PRAGMA busy_timeout=5000;
+            CREATE TABLE IF NOT EXISTS feed_fetch_options (url TEXT PRIMARY KEY, user_agent TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS targets (
                 id TEXT PRIMARY KEY, title TEXT NOT NULL, username TEXT,
@@ -50,6 +64,7 @@ class Store:
         await self.db.execute('INSERT OR IGNORE INTO meta VALUES (?, ?)',
                               ('started_at', datetime.now(timezone.utc).isoformat()))
         await self.db.execute('INSERT OR IGNORE INTO meta VALUES (?, ?)', ('attention_threshold', '3'))
+        await aggregates.initialize(self)
         await self.db.commit()
         self.path.chmod(0o600)
         return self
@@ -57,6 +72,10 @@ class Store:
     async def close(self):
         if self.db:
             await self.db.close()
+            self.db = None
+        if self.backup_lock:
+            self.backup_lock.__exit__()
+            self.backup_lock = None
 
     async def rows(self, sql, args=()):
         async with self.lock:
@@ -119,22 +138,11 @@ class Store:
             await self.db.execute('DELETE FROM activity WHERE id NOT IN (SELECT id FROM activity ORDER BY id DESC LIMIT 200)')
             await self.db.commit()
 
-    async def increment(self, fetched=0, delivered=0, failed=0, day=None):
-        """Daily and lifetime counters commit together; pruning never touches totals."""
-        day = day or datetime.now(timezone.utc).date().isoformat()
-        async with self.lock:
-            try:
-                await self.db.execute('BEGIN')
-                for key in ('total', day):
-                    await self.db.execute('''INSERT INTO metrics VALUES (?,?,?,?) ON CONFLICT(day) DO UPDATE SET
-                        fetched=fetched+excluded.fetched, delivered=delivered+excluded.delivered,
-                        failed=failed+excluded.failed''', (key, fetched, delivered, failed))
-                cutoff = (datetime.now(timezone.utc).date() - timedelta(days=90)).isoformat()
-                await self.db.execute("DELETE FROM metrics WHERE day!='total' AND day<?", (cutoff,))
-                await self.db.commit()
-            except BaseException:
-                await self.db.rollback()
-                raise
+    async def increment(self, fetched=0, delivered=0, failed=0, day=None, at=None):
+        await aggregates.increment(self, fetched, delivered, failed, day, at)
+
+    async def statistics_window(self, granularity='hour', start=None, end=None, unavailable=False):
+        return await aggregates.query(self, granularity, start, end, unavailable)
 
     async def statistics(self):
         rows = await self.rows('SELECT * FROM metrics ORDER BY day')

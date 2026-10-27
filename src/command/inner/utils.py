@@ -252,7 +252,8 @@ async def get_sub_choosing_buttons(user_id: int,
     return buttons + (tuple(page_buttons),) if page_buttons else buttons
 
 
-async def update_interval(feed: Union[db.Feed, db.Sub, int]):
+async def update_interval(feed: Union[db.Feed, db.Sub, int], *, update_tasks: bool = True):
+    """Recalculate persisted interval; transactions may defer task updates until commit."""
     if isinstance(feed, int):
         feed = await db.Feed.get_or_none(id=feed)
     elif isinstance(feed, db.Sub):
@@ -271,7 +272,8 @@ async def update_interval(feed: Union[db.Feed, db.Sub, int]):
     sub_exist = await feed.subs.all().exists()
     if not sub_exist:  # no sub subs the feed, del the feed
         await feed.delete()
-        db.effective_utils.EffectiveTasks.delete(feed.id)
+        if update_tasks:
+            db.effective_utils.EffectiveTasks.delete(feed.id)
         return
     intervals = await feed.subs.filter(state=1, interval__not_isnull=True).values_list('interval', flat=True)
     intervals += await feed.subs.filter(state=1, interval__isnull=True, user__interval__not_isnull=True) \
@@ -283,7 +285,8 @@ async def update_interval(feed: Union[db.Feed, db.Sub, int]):
             feed.error_count = 0
             feed.next_check_time = None
             await feed.save()
-        db.effective_utils.EffectiveTasks.delete(feed.id)
+        if update_tasks:
+            db.effective_utils.EffectiveTasks.delete(feed.id)
         return
     new_interval = min(intervals) if intervals else None
     if (new_interval is None or default_interval < new_interval) and some_using_default:
@@ -301,7 +304,7 @@ async def update_interval(feed: Union[db.Feed, db.Sub, int]):
         feed_update_flag = True
     if feed_update_flag:
         await feed.save()
-    if db.effective_utils.EffectiveTasks.get_interval(feed.id) != new_interval:
+    if update_tasks and db.effective_utils.EffectiveTasks.get_interval(feed.id) != new_interval:
         db.effective_utils.EffectiveTasks.update(feed.id, new_interval)
 
 
