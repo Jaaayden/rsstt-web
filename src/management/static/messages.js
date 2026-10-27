@@ -1027,7 +1027,7 @@ Object.assign(english, {
     未归档: "Not archived",
     已归档: "Archived",
     "全部（含归档）": "All (including archived)",
-    全选本页会话（管理者除外）: "Select all chats on this page (except Bot managers)",
+    "全选本页会话（管理者除外）": "Select all chats on this page (except Bot managers)",
     机器人管理者不可归档: "Bot manager chats cannot be archived",
     归档所选会话: "Archive selected chats",
     取消归档: "Unarchive",
