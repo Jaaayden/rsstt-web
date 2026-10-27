@@ -41,9 +41,16 @@ async def test_ban_pauses_and_blocks_all_web_resume_paths(logged):
     assert (await db.Sub.get(id=logged.sub.id)).state == 0
     assert (await db.Sub.get(id=logged.other.id)).state == 1
     for value in (1, '1'):
-        assert (await c.patch(f'/api/subscriptions/{logged.sub.id}', json={'state': value}, headers=WRITE)).status == 409
+        response = await c.patch(f'/api/subscriptions/{logged.sub.id}', json={'state': value}, headers=WRITE)
+        assert response.status == 409
+        error = await response.json()
+        assert error['code'] == 'TARGET_BANNED'
+        assert '无法恢复订阅' in error['error'] and '解除封禁' in error['error']
+        assert (await db.Sub.get(id=logged.sub.id)).state == 0
     batch = await c.post('/api/subscriptions/batch', json={'ids': [logged.sub.id], 'action': 'resume'}, headers=WRITE)
-    assert (await batch.json())['results'][0]['ok'] is False
+    item = (await batch.json())['results'][0]
+    assert item['ok'] is False and item['code'] == 'TARGET_BANNED'
+    assert '解除封禁' in item['error']
     assert (await c.post('/api/subscriptions', json={'target': '-1001', 'urls': [logged.feed.link]}, headers=WRITE)).status == 409
     assert (await c.patch('/api/targets/-1001/role', json={'role': 'user'}, headers=WRITE)).status == 200
     assert (await db.Sub.get(id=logged.sub.id)).state == 0

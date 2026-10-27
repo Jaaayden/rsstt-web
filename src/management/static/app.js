@@ -1409,7 +1409,7 @@ function resultModal(result) {
                                 )}
                                 <div>
                                     ${esc(r.url || tr("订阅 #") + r.id)}${r.message || r.error
-                                        ? html`<small>${esc(errorText(r, 400))}</small>`
+                                        ? html`<small>${esc(r.ok === false || r.status === "failed" ? errorText({ ...r, error: r.error || r.message }, 400) : (r.message || r.error))}</small>`
                                         : ""}
                                 </div>
                             </div>`,

@@ -166,6 +166,8 @@ test("static localization preserves user strings and uses plural rules and stabl
             one: m.count(1, "subscription"),
             many: m.count(2, "subscription"),
             error: m.errorText({ code: "FORBIDDEN", error: "private detail" }, 403),
+            passwordError: m.errorText({ code: "CURRENT_PASSWORD_INCORRECT" }, 400),
+            loginError: m.errorText({ code: "INVALID_CREDENTIALS" }, 401),
         };
     });
     expect(data.copy).toBe("<p>Manage subscriptions 管理订阅</p>");
@@ -173,6 +175,8 @@ test("static localization preserves user strings and uses plural rules and stabl
     expect(data.many).toBe("2 subscriptions");
     expect(data.error).toContain("(FORBIDDEN)");
     expect(data.error).not.toContain("private detail");
+    expect(data.passwordError).toBe("The current password is incorrect. Your password was not changed. (CURRENT_PASSWORD_INCORRECT)");
+    expect(data.loginError).toBe("Incorrect password. Try again. (INVALID_CREDENTIALS)");
 });
 
 test("overflow hint exposes mobile management actions and disappears when the table fits", async ({ page }) => {

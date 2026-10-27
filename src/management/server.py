@@ -118,7 +118,7 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
             await auth.verify(values.get('password'), request.remote)
             await store.execute("DELETE FROM credentials WHERE kind='session' AND id NOT IN (SELECT id FROM credentials WHERE kind='session' ORDER BY created_at DESC LIMIT 19)")
             if values.get('username', auth.username) != auth.username:
-                raise Problem('登录凭据不正确。', 401)
+                raise Problem('登录凭据不正确。', 401, code='INVALID_CREDENTIALS')
             _, secret = await store.issue(auth.username, days=1 / 3)
         await store.audit(auth.username, 'login', 'success')
         response = web.json_response({'ok': True})
@@ -140,7 +140,12 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
         admin(request)
         values = await body(request)
         async with auth.change_lock:
-            await auth.verify(values.get('current_password'), request.remote)
+            try:
+                await auth.verify(values.get('current_password'), request.remote)
+            except Problem as error:
+                if error.code == 'INVALID_CREDENTIALS':
+                    raise Problem('当前密码不正确，密码未修改。', code='CURRENT_PASSWORD_INCORRECT') from None
+                raise
             await auth.change(values.get('new_password'))
         await store.audit(auth.username, 'password_changed', 'all browser sessions revoked')
         response = web.json_response({'ok': True})
@@ -301,7 +306,7 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
             sub = await service.subscription(request.match_info['id'], request['principal'])
             if values.get('state') == 1:
                 if sub.user.state == -1:
-                    raise Problem('这个用户已被封禁。', 409)
+                    raise Problem('该会话已被封禁，无法恢复订阅。请先在会话设置中解除封禁，再手动恢复订阅。', 409, code='TARGET_BANNED')
                 await service.refresh(sub.user_id, request['principal'])
             await service.patch(sub, values)
         await store.audit(request['principal']['name'], '修改订阅', str(sub.id))
@@ -332,12 +337,12 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
                     else:
                         if action == 'resume':
                             if sub.user.state == -1:
-                                raise Problem('这个用户已被封禁。', 409)
+                                raise Problem('该会话已被封禁，无法恢复订阅。请先在会话设置中解除封禁，再手动恢复订阅。', 409, code='TARGET_BANNED')
                             await service.refresh(sub.user_id, request['principal'])
                         await service.patch(sub, {'state': 1 if action == 'resume' else 0})
                     result.append({'id': sub.id, 'ok': True})
                 except Problem as error:
-                    result.append({'id': sub.id, 'ok': False, 'error': error.message})
+                    result.append({'id': sub.id, 'ok': False, 'error': error.message, 'code': error.code or 'REQUEST_FAILED'})
         await store.audit(request['principal']['name'], '批量处理订阅', f'{action} · {len(result)} 条')
         return web.json_response({'results': result})
 
@@ -443,7 +448,7 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
     @routes.get('/assets/{name}')
     async def assets(request):
         name = request.match_info['name']
-        if name not in ('app.js', 'app.css', 'mark.svg', 'i18n.js', 'messages.js'):
+        if name not in ('app.js', 'app.css', 'mark.svg', 'i18n.js', 'messages.js', 'error-messages.js'):
             raise web.HTTPNotFound()
         return web.FileResponse(STATIC / name)
 

@@ -14,6 +14,32 @@ from conftest import PASSWORD, ORIGIN, token
 WRITE = {'Origin': ORIGIN}
 
 
+async def test_password_errors_distinguish_credentials_from_session_expiry(logged):
+    c = logged.client
+    new = PASSWORD + '1'
+    result = await c.post('/api/auth/password', json={'current_password': 'incorrect', 'new_password': new}, headers=WRITE)
+    assert result.status == 400
+    assert (await result.json())['code'] == 'CURRENT_PASSWORD_INCORRECT'
+    assert (await c.get('/api/session')).status == 200
+    auth = await Auth.load(logged.store, PASSWORD)
+    await auth.verify(PASSWORD, 'test')
+    with pytest.raises(Problem):
+        await auth.verify(new, 'test')
+    result = await c.post('/api/auth/password', json={'current_password': PASSWORD, 'new_password': 'short'}, headers=WRITE)
+    assert result.status == 400
+    assert (await result.json())['code'] == 'NEW_PASSWORD_INVALID'
+    assert (await c.get('/api/session')).status == 200
+    result = await c.post('/api/auth/password', json={'current_password': PASSWORD, 'new_password': new}, headers=WRITE)
+    assert result.status == 200
+    result = await c.get('/api/session')
+    assert result.status == 401
+    assert (await result.json())['code'] == 'UNAUTHENTICATED'
+    result = await c.post('/api/login', json={'password': PASSWORD}, headers=WRITE)
+    assert result.status == 401
+    assert (await result.json())['code'] == 'INVALID_CREDENTIALS'
+    assert (await c.post('/api/login', json={'password': new}, headers=WRITE)).status == 200
+
+
 async def test_password_persistence_rotation_and_sessions(logged):
     c = logged.client
     headers = await token(logged)

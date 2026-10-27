@@ -144,7 +144,7 @@ test("snapshot preview distinguishes real copies from unavailable history", asyn
 
 test("account security revokes sessions and rotates the persistent password", async ({ page, request, baseURL }) => {
     const original = process.env.WEB_PASSWORD;
-    const next = original + "-rotated";
+    const next = original + "1";
     const headers = { Origin: new URL(baseURL).origin };
     try {
         await page.getByRole("link", { name: "设置", exact: true }).click();
@@ -156,10 +156,19 @@ test("account security revokes sessions and rotates the persistent password", as
         await page.getByLabel("管理台密码", { exact: true }).fill(original);
         await page.getByRole("button", { name: /进入管理台/ }).click();
         await expect(page.getByRole("heading", { name: "账户安全", exact: true })).toBeVisible();
+        await page.getByLabel("当前密码", { exact: true }).fill("incorrect-current-password");
+        await page.getByLabel("新密码", { exact: true }).fill(next);
+        await page.getByRole("button", { name: "修改密码并退出" }).click();
+        await expect(page.locator("#password-form .error")).toHaveText("当前密码不正确，密码未修改。 (CURRENT_PASSWORD_INCORRECT)");
+        await expect(page.locator("#login-form")).toHaveCount(0);
+        expect(await page.evaluate(async () => (await fetch("/api/session")).status)).toBe(200);
         await page.getByLabel("当前密码", { exact: true }).fill(original);
         await page.getByLabel("新密码", { exact: true }).fill(next);
         await page.getByRole("button", { name: "修改密码并退出" }).click();
         await expect(page.locator("#login-form")).toBeVisible();
+        await page.getByLabel("管理台密码", { exact: true }).fill(original);
+        await page.getByRole("button", { name: /进入管理台/ }).click();
+        await expect(page.locator("#login-form .error")).toHaveText("密码不正确，请重试。 (INVALID_CREDENTIALS)");
         await page.getByLabel("管理台密码", { exact: true }).fill(next);
         await page.getByRole("button", { name: /进入管理台/ }).click();
         await expect(page.getByRole("link", { name: "设置", exact: true })).toBeVisible();

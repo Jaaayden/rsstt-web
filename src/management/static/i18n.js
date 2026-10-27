@@ -1,4 +1,5 @@
 import { english } from "./messages.js";
+import { businessError } from "./error-messages.js";
 const read = (key) => {
     try {
         return localStorage.getItem(key);
@@ -36,13 +37,21 @@ const errors = {
     401: ["登录已失效，请重新登录。", "Your session expired. Sign in again."],
     403: ["没有执行此操作的权限。", "You do not have permission for this action."],
     404: ["记录不存在或已被删除。", "This record was not found or has been removed."],
-    409: ["数据已变化，请刷新后重试。", "The data changed. Refresh and try again."],
+    409: ["当前状态不允许执行此操作。", "This action is not allowed in the current state."],
     413: ["提交内容过大，请减少内容。", "The request is too large. Reduce its size."],
     429: ["操作过于频繁，请稍后重试。", "Too many requests. Try again shortly."],
     503: ["服务暂不可用，请稍后重试。", "The service is temporarily unavailable. Try again shortly."],
 };
 export function errorText(data, status) {
     const code = typeof data.code === "string" && /^[A-Za-z0-9_]{1,64}$/.test(data.code) ? data.code : `http_${status}`;
+    const credentialErrors = {
+        INVALID_CREDENTIALS: ["密码不正确，请重试。", "Incorrect password. Try again."],
+        CURRENT_PASSWORD_INCORRECT: ["当前密码不正确，密码未修改。", "The current password is incorrect. Your password was not changed."],
+        NEW_PASSWORD_INVALID: ["新密码需为 16–512 个字符，密码未修改。", "Use 16–512 characters for the new password. Your password was not changed."],
+    };
+    if (credentialErrors[code]) return credentialErrors[code][locale === "en" ? 1 : 0] + ` (${code})`;
+    const specific = status < 500 ? businessError(data, locale) : null;
+    if (specific) return specific + ` (${code})`;
     const statuses = {
         INVALID_REQUEST: 400,
         UNAUTHENTICATED: 401,
