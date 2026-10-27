@@ -1,5 +1,12 @@
 const { test, expect } = require('@playwright/test');
 
+test.beforeEach(async ({ page }) => {
+    await page.goto('/');
+    await page.getByLabel('管理台密码', { exact: true }).fill(process.env.WEB_PASSWORD);
+    await page.getByRole('button', { name: /进入管理台/ }).click();
+    await expect(page.getByRole('link', { name: '设置', exact: true })).toBeVisible();
+});
+
 test('target URL survives refresh and recipient/UA/export controls work', async ({ page }) => {
     await page.goto('/#subscriptions?target=-1001001&q=Hacker');
     await expect(page.getByText('当前目的地：技术与创造')).toBeVisible();
