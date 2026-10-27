@@ -37,8 +37,8 @@ const paths = {
 const icon = (name, size = 18) =>
     `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${paths[name] || paths.rss}"/></svg>`;
 const labels = { dashboard: "仪表盘", targets: "会话与频道", subscriptions: "全部订阅", settings: "设置" };
-const kindName = { private: "私聊", channel: "频道", group: "群组" };
-const kindIcon = { private: "user", channel: "channel", group: "group" };
+const kindName = { private: "私聊", channel: "频道", group: "群组", unknown: "群组/频道" };
+const kindIcon = { unknown: "chats", private: "user", channel: "channel", group: "group" };
 const S = {
     route: "dashboard",
     session: null,
@@ -160,7 +160,7 @@ async function render(quiet = false) {
                 api("/settings"),
                 S.settings === "tokens" ? api("/tokens") : Promise.resolve(null),
             ]);
-            html = settings(data, tokens);
+            html = settings(data, tokens, S.settings === "runtime" ? await api("/runtime-config") : null);
         }
         if (serial !== S.serial) return;
         $("#main").innerHTML = html + credit();
@@ -301,7 +301,7 @@ function subscriptions(d) {
     );
 }
 
-function settings(d, tokens) {
+function settings(d, tokens, runtime) {
     const o = d.options;
     const settingRow = (key, label, hint, min = 1, max = 32767, value = o[key]) =>
         `<div class="form-row"><label for="setting-${key}">${label}<p>${hint}</p></label><input id="setting-${key}" name="${key}" type="number" min="${min}" max="${max}" value="${value}" required></div>`;
@@ -312,12 +312,15 @@ function settings(d, tokens) {
         content = `<section class="panel"><div class="panel-head"><div><h2>连接授权</h2><p>允许外部应用通过 API 管理选定的会话</p></div><button class="primary" data-action="new-token">${icon("plus", 14)}创建授权</button></div>${tokens.items.length ? tokens.items.map((t) => `<div class="token-row">${icon("key", 20)}<div><p>${esc(t.name)} ${pill(t.permission === "write" ? "读写" : "只读", "gray")}</p><small>${t.targets === null ? "全部会话（含今后新增）" : `${t.targets.length} 个指定会话`} · ${dateText(t.expires_at * 1000)} 到期</small></div><button class="danger" data-revoke="${esc(t.id)}">撤销</button></div>`).join("") : empty("还没有连接授权", "未来接入 FeedLantern 时，在这里创建专用授权。")}<div class="form-body"><div class="notice">授权只允许访问指定会话的订阅，不包含管理台设置、创建授权或退出频道等管理员操作。完整密钥只显示一次。</div></div></section>`;
     if (S.settings === "security")
         content = `<form id="password-form" class="panel"><div class="panel-head"><h2>账户安全</h2></div><div class="form-body"><p>当前账户：${esc(S.session.name)} · ${S.demo ? "预览管理员" : "管理台管理员"}。此账户独立于 Telegram 机器人管理员。</p><label>当前密码<input name="current_password" type="password" autocomplete="current-password" required></label><label>新密码<input name="new_password" type="password" autocomplete="new-password" minlength="16" maxlength="512" required></label><p>修改后所有网页登录会话失效，连接授权保持有效。</p><p class="error" role="alert"></p></div><div class="form-footer"><button class="primary" type="submit">修改密码并退出</button><button type="button" data-action="revoke-sessions">撤销全部网页登录会话</button></div></form>`;
+    if (S.settings === "runtime")
+        content = `<form id="runtime-form" class="panel"><div class="panel-head"><h2>运行配置</h2></div><div class="form-body"><p class="notice">${runtime.pending_restart ? "有配置待重启。" : "没有待应用的覆盖。"} 保存不会改变当前连接；请在部署端安排重启。每项选择“修改”才会保存；“恢复部署值”会删除覆盖。敏感值只显示配置状态。</p>${runtime.items.map(r => `<div class="form-row"><label for="runtime-${r.key}">${esc(r.key)}<p>${r.pending_restart ? "待重启 · " : ""}${r.configured ? "已保存网页覆盖" : "使用部署或默认值"}${r.sensitive ? (r.effective_configured ? " · 当前已配置" : " · 当前未配置") : ""}</p></label><div><select name="mode-${r.key}" aria-label="${esc(r.key)} 操作"><option value="keep">保持不变</option><option value="set">修改</option><option value="reset">恢复部署值</option></select>${r.type === "boolean" ? `<select id="runtime-${r.key}" name="${r.key}" data-type="boolean"><option value="true" ${r.value === true ? "selected" : ""}>启用</option><option value="false" ${r.value === false ? "selected" : ""}>禁用</option></select>` : `<input id="runtime-${r.key}" name="${r.key}" data-type="${r.type}" type="${r.sensitive ? "password" : r.type === "integer" ? "number" : "text"}" autocomplete="off" value="${r.sensitive ? "" : esc(r.value ?? "")}" ${r.min !== undefined ? `min="${r.min}" max="${r.max}"` : ""}>`}</div></div>`).join("")}<p class="hint">必须由部署管理：${runtime.deployment_only.map(esc).join("、")}。网页登录凭据请使用连接授权／登录设置。</p></div><div class="form-footer"><button class="primary" type="submit">保存，重启后生效</button></div></form>`;
     if (S.settings === "instance")
-        content = `<section class="panel"><div class="panel-head"><h2>实例信息</h2></div><div class="form-body"><dl class="info-grid"><div><dt>机器人</dt><dd>${esc(d.bot.name)} · @${esc(d.bot.username || "未设置")}</dd></div><div><dt>连接状态</dt><dd>${S.snapshot ? "真实数据离线预览" : d.demo ? "离线演示" : d.bot.connected ? "在线" : "未连接"}</dd></div><div><dt>管理台地址</dt><dd>${esc(d.origin)}</dd></div><div><dt>RSStT 数据库</dt><dd>${esc(d.database)}</dd></div><div><dt>${S.snapshot ? "快照时间" : "统计开始时间"}</dt><dd>${dateText(S.snapshot ? S.snapshot.captured_at : d.console.started_at)}</dd></div><div><dt>统计存储</dt><dd>${S.snapshot ? "原版无历史统计" : "独立 SQLite · 累计值永久保留"}</dd></div></dl><div class="notice">机器人 Token、Telegram API 凭证与代理通过部署环境配置。管理台密码在首次启动时初始化，此后通过账户安全修改。管理台不会读取或显示这些密钥。</div></div></section>`;
+        content = `<section class="panel"><div class="panel-head"><h2>实例信息</h2></div><div class="form-body"><dl class="info-grid"><div><dt>机器人</dt><dd>${esc(d.bot.name)} · @${esc(d.bot.username || "未设置")}</dd></div><div><dt>连接状态</dt><dd>${S.snapshot ? "真实数据离线预览" : d.demo ? "离线演示" : d.bot.connected ? "在线" : "未连接"}</dd></div><div><dt>管理台地址</dt><dd>${esc(d.origin)}</dd></div><div><dt>RSStT 数据库</dt><dd>${esc(d.database)}</dd></div><div><dt>${S.snapshot ? "快照时间" : "统计开始时间"}</dt><dd>${dateText(S.snapshot ? S.snapshot.captured_at : d.console.started_at)}</dd></div><div><dt>统计存储</dt><dd>${S.snapshot ? "原版无历史统计" : "独立 SQLite · 累计值永久保留"}</dd></div></dl><div class="notice">机器人 Token、Telegram API 凭证与代理可在运行配置中保存，重启后应用。管理者身份由部署管理；网页登录密码通过账户安全修改。敏感值不会回显。</div></div></section>`;
     return (
         header("设置", "熟悉的管理方式，按需调整。") +
         `<div class="settings"><nav class="settings-nav" aria-label="设置栏目">${[
             ["general", "settings", "更新与订阅"],
+            ["runtime", "settings", "运行配置"],
             ["tokens", "key", "连接授权"],
             ["security", "key", "账户安全"],
             ["instance", "rss", "实例信息"],
@@ -466,7 +469,7 @@ function editTarget(item) {
     modalState = { action: "edit-target", item };
     modal(
         item.title,
-        `<div class="spread"><span class="muted mono small">${esc(item.id)} · ${targetKindName(item)}</span><button type="button" data-refresh-target="${item.id}" class="small">${icon("refresh", 13)}同步名称与权限</button></div><div class="inline"><a class="text-link" href="/api/targets/${item.id}/opml" download>导出 OPML</a><button type="button" class="text-link" data-import-target="${item.id}">导入 OPML</button></div><label>此会话的订阅上限<input name="sub_limit" type="number" min="-1" max="32767" value="${item.sub_limit ?? ""}" placeholder="使用实例默认值"><span class="hint">-1 表示不限，留空则继承实例设置。</span></label>${formatFields(item.options, false)}${item.id.startsWith("-") ? `<div class="spread"><span class="hint">退出后保留订阅记录，并暂停更新。</span><button type="button" class="danger small" data-leave-target="${item.id}">退出会话</button></div>` : ""}`,
+        `<div class="spread"><span class="muted mono small">${esc(item.id)} · ${targetKindName(item)}</span><button type="button" data-refresh-target="${item.id}" class="small">${icon("refresh", 13)}同步名称与权限</button></div><div class="inline"><a class="text-link" href="/api/targets/${item.id}/opml" download>导出 OPML</a><button type="button" class="text-link" data-import-target="${item.id}">导入 OPML</button></div><label>用户角色<select id="target-role" ${item.role_protected ? "disabled" : ""}>${(item.role_protected ? [["manager","MANAGER（部署管理）"]] : [["banned","封禁"],["guest","访客"],["user","普通用户"],...(!item.id.startsWith("-") ? [["admin","管理员（原版状态 100）"]] : [])]).map(([v,l]) => `<option value="${v}" ${item.role === v ? "selected" : ""}>${l}</option>`).join("")}</select><span class="hint">原版管理员状态不等于 MANAGER，不授予管理台登录或管理者命令权限。封禁会暂停订阅，解封不会自动恢复。</span></label><button type="button" data-save-role="${item.id}" ${item.role_protected ? "disabled" : ""}>保存角色</button><label>Bot 语言<input name="lang" value="${esc(item.lang || "null")}" maxlength="16"><span class="hint">例如 zh-Hans、en；null 使用自动语言。</span></label><label>此会话的订阅上限<input name="sub_limit" type="number" min="-1" max="32767" value="${item.sub_limit ?? ""}" placeholder="使用实例默认值"><span class="hint">-1 表示不限，留空则继承实例设置。</span></label>${formatFields(item.options, false)}${item.id.startsWith("-") ? `<div class="spread"><span class="hint">退出后保留订阅记录，并暂停更新。</span><button type="button" class="danger small" data-leave-target="${item.id}">退出会话</button></div>` : ""}`,
         saveFooter("保存默认设置"),
     );
 }
@@ -521,6 +524,12 @@ document.addEventListener("click", async (event) => {
             S.page = Number(d.page);
             S.selected.clear();
             return render(true);
+        }
+        if (d.saveRole) {
+            const updated = await api(`/targets/${d.saveRole}/role`, { method: "PATCH", body: {role: $("#target-role").value} });
+            toast("角色已保存");
+            editTarget(updated);
+            return;
         }
         if (d.settings) {
             S.settings = d.settings;
@@ -694,6 +703,18 @@ document.addEventListener("submit", async (event) => {
             await boot();
             return;
         }
+        if (form.id === "runtime-form") {
+            const values = {};
+            for (const [key, mode] of f) {
+                if (!key.startsWith("mode-") || mode === "keep") continue;
+                const name = key.slice(5), field = form.elements.namedItem(name), value = f.get(name);
+                values[name] = mode === "reset" ? null : field.dataset.type === "boolean" ? value === "true" : field.dataset.type === "integer" ? Number(value) : value;
+            }
+            if (!Object.keys(values).length) throw new Error("请先选择需要修改的项目。");
+            await api("/runtime-config", {method: "PATCH", body: values});
+            toast("已保存；需要在部署端重启后生效");
+            return render(true);
+        }
         if (form.id === "password-form") {
             await api("/auth/password", { method: "POST", body: Object.fromEntries(f) });
             S.session = null;
@@ -723,7 +744,7 @@ document.addEventListener("submit", async (event) => {
         if (m.action === "edit-sub" || m.action === "edit-target") {
             const v = Object.fromEntries(f);
             for (const k of Object.keys(v))
-                if (!["title", "tags"].includes(k)) v[k] = v[k] === "" ? null : Number(v[k]);
+                if (!["title", "tags", "lang"].includes(k)) v[k] = v[k] === "" ? null : Number(v[k]);
             await api(`/${m.action === "edit-sub" ? "subscriptions" : "targets"}/${m.item.id}`, {
                 method: "PATCH",
                 body: v,

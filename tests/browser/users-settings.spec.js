@@ -1,0 +1,55 @@
+const {test, expect} = require('@playwright/test');
+
+test('runtime config and role forms use isolated offline database', async ({page}) => {
+    const errors = [];
+    page.on('pageerror', e => errors.push(e.message));
+    await page.goto('/');
+    await page.getByLabel('管理台密码', {exact: true}).fill(process.env.WEB_PASSWORD);
+    await page.getByRole('button', {name: /进入管理台/}).click();
+    await page.getByRole('link', {name: '设置', exact: true}).click();
+    await page.getByRole('button', {name: '运行配置', exact: true}).click();
+    await page.getByLabel('HTTP_TIMEOUT 操作', {exact: true}).selectOption('set');
+    await page.locator('#runtime-HTTP_TIMEOUT').fill('31');
+    await page.getByRole('button', {name: '保存，重启后生效'}).click();
+    await expect(page.locator('#runtime-form')).toContainText('有配置待重启');
+    await page.reload();
+    await page.getByRole('button', {name: '运行配置', exact: true}).click();
+    await expect(page.locator('#runtime-HTTP_TIMEOUT')).toHaveValue('31');
+    await expect(page.locator('#runtime-TOKEN')).toHaveValue('');
+    await page.getByLabel('HTTP_TIMEOUT 操作', {exact: true}).selectOption('reset');
+    await page.getByRole('button', {name: '保存，重启后生效'}).click();
+    await expect(page.locator('#runtime-HTTP_TIMEOUT')).toHaveValue('');
+    await page.getByRole('link', {name: '会话与频道', exact: true}).click();
+    await page.getByRole('button', {name: '管理 Alex Chen', exact: true}).click();
+    await page.locator('#target-role').selectOption('admin');
+    await page.getByRole('button', {name: '保存角色', exact: true}).click();
+    await expect(page.locator('#target-role')).toHaveValue('admin');
+    await page.getByLabel('Bot 语言').fill('en');
+    await page.getByRole('button', {name: '保存默认设置', exact: true}).click();
+    await page.getByRole('button', {name: '管理 Jayden', exact: true}).click();
+    await expect(page.locator('#target-role')).toBeDisabled();
+    expect(errors).toEqual([]);
+});
+
+test('banned resume errors display actionable server text in single and batch UI', async ({page}) => {
+    await page.goto('/');
+    await page.getByLabel('管理台密码', {exact: true}).fill(process.env.WEB_PASSWORD);
+    await page.getByRole('button', {name: /进入管理台/}).click();
+    await expect(page.getByRole('heading', {name: '一切动态，尽在眼前。'})).toBeVisible();
+    const headers = {Origin: new URL(page.url()).origin};
+    const response = await page.request.patch('/api/targets/-1001001/role', {headers, data: {role: 'banned'}});
+    expect(response.status()).toBe(200);
+    await page.getByRole('link', {name: '会话与频道', exact: true}).click();
+    await page.getByPlaceholder('搜索名称、用户名或 ID').fill('技术');
+    await expect(page.locator('tbody tr')).toHaveCount(1);
+    await page.getByRole('button', {name: '查看订阅', exact: true}).click();
+    const message = '该会话已被封禁，无法恢复订阅。请先在会话设置中解除封禁，再手动恢复订阅。';
+    await page.locator('[data-sub-toggle]').first().click();
+    await expect(page.locator('#toast')).toHaveText(message);
+    await page.locator('[data-select]').first().check();
+    await page.getByRole('button', {name: '恢复', exact: true}).click();
+    await page.getByRole('dialog').getByRole('button', {name: '确认', exact: true}).click();
+    await expect(page.getByRole('dialog')).toContainText(message);
+    const data = await (await page.request.get('/api/subscriptions?target=-1001001')).json();
+    expect(data.items.every(item => item.state === 0)).toBeTruthy();
+});
