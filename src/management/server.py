@@ -446,6 +446,8 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
             raise web.HTTPNotFound()
         return web.FileResponse(STATIC / name)
 
+    from .backup_api import install as install_backups
+    install_backups(routes, service, env.DATABASE_URL, admin, body)
     notifier = await notifications.Notifications(store, offline=demo or bool(snapshot)).open()
 
     async def notification_start(app):

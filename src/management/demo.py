@@ -13,6 +13,9 @@ ORIGIN = f'http://127.0.0.1:{PORT}'
 os.environ.update(TOKEN='test', MANAGER='1', MULTIPROCESSING='0', DATABASE_URL=f'sqlite:{CONFIG / "db.sqlite3"}')
 sys.argv = [sys.argv[0], '-c', str(CONFIG)]
 
+from .backups import early_startup
+early_startup(f'sqlite:{CONFIG / "db.sqlite3"}', CONFIG)
+
 from aiohttp import web
 from feedparser import FeedParserDict
 from .. import db, env, aio_helper, web as upstream_web

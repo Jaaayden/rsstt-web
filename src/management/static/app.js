@@ -170,6 +170,7 @@ async function render(quiet = false) {
                 api("/settings"),
                 S.settings === "tokens" ? api("/tokens") : Promise.resolve(null),
             ]);
+            if (S.settings === "backups") data.backups = await api("/backups");
             if (S.settings === "notifications") {
                 data.notifications = await api("/notifications");
                 data.notificationHistory = await api("/notifications/history");
@@ -331,6 +332,11 @@ function settings(d, tokens, runtime) {
     }
     if (S.settings === "tokens")
         content = `<section class="panel"><div class="panel-head"><div><h2>连接授权</h2><p>允许外部应用通过 API 管理选定的会话</p></div><button class="primary" data-action="new-token">${icon("plus", 14)}创建授权</button></div>${tokens.items.length ? tokens.items.map((t) => `<div class="token-row">${icon("key", 20)}<div><p>${esc(t.name)} ${pill(t.permission === "write" ? "读写" : "只读", "gray")}</p><small>${t.targets === null ? "全部会话（含今后新增）" : `${t.targets.length} 个指定会话`} · ${dateText(t.expires_at * 1000)} 到期</small></div><button class="danger" data-revoke="${esc(t.id)}">撤销</button></div>`).join("") : empty("还没有连接授权", "未来接入 FeedLantern 时，在这里创建专用授权。")}<div class="form-body"><div class="notice">授权只允许访问指定会话的订阅，不包含管理台设置、创建授权或退出频道等管理员操作。完整密钥只显示一次。</div></div></section>`;
+    if (S.settings === "backups") {
+        const info = d.backups;
+        const status = {none: "无待恢复任务", pending_restart: "等待正常重启，尚未应用", applying: "启动前正在应用", succeeded: "恢复成功，运行对象已通过正常启动重新加载", failed: "恢复失败，查看维护记录后重试"}[info.restore.status] || info.restore.status;
+        content = `<section class="panel"><div class="panel-head"><h2>备份与恢复</h2></div><div class="form-body"><p>包含订阅库、管理配置、统计、操作记录。始终排除 Telegram session、主机器人 Token、部署环境及旧网页登录会话。文件可能含私密订阅地址，请妥善保存。</p><div class="notice">SQLite：网页提交后等待正常重启，启动前自动恢复；不会在运行中覆盖数据库。PostgreSQL 请使用文档中的停机 pg_dump/pg_restore 流程。Windows 可导出，自动恢复需在 POSIX 主机执行。</div><p>恢复状态：${esc(status)}</p>${info.restore.error ? `<p>${esc(info.restore.error)}</p>` : ""}${Object.entries({agent_tokens: "连接 / Agent 令牌", admin_credentials: "管理员账号密码哈希", runtime_config: "注册的运行配置", notification_secrets: "通知渠道配置和密钥（含通知机器人 Token）"}).map(([key, label]) => `<label><input type="checkbox" data-backup-option="${key}" ${info.components[key].length ? "" : "disabled"}> ${label}${info.components[key].length ? "（导出包含；恢复覆盖目标）" : "（当前版本未注册，保留目标）"}</label>`).join("")}<p>未勾选时保留目标敏感组件；恢复会使全部网页登录会话失效。恢复前自动保留回退副本。</p><button data-action="backup-export" ${info.sqlite ? "" : "disabled"}>下载备份</button><hr><label>选择 JSON 备份（最多 32 MiB）<input type="file" id="backup-file" accept=".json,application/json"></label><button data-action="backup-preflight" ${info.restore_supported ? "" : "disabled"}>预检备份</button><button data-action="backup-cancel">取消待恢复任务</button></div></section>`;
+    }
     if (S.settings === "security")
         content = `<form id="password-form" class="panel"><div class="panel-head"><h2>账户安全</h2></div><div class="form-body"><p>当前账户：${esc(S.session.name)} · ${S.demo ? "预览管理员" : "管理台管理员"}。此账户独立于 Telegram 机器人管理员。</p><label>当前密码<input name="current_password" type="password" autocomplete="current-password" required></label><label>新密码<input name="new_password" type="password" autocomplete="new-password" minlength="16" maxlength="512" required></label><p>修改后所有网页登录会话失效，连接授权保持有效。</p><p class="error" role="alert"></p></div><div class="form-footer"><button class="primary" type="submit">修改密码并退出</button><button type="button" data-action="revoke-sessions">撤销全部网页登录会话</button></div></form>`;
     if (S.settings === "runtime")
@@ -346,6 +352,7 @@ function settings(d, tokens, runtime) {
             ["notifications", "alert", "管理员通知"],
             ["security", "key", "账户安全"],
             ["instance", "rss", "实例信息"],
+            ["backups", "settings", "备份与恢复"],
         ]
             .map(
                 ([key, i, label]) =>
@@ -512,6 +519,15 @@ function resultModal(result) {
     );
 }
 
+let checkedBackup = null;
+function backupOptions() {
+    return Object.fromEntries([...document.querySelectorAll("[data-backup-option]")].map(input => [input.dataset.backupOption, input.checked]));
+}
+async function backupRequest(path, body, extra = {}) {
+    const response = await fetch("/api/backups/" + path, {method: "POST", headers: {"Content-Type": "application/json", ...extra}, body});
+    if (!response.ok) throw new Error((await response.json()).error);
+    return response;
+}
 document.addEventListener("click", async (event) => {
     const b = event.target.closest("button,[data-target-subs]");
     if (!b || b.disabled) return;
@@ -555,6 +571,36 @@ document.addEventListener("click", async (event) => {
         }
         if (d.settings) {
             S.settings = d.settings;
+            return render(true);
+        }
+        if (d.action === "backup-export") {
+            const response = await backupRequest("export", JSON.stringify(backupOptions()));
+            const url = URL.createObjectURL(await response.blob());
+            const anchor = document.createElement("a");
+            anchor.href = url; anchor.download = "rsstt-backup.json"; anchor.click();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+            return;
+        }
+        if (d.action === "backup-preflight") {
+            const file = $("#backup-file").files[0];
+            if (!file || file.size > 32 * 1024 * 1024) throw new Error("请选择不超过 32 MiB 的 JSON 备份。");
+            const raw = await file.text();
+            const query = new URLSearchParams(backupOptions()).toString();
+            const summary = await (await backupRequest("preflight?" + query, raw)).json();
+            checkedBackup = {raw, query, sha256: summary.sha256};
+            modal("备份预检通过", `<p>备份时间：${esc(summary.created_at)}</p><pre>${esc(JSON.stringify(summary.counts, null, 2))}</pre><p>本次覆盖选项：${esc(Object.entries(summary.overwrite).filter(([, enabled]) => enabled).map(([key]) => key).join("、") || "无，保留目标敏感组件")}</p><p>提交只暂存任务，正常重启时才应用。网页登录会话全部失效。</p>`, '<button type="button" data-action="close">返回</button><button type="button" class="danger" data-action="backup-stage">确认提交，等待重启</button>');
+            return;
+        }
+        if (d.action === "backup-stage" && checkedBackup) {
+            const {raw, query, sha256} = checkedBackup;
+            await backupRequest("restore?" + query, raw, {"X-Backup-SHA256": sha256});
+            checkedBackup = null;
+            $("#dialog").close();
+            toast("已暂存，等待正常重启；尚未恢复。");
+            return render(true);
+        }
+        if (d.action === "backup-cancel") {
+            await api("/backups/pending", {method: "DELETE"});
             return render(true);
         }
         if (d.action === "new-sub") return await newSub();
