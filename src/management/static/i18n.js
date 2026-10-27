@@ -1,4 +1,4 @@
-import { english } from "./messages.js";
+import { english, runtimeCopy } from "./messages.js";
 import { businessError } from "./error-messages.js";
 const read = (key) => {
     try {
@@ -46,8 +46,14 @@ export function errorText(data, status) {
     const code = typeof data.code === "string" && /^[A-Za-z0-9_]{1,64}$/.test(data.code) ? data.code : `http_${status}`;
     const credentialErrors = {
         INVALID_CREDENTIALS: ["密码不正确，请重试。", "Incorrect password. Try again."],
-        CURRENT_PASSWORD_INCORRECT: ["当前密码不正确，密码未修改。", "The current password is incorrect. Your password was not changed."],
-        NEW_PASSWORD_INVALID: ["新密码需为 16–512 个字符，密码未修改。", "Use 16–512 characters for the new password. Your password was not changed."],
+        CURRENT_PASSWORD_INCORRECT: [
+            "当前密码不正确，密码未修改。",
+            "The current password is incorrect. Your password was not changed.",
+        ],
+        NEW_PASSWORD_INVALID: [
+            "新密码需为 16–512 个字符，密码未修改。",
+            "Use 16–512 characters for the new password. Your password was not changed.",
+        ],
     };
     if (credentialErrors[code]) return credentialErrors[code][locale === "en" ? 1 : 0] + ` (${code})`;
     const specific = status < 500 ? businessError(data, locale) : null;
@@ -85,9 +91,10 @@ new MutationObserver(() => {
 }).observe(document.getElementById("app"), { childList: true, subtree: true });
 
 const units = {
-    destination: ["个目的地", "destination", "destinations"],
+    destination: ["个会话", "chat", "chats"],
     subscription: ["条订阅", "subscription", "subscriptions"],
-    selectedDestination: ["个指定会话", "selected destination", "selected destinations"],
+    selectedDestination: ["个指定会话", "selected chat", "selected chats"],
+    feed: ["个订阅源", "feed", "feeds"],
     day: ["天", "day", "days"],
 };
 export function count(value, unit) {
@@ -97,7 +104,33 @@ export function count(value, unit) {
 }
 const messages = {
     pager: ["共 {total} 条 · 第 {page} / {pages} 页", "{total} items · Page {page} of {pages}"],
+    attentionThreshold: [
+        "连续抓取失败达到 {count} 次的已启用订阅",
+        "Enabled subscriptions with at least {count} consecutive fetch failures",
+    ],
+    fetchFailures: ["连续抓取失败 {count} 次", "{count} consecutive fetch failures"],
+    recordedChats: [
+        "已记录 {total} 个会话，其中 {unknown} 个类型待核验",
+        "{total} recorded chats; {unknown} have unverified types",
+    ],
+    discoveredTotal: ["累计新发现文章 {count} 篇", "{count} new entries discovered in total"],
+    deliveryPoint: ["{time} · 成功推送 {count} 篇次", "{time} · {count} successful deliveries"],
+    backupCreated: ["备份创建时间：{time}", "Backup created: {time}"],
+    resultCounts: [
+        "操作完成 {completed} 条，已订阅跳过 {skipped} 条，失败 {failed} 条。请按失败原因处理后重试。",
+        "{completed} completed, {skipped} already subscribed and skipped, {failed} failed. Resolve the reported causes before retrying.",
+    ],
+    pickerSummary: ["找到 {total} 个会话", "{total} chats found"],
+    pickerSelected: ["已选择 {count} 个", "{count} selected"],
+    loading: ["正在加载{page}…", "Loading {page}…"],
+    enabledSubs: ["已启用 {count} 条", "{count} enabled"],
+    selectedSubs: ["已选择 {count} 条订阅", "{count} subscriptions selected"],
 };
 export function message(key, values) {
     return messages[key][locale === "en" ? 1 : 0].replace(/\{(\w+)\}/g, (_, name) => values[name] ?? "");
+}
+
+export function runtimeText(key) {
+    const row = runtimeCopy[key];
+    return row ? { label: row[locale === "en" ? 1 : 0], help: row[locale === "en" ? 3 : 2] } : { label: key, help: "" };
 }

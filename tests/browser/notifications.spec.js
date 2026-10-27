@@ -20,7 +20,7 @@ test("live API: notification configuration, masked credentials and offline queue
     await expect(page.locator("#dialog input[name=url]")).toHaveValue("");
     await page.keyboard.press("Escape");
     await page.locator('[data-notify-test="webhook"]').click();
-    await page.getByRole("dialog").getByRole("button", { name: "确认", exact: true }).click();
+    await page.getByRole("dialog").locator(".dialog-footer button[type=submit]").click();
     await expect
         .poll(async () =>
             (await (await page.request.get("/api/notifications/history")).json()).items.some(

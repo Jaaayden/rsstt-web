@@ -7,7 +7,7 @@ test("live API: runtime persistence, secret masking, roles and Bot language", as
     const editTimeout = () => page.locator('[data-runtime-edit="HTTP_TIMEOUT"]').click();
     await editTimeout();
     await page.getByLabel("配置值", { exact: true }).fill("31");
-    await page.getByRole("button", { name: "保存并等待重启" }).click();
+    await page.getByRole("button", { name: "保存（重启后生效）" }).click();
     await expect(page.getByRole("dialog")).not.toBeVisible();
     await expect(page.locator("tr").filter({ hasText: "HTTP_TIMEOUT" })).toContainText("待重启");
     await page.reload();
@@ -18,8 +18,8 @@ test("live API: runtime persistence, secret masking, roles and Bot language", as
     await expect(page.getByLabel("配置值", { exact: true })).toHaveValue("");
     await page.keyboard.press("Escape");
     await editTimeout();
-    await page.getByLabel("恢复部署默认值").check();
-    await page.getByRole("button", { name: "保存并等待重启" }).click();
+    await page.getByLabel("移除网页覆盖，重启后使用部署配置").check();
+    await page.getByRole("button", { name: "保存（重启后生效）" }).click();
     await expect(page.getByRole("dialog")).not.toBeVisible();
     const config = await (await page.request.get("/api/runtime-config")).json();
     const timeout = config.items.find((i) => i.key === "HTTP_TIMEOUT");
@@ -32,14 +32,14 @@ test("live API: runtime persistence, secret masking, roles and Bot language", as
     await page.getByRole("button", { name: "保存角色", exact: true }).click();
     await expect(page.getByRole("dialog")).not.toBeVisible();
     await page.getByRole("button", { name: "管理 Alex Chen", exact: true }).click();
-    await expect(page.getByText("用户角色：管理员", { exact: true })).toBeVisible();
-    await page.getByLabel("Bot 语言").fill("en");
-    await page.getByRole("button", { name: "保存默认设置", exact: true }).click();
+    await expect(page.getByText("Bot 用户角色：Bot 管理员", { exact: true })).toBeVisible();
+    await page.getByLabel("Bot 回复语言").selectOption("en");
+    await page.getByRole("button", { name: "保存会话默认设置", exact: true }).click();
     await expect(page.getByRole("dialog")).not.toBeVisible();
     const targets = await (await page.request.get("/api/targets?q=Alex")).json();
     expect(targets.items.find((i) => i.id === "10002")).toMatchObject({ role: "admin", lang: "en" });
     await page.getByRole("button", { name: "管理 Jayden", exact: true }).click();
-    await expect(page.getByText("管理者受保护")).toBeVisible();
+    await expect(page.getByText("机器人管理者受保护")).toBeVisible();
     await expect(page.getByRole("button", { name: "修改角色" })).toHaveCount(0);
     expect(errors).toEqual([]);
 });

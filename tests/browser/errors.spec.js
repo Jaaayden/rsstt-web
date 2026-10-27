@@ -11,7 +11,9 @@ test("banned subscriptions explain the reason and remedy in single and batch act
     expect(original.items.length).toBeGreaterThan(0);
     const id = original.items[0].id;
     try {
-        expect((await page.request.patch(`/api/targets/${target}/role`, { headers, data: { role: "banned" } })).status()).toBe(200);
+        expect(
+            (await page.request.patch(`/api/targets/${target}/role`, { headers, data: { role: "banned" } })).status(),
+        ).toBe(200);
         await page.goto(`/#subscriptions?target=${target}`);
         await page.locator(`[data-sub-toggle="${id}"]`).click();
         await expect(page.locator("#toast")).toContainText("该会话已被封禁，无法恢复订阅");
@@ -19,19 +21,25 @@ test("banned subscriptions explain the reason and remedy in single and batch act
         await expect(page.locator("#toast")).not.toContainText("数据已变化");
         await page.locator(`[data-select="${id}"]`).check();
         await page.locator('[data-batch="resume"]').click();
-        await page.getByRole("dialog").getByRole("button", { name: "确认", exact: true }).click();
+        await page.getByRole("dialog").locator(".dialog-footer button[type=submit]").click();
         await expect(page.locator(".result-list")).toContainText("该会话已被封禁，无法恢复订阅");
         await page.keyboard.press("Escape");
         await page.locator("#language").selectOption("en");
         await page.locator(`[data-sub-toggle="${id}"]`).click();
-        await expect(page.locator("#toast")).toContainText("This chat is banned");
-        await expect(page.locator("#toast")).toContainText("Unban it");
+        await expect(page.locator("#toast")).toContainText("This chat is blocked");
+        await expect(page.locator("#toast")).toContainText("Unblock it");
         const after = await (await page.request.get(`/api/subscriptions?target=${target}&size=100`)).json();
-        expect(after.items.every(item => item.state === 0)).toBeTruthy();
+        expect(after.items.every((item) => item.state === 0)).toBeTruthy();
     } finally {
-        expect((await page.request.patch(`/api/targets/${target}/role`, { headers, data: { role: "user" } })).status()).toBe(200);
+        expect(
+            (await page.request.patch(`/api/targets/${target}/role`, { headers, data: { role: "user" } })).status(),
+        ).toBe(200);
         for (const sub of original.items) {
-            expect((await page.request.patch(`/api/subscriptions/${sub.id}`, { headers, data: { state: sub.state } })).status()).toBe(200);
+            expect(
+                (
+                    await page.request.patch(`/api/subscriptions/${sub.id}`, { headers, data: { state: sub.state } })
+                ).status(),
+            ).toBe(200);
         }
     }
 });
@@ -43,7 +51,10 @@ test("business errors preserve actionable details and hide unknown internal data
         const { businessError } = await import("/assets/error-messages.js");
         return {
             validation: errorText({ code: "INVALID_REQUEST", error: "更新间隔不能小于 10 分钟。" }, 400),
-            offline: errorText({ code: "CONFLICT", error: "离线预览使用快照中的会话名称，无法实时同步 Telegram 名称与权限。" }, 409),
+            offline: errorText(
+                { code: "CONFLICT", error: "离线预览使用快照中的会话名称，无法实时同步 Telegram 名称与权限。" },
+                409,
+            ),
             unknown: errorText({ code: "CONFLICT", error: "private-secret-do-not-show" }, 409),
             internal: errorText({ code: "INTERNAL_ERROR", error: "更新间隔不能小于 10 分钟。" }, 500),
             english: businessError({ error: "更新间隔不能小于 10 分钟。" }, "en"),

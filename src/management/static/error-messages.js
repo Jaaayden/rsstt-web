@@ -2,38 +2,45 @@
 // arbitrary server error, submitted value, filesystem path, or traceback.
 const messages = new Map([
     [
+        "会话显示范围无效，请选择未封禁、活跃、不活跃、已封禁或全部。",
+        [
+            "会话显示范围无效，请选择未封禁、活跃、不活跃、已封禁或全部。",
+            "Choose a valid chat visibility: Not blocked, Active, Inactive, Blocked, or All.",
+        ],
+    ],
+    [
         "该会话已被封禁，无法恢复订阅。请先在会话设置中解除封禁，再手动恢复订阅。",
         [
             "该会话已被封禁，无法恢复订阅。请先在会话设置中解除封禁，再手动恢复订阅。",
-            "This chat is banned, so its subscriptions cannot be resumed. Unban it in the chat’s settings, then resume the subscriptions manually.",
+            "This chat is blocked, so its subscriptions cannot be resumed. Unblock it in the chat’s settings, then resume the subscriptions manually.",
         ],
     ],
     [
         "该会话已被封禁，无法添加订阅。请先在会话设置中解除封禁，再重试。",
         [
             "该会话已被封禁，无法添加订阅。请先在会话设置中解除封禁，再重试。",
-            "This chat is banned, so subscriptions cannot be added. Unban it in the chat’s settings, then try again.",
+            "This chat is blocked, so subscriptions cannot be added. Unblock it in the chat’s settings, then try again.",
         ],
     ],
     [
         "这个用户已被封禁。",
         [
             "该会话已被封禁。请先在会话设置中解除封禁，再添加或恢复订阅。",
-            "This chat is banned. Unban it in the chat’s settings before adding or resuming subscriptions.",
+            "This chat is blocked. Unblock it in the chat’s settings before adding or resuming subscriptions.",
         ],
     ],
     [
         "不能向已封禁的会话添加订阅。",
         [
             "该会话已被封禁，无法添加订阅。请先在会话设置中解除封禁，再重试。",
-            "This chat is banned. Unban it in the chat’s settings before adding subscriptions.",
+            "This chat is blocked. Unblock it in the chat’s settings before adding subscriptions.",
         ],
     ],
     [
         "接收会话已被封禁。",
         [
             "接收会话已被封禁，接收关系未修改。请先解除封禁，再重试。",
-            "The receiving chat is banned. No recipients were changed. Unban it before trying again.",
+            "The receiving chat is banned. No recipients were changed. Unblock it before trying again.",
         ],
     ],
     [
