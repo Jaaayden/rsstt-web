@@ -129,6 +129,9 @@ async def test_snapshot_api_marks_statistics_unknown_and_refuses_live_refresh(co
     assert data['statistics']['available'] is False
     assert data['statistics']['totals']['delivered'] is None
     assert data['statistics']['daily'] == []
+    trend = await (await client.get('/api/statistics')).json()
+    assert trend['available'] is False
+    assert all(bucket['delivered'] is None for bucket in trend['buckets'])
     response = await client.post('/api/targets/-1001/refresh', headers={'Origin': origin})
     assert response.status == 409
     assert '离线预览' in (await response.json())['error']

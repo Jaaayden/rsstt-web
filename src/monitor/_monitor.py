@@ -269,6 +269,8 @@ class Monitor(Singleton):
         if feed.etag:
             headers['If-None-Match'] = feed.etag
 
+        from ..management import feed_options
+        headers.update(await feed_options.headers(feed.link))
         wf = await web.feed_get(feed.link, headers=headers, verbose=False)
         rss_d = wf.rss_d
 
