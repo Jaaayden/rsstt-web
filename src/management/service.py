@@ -13,6 +13,10 @@ from ..command import inner
 from ..command.inner.customization import SUB_OPTIONS_EXHAUSTIVE_VALUES
 
 
+BANNED_RESUME_MESSAGE = '该会话已被封禁，无法恢复订阅。请先在会话设置中解除封禁，再手动恢复订阅。'
+BANNED_ADD_MESSAGE = '该会话已被封禁，无法添加订阅。请先在会话设置中解除封禁，再重试。'
+
+
 class Problem(Exception):
     def __init__(self, message, status=400, *, code=None):
         self.message, self.status = message, status
@@ -234,7 +238,7 @@ class Service:
     async def add(self, ident, urls, principal):
         user = await self.user(ident, principal)
         if user.state == -1:
-            raise Problem('该会话已被封禁，无法添加订阅。请先在会话设置中解除封禁，再重试。', 409, code='TARGET_BANNED')
+            raise Problem(BANNED_ADD_MESSAGE, 409, code='TARGET_BANNED')
         if not isinstance(urls, list) or not 1 <= len(urls) <= 100:
             raise Problem('每次可添加 1–100 个订阅地址。')
         urls = list(dict.fromkeys(feed_url(url) for url in urls))
@@ -291,7 +295,7 @@ class Service:
         if is_sub and clean.get('state') == 1:
             user = await db.User.get(id=obj.user_id)
             if user.state == -1:
-                raise Problem('该会话已被封禁，无法恢复订阅。请先在会话设置中解除封禁，再手动恢复订阅。', 409, code='TARGET_BANNED')
+                raise Problem(BANNED_RESUME_MESSAGE, 409, code='TARGET_BANNED')
         for key, value in clean.items():
             setattr(obj, key, value)
         await obj.save(update_fields=list(clean))

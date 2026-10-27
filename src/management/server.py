@@ -14,7 +14,7 @@ from .. import db, env
 from ..command import inner
 from . import metrics, notifications
 from .statistics import usage
-from .service import Problem, Service, chat_id, integer
+from .service import Problem, Service, chat_id, integer, BANNED_RESUME_MESSAGE
 from .store import Store
 from .auth import Auth, revoke_browser_sessions
 from .agent_contract import authorize_agent, openapi
@@ -306,7 +306,7 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
             sub = await service.subscription(request.match_info['id'], request['principal'])
             if values.get('state') == 1:
                 if sub.user.state == -1:
-                    raise Problem('该会话已被封禁，无法恢复订阅。请先在会话设置中解除封禁，再手动恢复订阅。', 409, code='TARGET_BANNED')
+                    raise Problem(BANNED_RESUME_MESSAGE, 409, code='TARGET_BANNED')
                 await service.refresh(sub.user_id, request['principal'])
             await service.patch(sub, values)
         await store.audit(request['principal']['name'], '修改订阅', str(sub.id))
@@ -337,12 +337,12 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
                     else:
                         if action == 'resume':
                             if sub.user.state == -1:
-                                raise Problem('该会话已被封禁，无法恢复订阅。请先在会话设置中解除封禁，再手动恢复订阅。', 409, code='TARGET_BANNED')
+                                raise Problem(BANNED_RESUME_MESSAGE, 409, code='TARGET_BANNED')
                             await service.refresh(sub.user_id, request['principal'])
                         await service.patch(sub, {'state': 1 if action == 'resume' else 0})
                     result.append({'id': sub.id, 'ok': True})
                 except Problem as error:
-                    result.append({'id': sub.id, 'ok': False, 'error': error.message, 'code': error.code or 'REQUEST_FAILED'})
+                    result.append({'id': sub.id, 'ok': False, 'error': error.message, 'code': error.code, 'status': error.status})
         await store.audit(request['principal']['name'], '批量处理订阅', f'{action} · {len(result)} 条')
         return web.json_response({'results': result})
 
@@ -452,8 +452,8 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
             raise web.HTTPNotFound()
         return web.FileResponse(STATIC / name)
 
-    from .subscriptions import install
-    install(routes, service, body, admin)
+    from .backup_api import install as install_backups
+    install_backups(routes, service, env.DATABASE_URL, admin, body)
     notifier = await notifications.Notifications(store, offline=demo or bool(snapshot)).open()
 
     async def notification_start(app):
@@ -486,8 +486,8 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
         admin(request)
         return web.json_response(await notifier.test((await body(request)).get('channel')))
 
-    from .backup_api import install as install_backups
-    install_backups(routes, service, env.DATABASE_URL, admin, body)
+    from .subscriptions import install
+    install(routes, service, body, admin)
     app.add_routes(routes)
     return app
 
@@ -511,11 +511,11 @@ async def start():
         await _runner.setup()
         await web.TCPSite(_runner, host, port).start()
         metrics.store = _store
-        from . import feed_options
-        feed_options.store = _store
         notifier = app[NOTIFICATIONS_KEY]
         await notifier.baseline()
         notifications.active = notifier
+        from . import feed_options
+        feed_options.store = _store
     except BaseException:
         await stop()
         raise
