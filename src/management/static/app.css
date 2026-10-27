@@ -1778,22 +1778,35 @@ footer.credit {
     line-height: 1.45;
 }
 .chat-table th:nth-child(1) {
-    width: 30%;
+    width: 4%;
 }
 .chat-table th:nth-child(2) {
-    width: 11%;
+    width: 28%;
 }
 .chat-table th:nth-child(3) {
-    width: 8%;
+    width: 11%;
 }
 .chat-table th:nth-child(4) {
-    width: 9%;
+    width: 8%;
 }
 .chat-table th:nth-child(5) {
-    width: 15%;
+    width: 8%;
 }
 .chat-table th:nth-child(6) {
+    width: 14%;
+}
+.chat-table th:nth-child(7) {
     width: 27%;
+}
+.chat-table .selection {
+    padding-left: 12px;
+    padding-right: 6px;
+}
+.chat-table .selection input {
+    padding: 0;
+}
+.chat-bulkbar {
+    flex-wrap: wrap;
 }
 .chat-table .table-feed {
     min-width: 0;

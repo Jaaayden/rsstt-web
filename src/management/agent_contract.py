@@ -49,7 +49,7 @@ SCHEMAS = {
     'Error': obj({'error': STRING, 'code': STRING}, ('error', 'code')),
     'Ok': obj({'ok': BOOLEAN}, ('ok',)),
     'Target': obj({'id': CHAT_ID, 'title': STRING, 'kind': STRING, 'membership': STRING,
-                   'state': INTEGER, 'subscriptions': INTEGER, 'attention': INTEGER, 'options': {'type': 'object'}},
+                   'state': INTEGER, 'archived': BOOLEAN, 'subscriptions': INTEGER, 'attention': INTEGER, 'options': {'type': 'object'}},
                   ('id', 'title', 'kind', 'membership', 'state', 'subscriptions', 'attention', 'options')),
     'Subscription': obj({'id': INTEGER, 'feed_id': INTEGER, 'target': CHAT_ID, 'target_title': STRING,
                          'title': STRING, 'custom_title': {'type': ['string', 'null']}, 'url': STRING,
@@ -63,7 +63,7 @@ SCHEMAS = {
                     'expires_at': {'type': 'number'}, 'capabilities': array(STRING)},
                    ('name', 'permission', 'targets', 'demo', 'account_type', 'expires_at', 'capabilities')),
     'Recipients': obj({'feed_id': INTEGER, 'scope': {'enum': ['all', 'authorized_targets']},
-                       'items': array(ref('Subscription'))}, ('feed_id', 'scope', 'items')),
+                       'items': {**array(ref('Subscription')), 'description': 'Editable recipients only: blocked and archived chats are hidden; their existing subscriptions are preserved by replacement.'}}, ('feed_id', 'scope', 'items')),
     'AddResults': obj({'results': array(obj({'url': STRING, 'status': {'enum': ['created', 'existing', 'failed']},
                                            'message': STRING, 'id': INTEGER}, ('url', 'status')))}, ('results',)),
     'BatchResults': obj({'results': array(obj({'id': INTEGER, 'ok': BOOLEAN, 'error': STRING}, ('id', 'ok')))}, ('results',)),
@@ -91,10 +91,12 @@ def query_parameters(path):
                           size={'type': 'integer', 'minimum': 1, 'maximum': 100, 'default': 20})
         if path == '/api/targets':
             fields['kind'] = {'enum': ['private', 'channel', 'group', 'unknown']}
+            fields['archive'] = {'enum': ['visible', 'archived', 'all'], 'default': 'visible',
+                                 'description': 'Archive filter applies before pagination. Archived chats retain subscriptions, roles and settings.'}
             fields['visibility'] = {'enum': ['all', 'unbanned', 'active', 'inactive', 'banned'], 'default': 'all',
-                                    'description': 'Active: unbanned chat with an enabled subscription to an enabled feed. Inactive: unbanned chat without one. Applied before pagination; omitted means all authorized chats.'}
+                                    'description': 'Active: unbanned chat with an enabled subscription to an enabled feed. Inactive: unbanned chat without one. Applied before pagination; omitted means all authorized chats within the archive filter.'}
         else:
-            fields.update(target=CHAT_ID, state={'enum': ['0', '1']}, attention={'enum': ['0', '1']})
+            fields.update(target={**CHAT_ID, 'description': 'Explicit chat scope, including its retained blocked subscriptions. Without target, blocked chats are excluded.'}, state={'enum': ['0', '1']}, attention={'enum': ['0', '1']})
         if path == '/api/subscriptions/opml':
             fields['ids'] = {'type': 'string', 'pattern': r'^\d+(,\d+){0,99}$', 'description': 'Up to 100 subscription IDs; intersects other filters. Pagination is ignored.'}
     return [{'name': name, 'in': 'query', 'required': False, 'schema': schema} for name, schema in fields.items()]

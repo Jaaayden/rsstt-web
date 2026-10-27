@@ -133,9 +133,10 @@ class Service:
     async def target_data(self, users):
         ids = [u.id for u in users]
         metadata = await self.store.target_map(ids)
+        archived = await self.store.archived_ids()
         counts = {str(r['user_id']): r['n'] for r in await db.Sub.filter(user_id__in=ids).group_by('user_id').annotate(n=Count('id')).values('user_id', 'n')}
         attention = {str(r['user_id']): r['n'] for r in await db.Sub.filter(user_id__in=ids, state=1, feed__error_count__gte=await self.threshold()).group_by('user_id').annotate(n=Count('id')).values('user_id', 'n')}
-        return [dict(id=str(u.id), title=metadata.get(str(u.id), {}).get('title') or f'会话 {u.id}',
+        return [dict(id=str(u.id), archived=str(u.id) in archived, title=metadata.get(str(u.id), {}).get('title') or f'会话 {u.id}',
                      kind=metadata.get(str(u.id), {}).get('kind', kind(u)),
                      membership=metadata.get(str(u.id), {}).get('membership', 'unknown'),
                      username=metadata.get(str(u.id), {}).get('username'),
@@ -148,6 +149,12 @@ class Service:
 
     async def targets(self, principal, query):
         qs = self.scope(db.User.all(), principal, 'id')
+        archive = query.get('archive', 'visible')
+        if archive not in ('visible', 'archived', 'all'):
+            raise Problem('归档范围无效，请选择未归档、已归档或全部。', code='INVALID_ARCHIVE_FILTER')
+        if archive != 'all':
+            ids = list(map(int, await self.store.archived_ids()))
+            qs = qs.filter(id__in=ids) if archive == 'archived' else qs.exclude(id__in=ids)
         # Keep the API default inclusive for existing Agent clients and pickers.
         # The console list explicitly requests "unbanned" by default.
         visibility = query.get('visibility', 'all')
@@ -196,6 +203,8 @@ class Service:
             ident = chat_id(query['target'])
             self.allowed(principal, ident)
             qs = qs.filter(user_id=ident)
+        else:
+            qs = qs.exclude(user__state=-1)
         if query.get('q'):
             search = query['q'].strip()[:200]
             qs = qs.filter(Q(title__icontains=search) | Q(feed__title__icontains=search) | Q(feed__link__icontains=search))

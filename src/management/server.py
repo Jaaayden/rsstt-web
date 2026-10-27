@@ -222,6 +222,22 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
         await store.audit(request['principal']['name'], '登记会话', result['title'])
         return web.json_response(result, status=201)
 
+    @routes.post('/api/targets/archive')
+    async def archive_targets(request):
+        admin(request)
+        values = await body(request)
+        ids, archived = values.get('ids'), values.get('archived')
+        if set(values) != {'ids', 'archived'} or not isinstance(ids, list) or not 1 <= len(ids) <= 100 or type(archived) is not bool:
+            raise Problem('请选择 1–100 个会话，并指定归档或恢复操作。', code='INVALID_ARCHIVE_REQUEST')
+        async with service.mutation:
+            users = [await service.user(ident, request['principal']) for ident in ids]
+            if any(user.id in env.MANAGER for user in users):
+                raise Problem('不能归档机器人管理者的会话。请取消选择管理者后重试。', 409, code='PROTECTED_CHAT')
+            ids = list(dict.fromkeys(str(user.id) for user in users))
+            await store.archive_chats(ids, archived)
+        await store.audit(request['principal']['name'], '归档会话' if archived else '恢复归档会话', ', '.join(ids))
+        return web.json_response({'ok': True, 'ids': ids, 'archived': archived})
+
     @routes.post('/api/targets/{id}/refresh')
     async def refresh(request):
         if snapshot:

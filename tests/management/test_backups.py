@@ -261,3 +261,21 @@ async def test_imported_token_cannot_escalate_to_admin(files):
     with pytest.raises(backups.BackupError):
         backups.validate(main, console, malicious, {'agent_tokens': True})
     assert rows(console, "SELECT permission FROM credentials WHERE kind='token'") == [('read',)]
+
+
+async def test_archive_backup_roundtrip_and_legacy_restore(files):
+    main, console = files
+    with sql(console) as c:
+        c.execute("INSERT INTO chat_archive VALUES ('1', '2026-10-27T00:00:00+00:00')")
+    raw = backups.export(main, console)
+    assert 'console.chat_archive' in backups.validate(main, console, raw)['counts']
+    with sql(console) as c:
+        c.execute('DELETE FROM chat_archive')
+    backups.restore(main, console, raw)
+    assert rows(console, 'SELECT id FROM chat_archive') == [('1',)]
+    def legacy(package):
+        package['manifest']['extensions'].remove('chat_archive')
+        del package['data']['console.chat_archive']
+    old = changed(raw, legacy)
+    backups.restore(main, console, old)
+    assert rows(console, 'SELECT id FROM chat_archive') == []

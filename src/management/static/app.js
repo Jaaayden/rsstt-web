@@ -111,10 +111,12 @@ const S = {
     q: "",
     kind: "",
     visibility: "unbanned",
+    archive: "visible",
     target: "",
     status: "",
     attention: false,
     selected: new Set(),
+    selectedChats: new Set(),
     items: [],
     serial: 0,
 };
@@ -274,6 +276,7 @@ async function render(quiet = false) {
     const focus = document.activeElement,
         focusData = [
             "select",
+            "selectChat",
             "subToggle",
             "subEdit",
             "subDelete",
@@ -322,10 +325,19 @@ async function render(quiet = false) {
         }
         if (S.route === "targets") {
             const data = await api(
-                "/targets?" + new URLSearchParams({ page: S.page, q: S.q, kind: S.kind, visibility: S.visibility }),
+                "/targets?" +
+                    new URLSearchParams({
+                        page: S.page,
+                        q: S.q,
+                        kind: S.kind,
+                        visibility: S.visibility,
+                        archive: S.archive,
+                    }),
             );
             if (serial !== S.serial) return;
             S.items = data.items;
+            const selectable = new Set(data.items.filter((item) => !item.role_protected).map((item) => item.id));
+            for (const id of S.selectedChats) if (!selectable.has(id)) S.selectedChats.delete(id);
             html = targets(data);
         }
         if (S.route === "subscriptions") {
@@ -368,6 +380,8 @@ async function render(quiet = false) {
         if (serial !== S.serial) return;
         $("#main").innerHTML = html + credit();
         syncTableHints();
+        const chatPageToggle = $("#select-chat-page");
+        if (chatPageToggle) chatPageToggle.indeterminate = S.selectedChats.size > 0 && !chatPageToggle.checked;
         if (quiet && (focusId || focusSelector)) {
             const next = focusId ? document.getElementById(focusId) : $(focusSelector);
             if (next) {
@@ -670,9 +684,11 @@ const select = (id, entries, value) =>
         id="${id}"
         aria-label="${id === "kind-filter"
             ? tr("会话类型")
-            : id === "visibility-filter"
-              ? tr("会话显示范围")
-              : tr("订阅状态")}"
+            : id === "archive-filter"
+              ? tr("归档范围")
+              : id === "visibility-filter"
+                ? tr("会话显示范围")
+                : tr("订阅状态")}"
     >
         ${entries
             .map(
@@ -726,18 +742,52 @@ function targets(d) {
                             ["all", tr("全部")],
                         ],
                         S.visibility,
+                    )}${select(
+                        "archive-filter",
+                        [
+                            ["visible", tr("未归档")],
+                            ["archived", tr("已归档")],
+                            ["all", tr("全部（含归档）")],
+                        ],
+                        S.archive,
                     )}<span class="count">${count(d.total, "destination")}</span>
                 </div>
                 <p class="filter-help">
                     ${tr(
-                        "默认隐藏已封禁会话；可选择“已封禁”或“全部”查看。活跃会话指未封禁，且有已启用订阅和已启用订阅源的会话。隐藏不删除数据。",
+                        "未归档列表隐藏已归档会话，默认也隐藏已封禁会话。归档只整理列表，不暂停订阅；已启用的订阅继续推送。活跃指未封禁且有启用订阅和启用订阅源。",
                     )}
                 </p>
+                ${S.selectedChats.size
+                    ? html`<div class="bulkbar chat-bulkbar">
+                          <span>${message("selectedChats", { count: n(S.selectedChats.size) })}</span>${S.archive !==
+                          "archived"
+                              ? html`<button data-chat-archive="archive">归档所选会话</button>`
+                              : ""}${S.archive !== "visible"
+                              ? html`<button data-chat-archive="restore">取消归档</button>`
+                              : ""}<button class="quiet" data-action="clear-chat-selection">清空选择</button>
+                      </div>`
+                    : ""}
                 ${d.items.length
                     ? html`<div class="table-wrap">
                           <table class="chat-table">
                               <thead>
                                   <tr>
+                                      <th class="selection">
+                                          <input
+                                              type="checkbox"
+                                              id="select-chat-page"
+                                              aria-label="全选本页会话（管理者除外）"
+                                              ${d.items.filter((item) => !item.role_protected).length === 0
+                                                  ? "disabled"
+                                                  : ""}
+                                              ${d.items.some((item) => !item.role_protected) &&
+                                              d.items
+                                                  .filter((item) => !item.role_protected)
+                                                  .every((item) => S.selectedChats.has(item.id))
+                                                  ? "checked"
+                                                  : ""}
+                                          />
+                                      </th>
                                       <th>会话</th>
                                       <th>类型</th>
                                       <th>订阅数</th>
@@ -751,13 +801,26 @@ function targets(d) {
                                       .map(
                                           (item) =>
                                               html`<tr>
+                                                  <td class="selection">
+                                                      <input
+                                                          type="checkbox"
+                                                          data-select-chat="${item.id}"
+                                                          aria-label="${message("selectChat", {
+                                                              name: esc(item.title),
+                                                          })}"
+                                                          ${item.role_protected
+                                                              ? `disabled title="${tr("机器人管理者不可归档")}"`
+                                                              : ""}
+                                                          ${S.selectedChats.has(item.id) ? "checked" : ""}
+                                                      />
+                                                  </td>
                                                   <td>
                                                       <div class="table-feed">
                                                           <div class="feed-mark">${icon(kindIcon[item.kind], 17)}</div>
                                                           <div class="feed-info">
                                                               <strong title="${esc(item.title)}"
                                                                   >${esc(item.title)}</strong
-                                                              ><small
+                                                              >${item.archived ? pill(tr("已归档"), "gray") : ""}<small
                                                                   >${item.username
                                                                       ? "@" + esc(item.username) + " · "
                                                                       : ""}${esc(item.id)}</small
@@ -828,7 +891,7 @@ function subscriptions(d) {
             S.attention ? tr("抓取异常的订阅") : tr("全部订阅"),
             S.target
                 ? html`当前会话：${esc(d.items[0]?.target_title || S.target)}`
-                : tr("在一张列表里查看、筛选和调整所有订阅。"),
+                : tr("查看未封禁会话的订阅，按订阅源、会话或状态筛选。已封禁会话的订阅可从该会话的“管理订阅”查看。"),
             newButton(),
         ) +
         html`<section class="panel">
@@ -1352,7 +1415,9 @@ async function targetPicker(multiple = false) {
     const context = modalState;
     modalState.multiple = multiple;
     modalState.chosen = new Set(modalState.chosen || []);
-    const data = await api("/targets?size=50&q=" + encodeURIComponent($("#picker-search")?.value || ""));
+    const data = await api(
+        "/targets?size=50&visibility=unbanned&q=" + encodeURIComponent($("#picker-search")?.value || ""),
+    );
     if (!$("#target-picker") || serial !== pickerSerial || context !== modalState) return;
     $("#target-picker").innerHTML = data.items.length
         ? data.items
@@ -1535,6 +1600,7 @@ function confirmation(title, description, action, extra = {}) {
                     "notify-test": S.demo ? "执行离线模拟" : "发送测试通知",
                     "notify-delete": "删除此渠道配置",
                     "cancel-restore": "取消已安排的恢复",
+                    "archive-chats": extra.archived ? "确认归档" : "确认取消归档",
                 }[action] || "确认操作",
             ),
         ),
@@ -1615,6 +1681,21 @@ document.addEventListener("click", async (event) => {
                 "revoke-sessions",
             );
         }
+        if (d.action === "clear-chat-selection") {
+            S.selectedChats.clear();
+            return render(true);
+        }
+        if (d.chatArchive) {
+            const ids = [...S.selectedChats];
+            if (!ids.length) return;
+            const archived = d.chatArchive === "archive";
+            return confirmation(
+                tr(archived ? "归档所选会话" : "取消所选会话归档"),
+                message(archived ? "archiveChatsConfirm" : "restoreChatsConfirm", { count: n(ids.length) }),
+                "archive-chats",
+                { ids, archived },
+            );
+        }
         if (d.action === "retry") return render();
         if (d.period) {
             S.period = Number(d.period);
@@ -1624,6 +1705,7 @@ document.addEventListener("click", async (event) => {
         if (d.page) {
             S.page = Number(d.page);
             S.selected.clear();
+            S.selectedChats.clear();
             return render(true);
         }
         if (d.settings) {
@@ -1768,7 +1850,8 @@ document.addEventListener("click", async (event) => {
                         </select></label
                     >${pickerHtml(true)}
                     <p class="hint">
-                        未勾选的会话将取消对此订阅源的订阅。已选会话继续接收；API 令牌范围外的订阅保持不变。
+                        未勾选的可选会话将取消对此订阅源的订阅。已封禁、已归档会话的已有订阅，以及 API
+                        令牌范围外的订阅保持不变。
                     </p>`,
                 saveFooter(tr("保存接收会话")),
             );
@@ -1830,6 +1913,7 @@ document.addEventListener("click", async (event) => {
             S.attention = !S.attention;
             S.page = 1;
             S.selected.clear();
+            S.selectedChats.clear();
             return render(true);
         }
         if (d.action === "clear-target") {
@@ -1839,6 +1923,7 @@ document.addEventListener("click", async (event) => {
         }
         if (d.action === "clear-selection") {
             S.selected.clear();
+            S.selectedChats.clear();
             return render(true);
         }
         if (d.targetSubs) {
@@ -1951,6 +2036,7 @@ document.addEventListener("input", (e) => {
         S.q = e.target.value;
         S.page = 1;
         S.selected.clear();
+        S.selectedChats.clear();
         clearTimeout(searchTimer);
         searchTimer = setTimeout(() => render(true), 250);
     }
@@ -1973,20 +2059,40 @@ document.addEventListener("change", (e) => {
         return;
     }
     if (t.id === "kind-filter") {
+        S.selectedChats.clear();
         S.kind = t.value;
         S.page = 1;
+        render(true);
+    }
+    if (t.id === "archive-filter") {
+        S.archive = t.value;
+        if (S.archive === "archived") S.visibility = "all";
+        S.page = 1;
+        S.selectedChats.clear();
+        render(true);
+    }
+    if (t.dataset.selectChat) {
+        if (!S.items.some((item) => item.id === t.dataset.selectChat && !item.role_protected)) return;
+        t.checked ? S.selectedChats.add(t.dataset.selectChat) : S.selectedChats.delete(t.dataset.selectChat);
+        render(true);
+    }
+    if (t.id === "select-chat-page") {
+        for (const item of S.items.filter((item) => !item.role_protected))
+            t.checked ? S.selectedChats.add(item.id) : S.selectedChats.delete(item.id);
         render(true);
     }
     if (t.id === "visibility-filter") {
         S.visibility = t.value;
         S.page = 1;
         S.selected.clear();
+        S.selectedChats.clear();
         render(true);
     }
     if (t.id === "status-filter") {
         S.status = t.value;
         S.page = 1;
         S.selected.clear();
+        S.selectedChats.clear();
         render(true);
     }
     if (t.dataset.select) {
@@ -2119,6 +2225,17 @@ document.addEventListener("submit", async (event) => {
         }
         let result;
         const m = modalState;
+        if (m.action === "archive-chats") {
+            await api("/targets/archive", { method: "POST", body: { ids: m.ids, archived: m.archived } });
+            S.selectedChats.clear();
+            toast(
+                tr(
+                    m.archived
+                        ? "会话已归档。订阅、设置和封禁状态已保留；已启用订阅继续推送。可在已归档中找回。"
+                        : "会话已取消归档，封禁和订阅状态未改变。",
+                ),
+            );
+        }
         if (m.action === "role") {
             await api(`/targets/${m.id}/role`, { method: "PATCH", body: { role: f.get("role") } });
             const wasBanned = S.items.find((item) => item.id === m.id)?.role === "banned";
@@ -2171,6 +2288,7 @@ document.addEventListener("submit", async (event) => {
                 body: { mode: f.get("mode"), targets: [...m.chosen] },
             });
             S.selected.clear();
+            S.selectedChats.clear();
             toast(tr("接收会话已保存"));
         }
         if (m.action === "feed-fetch") {
@@ -2192,6 +2310,7 @@ document.addEventListener("submit", async (event) => {
             S.target = [...m.chosen][0];
             S.page = 1;
             S.selected.clear();
+            S.selectedChats.clear();
         }
         if (m.action === "new-sub") {
             if (!m.chosen?.size) throw new Error(tr("请选择接收会话。"));
@@ -2222,6 +2341,7 @@ document.addEventListener("submit", async (event) => {
         if (m.action === "batch") {
             result = await api("/subscriptions/batch", { method: "POST", body: { ids: m.ids, action: m.batchAction } });
             S.selected.clear();
+            S.selectedChats.clear();
         }
         if (m.action === "leave") {
             await api(html`/targets/${m.id}/leave`, { method: "POST", body: { confirm: f.get("confirm") } });
@@ -2280,6 +2400,8 @@ function route() {
     S.visibility = ["unbanned", "active", "inactive", "banned", "all"].includes(params.get("visibility"))
         ? params.get("visibility")
         : "unbanned";
+    S.archive = ["visible", "archived", "all"].includes(params.get("archive")) ? params.get("archive") : "visible";
+    if (S.archive === "archived" && !params.has("visibility")) S.visibility = "all";
     S.target = params.get("target") || "";
     S.status = params.get("state") || "";
     S.attention = params.get("attention") === "1";
@@ -2289,6 +2411,7 @@ function route() {
         ? params.get("section")
         : "general";
     S.selected.clear();
+    S.selectedChats.clear();
     document.body.classList.remove("menu-open");
     $$(".mobile-menu").forEach((el) => el.setAttribute("aria-expanded", "false"));
     if (S.session) render();
@@ -2344,6 +2467,7 @@ function syncURL() {
         q: S.q,
         kind: S.kind,
         visibility: S.route === "targets" ? S.visibility : "",
+        archive: S.route === "targets" ? S.archive : "",
         target: S.target,
         state: S.status,
         attention: S.attention ? "1" : "",
@@ -2858,6 +2982,8 @@ function auditAction(action) {
         password_changed: "修改密码",
         sessions_revoked: "退出所有网页登录会话",
         agent_request: "API 访问",
+        归档会话: "归档会话",
+        恢复归档会话: "恢复归档会话",
         登记会话: "添加已有会话",
         修改会话默认设置: "修改会话默认设置",
         修改用户角色: "修改 Bot 用户角色",

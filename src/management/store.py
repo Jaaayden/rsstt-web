@@ -47,6 +47,7 @@ class Store:
                 id TEXT PRIMARY KEY, title TEXT NOT NULL, username TEXT,
                 kind TEXT NOT NULL, membership TEXT NOT NULL, checked_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS chat_archive (id TEXT PRIMARY KEY, archived_at TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS credentials (
                 id TEXT PRIMARY KEY, hash TEXT UNIQUE NOT NULL, name TEXT NOT NULL,
                 kind TEXT NOT NULL, permission TEXT NOT NULL, targets TEXT NOT NULL,
@@ -130,6 +131,23 @@ class Store:
             return {}
         placeholders = ','.join('?' for _ in ids)
         return {r['id']: r for r in await self.rows(f'SELECT * FROM targets WHERE id IN ({placeholders})', list(map(str, ids)))}
+
+    async def archived_ids(self):
+        return {row['id'] for row in await self.rows('SELECT id FROM chat_archive')}
+
+    async def archive_chats(self, ids, archived):
+        async with self.lock:
+            try:
+                if archived:
+                    now = datetime.now(timezone.utc).isoformat()
+                    await self.db.executemany('INSERT OR IGNORE INTO chat_archive VALUES (?,?)',
+                                              [(str(ident), now) for ident in ids])
+                else:
+                    await self.db.executemany('DELETE FROM chat_archive WHERE id=?', [(str(ident),) for ident in ids])
+                await self.db.commit()
+            except BaseException:
+                await self.db.rollback()
+                raise
 
     async def audit(self, actor, action, detail):
         async with self.lock:

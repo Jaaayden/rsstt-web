@@ -120,6 +120,16 @@ const messages = {
         "操作完成 {completed} 条，已订阅跳过 {skipped} 条，失败 {failed} 条。请按失败原因处理后重试。",
         "{completed} completed, {skipped} already subscribed and skipped, {failed} failed. Resolve the reported causes before retrying.",
     ],
+    selectedChats: ["已选择 {count} 个会话", "{count} chats selected"],
+    selectChat: ["选择会话 {name}", "Select chat {name}"],
+    archiveChatsConfirm: [
+        "将这 {count} 个会话移出未归档列表。订阅、设置和封禁状态全部保留；已启用的订阅继续推送。可在“已归档”中找回并取消归档。",
+        "Move the selected chats out of the Not archived view (selected: {count}). Subscriptions, settings, and blocked status are preserved; enabled subscriptions keep delivering. Find and restore them under Archived.",
+    ],
+    restoreChatsConfirm: [
+        "将这 {count} 个会话移回未归档列表，保留原来的封禁和订阅状态。被封禁的会话仍需在显示范围中选择“已封禁”或“全部”查看。",
+        "Move the selected chats back to the Not archived view (selected: {count}) without changing blocked or subscription status. Blocked chats still require the Blocked or All visibility filter.",
+    ],
     pickerSummary: ["找到 {total} 个会话", "{total} chats found"],
     pickerSelected: ["已选择 {count} 个", "{count} selected"],
     loading: ["正在加载{page}…", "Loading {page}…"],

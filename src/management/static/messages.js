@@ -1021,3 +1021,35 @@ Object.assign(english, {
     "会话名称来自 Telegram 本地缓存，可能已过时；缺失名称显示 ID。“类型待核验”表示尚未确定群组或频道类型，当前访问权限未联网验证。":
         "Chat names come from Telegram’s local cache and may be outdated; missing names show the ID. “Type unverified” means the group or channel type is not yet confirmed. Current access permissions have not been verified online.",
 });
+
+Object.assign(english, {
+    归档范围: "Archive view",
+    未归档: "Not archived",
+    已归档: "Archived",
+    "全部（含归档）": "All (including archived)",
+    全选本页会话（管理者除外）: "Select all chats on this page (except Bot managers)",
+    机器人管理者不可归档: "Bot manager chats cannot be archived",
+    归档所选会话: "Archive selected chats",
+    取消归档: "Unarchive",
+    取消所选会话归档: "Unarchive selected chats",
+    确认归档: "Confirm archive",
+    确认取消归档: "Confirm unarchive",
+    "未归档列表隐藏已归档会话，默认也隐藏已封禁会话。归档只整理列表，不暂停订阅；已启用的订阅继续推送。活跃指未封禁且有启用订阅和启用订阅源。":
+        "The Not archived view excludes archived chats and hides blocked chats by default. Archiving only organizes the list; enabled subscriptions keep delivering. Active chats are not blocked and have enabled subscriptions to enabled feeds.",
+    "会话已归档。订阅、设置和封禁状态已保留；已启用订阅继续推送。可在已归档中找回。":
+        "Chats archived. Subscriptions, settings, and blocked status are preserved; enabled subscriptions keep delivering. Find them under Archived.",
+    "会话已取消归档，封禁和订阅状态未改变。": "Chats unarchived. Blocked and subscription status are unchanged.",
+    "查看未封禁会话的订阅，按订阅源、会话或状态筛选。已封禁会话的订阅可从该会话的“管理订阅”查看。":
+        "View subscriptions from chats that are not blocked, filtered by feed, chat, or status. To inspect a blocked chat’s subscriptions, use Manage subscriptions from that chat.",
+    "未勾选的可选会话将取消对此订阅源的订阅。已封禁、已归档会话的已有订阅，以及 API 令牌范围外的订阅保持不变。":
+        "Unchecked eligible chats will be unsubscribed from this feed. Existing subscriptions for blocked or archived chats and chats outside an API token’s scope are preserved.",
+});
+
+Object.assign(english, { 归档会话: "Archived chats", 恢复归档会话: "Restored archived chats" });
+
+Object.assign(english, {
+    取消会话归档: "Unarchived chats",
+    取消归档: "Unarchive",
+    确认取消归档: "Confirm unarchive",
+    取消所选会话归档: "Unarchive selected chats",
+});
