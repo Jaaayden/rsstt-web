@@ -186,7 +186,7 @@ class Service:
 
     async def sub_data(self, subs):
         metadata = await self.store.target_map(list({s.user_id for s in subs}))
-        return [dict(id=s.id, target=str(s.user_id), target_title=metadata.get(str(s.user_id), {}).get('title') or str(s.user_id),
+        return [dict(id=s.id, feed_id=s.feed_id, target=str(s.user_id), target_title=metadata.get(str(s.user_id), {}).get('title') or str(s.user_id),
                      title=s.title or s.feed.title, custom_title=s.title, url=s.feed.link, state=s.state,
                      tags=s.tags, errors=s.feed.error_count, feed_state=s.feed.state,
                      updated_at=s.feed.updated_at.isoformat(), next_check=s.feed.next_check_time.isoformat() if s.feed.next_check_time else None,

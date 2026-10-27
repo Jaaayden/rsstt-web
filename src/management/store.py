@@ -28,6 +28,7 @@ class Store:
             PRAGMA journal_mode=WAL;
             PRAGMA synchronous=FULL;
             PRAGMA busy_timeout=5000;
+            CREATE TABLE IF NOT EXISTS feed_fetch_options (url TEXT PRIMARY KEY, user_agent TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS targets (
                 id TEXT PRIMARY KEY, title TEXT NOT NULL, username TEXT,

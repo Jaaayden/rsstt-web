@@ -1,0 +1,40 @@
+const { test, expect } = require('@playwright/test');
+
+test.beforeEach(async ({ page }) => {
+    await page.goto('/');
+    await page.getByLabel('管理台密码', { exact: true }).fill(process.env.WEB_PASSWORD);
+    await page.getByRole('button', { name: /进入管理台/ }).click();
+    await expect(page.getByRole('link', { name: '设置', exact: true })).toBeVisible();
+});
+
+test('target URL survives refresh and recipient/UA/export controls work', async ({ page }) => {
+    await page.goto('/#subscriptions?target=-1001001&q=Hacker');
+    await expect(page.getByText('当前目的地：技术与创造')).toBeVisible();
+    await expect(page.locator('tbody tr')).toHaveCount(1);
+    await page.reload();
+    await expect(page.locator('tbody tr')).toHaveCount(1);
+    await expect(page.getByPlaceholder('搜索名称或网址')).toHaveValue('Hacker');
+    await page.getByRole('button', {name:'接收会话', exact:true}).click();
+    await page.locator('select[name=mode]').selectOption('append');
+    await page.locator('#target-picker').getByRole('checkbox', {name:/每日设计灵感/}).check();
+    await page.getByRole('button', {name:'保存接收会话', exact:true}).click();
+    await expect(page.getByRole('dialog')).not.toBeVisible();
+    await page.getByRole('button', {name:'来源 UA', exact:true}).click();
+    await page.getByRole('textbox', {name:'User-Agent', exact:true}).fill('OfflineBrowser/3');
+    await page.getByRole('dialog').getByRole('button', {name:'保存', exact:true}).click();
+    await expect(page.getByRole('dialog')).not.toBeVisible();
+    await page.getByRole('button', {name:'来源 UA', exact:true}).click();
+    await expect(page.getByRole('textbox', {name:'User-Agent', exact:true})).toHaveValue('OfflineBrowser/3');
+    await page.getByRole('textbox', {name:'User-Agent', exact:true}).fill('');
+    await page.getByRole('dialog').getByRole('button', {name:'保存', exact:true}).click();
+    await page.locator('tbody input[type=checkbox]').check();
+    await expect(page.getByRole('link', {name:'导出选中项'})).toHaveAttribute('href', /ids=\d+/);
+    await expect(page.getByRole('link', {name:'导出筛选结果'})).toHaveAttribute('href', /target=-1001001/);
+    await page.getByRole('button', {name:'清除会话筛选 ×'}).click();
+    await page.getByRole('button', {name:'选择会话筛选'}).click();
+    await page.locator('#target-picker').getByRole('radio', {name:/每日设计灵感/}).check();
+    await page.getByRole('button', {name:'应用筛选'}).click();
+    await expect(page.getByText('当前目的地：每日设计灵感')).toBeVisible();
+    await expect(page).toHaveURL(/target=-1001004/);
+    await expect(page.locator('tbody tr')).toHaveCount(1);
+});
