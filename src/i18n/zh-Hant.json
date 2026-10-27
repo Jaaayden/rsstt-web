@@ -52,6 +52,7 @@
         "subscribe": "新增訂閱",
         "unsubscribe": "退訂訂閱",
         "subscription_list": "訂閱清單",
+        "subscription_list_plain_fallback": "本頁暫以純文字顯示；完整訂閱連結可透過 /export 匯出。",
         "processing": "正在處理中，請稍等片刻…",
         "canceled_by_user": "由使用者取消。",
         "n_subscriptions_in_total": "共有 %d 個訂閱",

@@ -129,6 +129,10 @@ async def sub(user_id: int,
                 }
             )
 
+        if created_new_sub:
+            from ...management.notifications import user_seen
+            await user_seen(user_id)
+
         if not created_new_sub:
             if _sub.title == sub_title and _sub.state == 1:
                 ret['sub'] = None

@@ -376,6 +376,9 @@ def command_gatekeeper(
                 logger.log(log_level, f'Allow {describe_user()} to use {command}')
                 async with locks.ContextWithTimeout(flood_lock, timeout=timeout):
                     pass  # wait for flood wait
+                from ..management.notifications import user_seen
+                for ident in {sender_id, chat_id} - {None}:
+                    await user_seen(ident)
                 await asyncio.wait_for(
                     func(event, *args, lang=lang, chat_id=chat_id, **kwargs),  # execute the command!
                     timeout=timeout,
