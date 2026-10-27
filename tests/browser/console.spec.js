@@ -2,9 +2,8 @@ const { test, expect } = require("@playwright/test");
 
 test.beforeEach(async ({ page }) => {
     await page.goto("/");
-    await expect(page.locator("#login-form")).toBeVisible();
-    await page.getByLabel("管理台密码", { exact: true }).fill(process.env.WEB_PASSWORD);
-    await page.getByRole("button", { name: /进入管理台/ }).click();
+    await page.locator("#password").fill(process.env.WEB_PASSWORD || "rsstt-local-preview");
+    await page.locator("#login-form button[type=submit]").click();
     await expect(page.getByRole("heading", { name: "一切动态，尽在眼前。" })).toBeVisible();
 });
 
@@ -14,14 +13,14 @@ test("dashboard, navigation, search and compact settings", async ({ page }) => {
     page.on("console", (m) => {
         if (m.type() === "error") errors.push(m.text());
     });
-    await expect(page.getByRole("img", { name: /内容流动趋势/ })).toBeVisible();
+    await expect(page.getByRole("img", { name: /最近 14 天|按本地时间显示的统计趋势/ })).toBeVisible();
     await page.screenshot({ path: "test-results/dashboard.png", fullPage: true });
     await page.getByRole("link", { name: "会话与频道", exact: true }).click();
     await expect(page.getByRole("heading", { name: "会话与频道" })).toBeVisible();
     await page.getByPlaceholder("搜索名称、用户名或 ID").fill("技术");
     await expect(page.getByRole("row").filter({ hasText: "技术与创造" })).toHaveCount(1);
     await expect(page.locator("tbody tr")).toHaveCount(1);
-    await page.getByRole("button", { name: "查看订阅", exact: true }).click();
+    await page.getByRole("button", { name: "管理订阅", exact: true }).click();
     await expect(page.getByRole("heading", { name: "全部订阅" })).toBeVisible();
     await expect(page.getByText("当前目的地：技术与创造")).toBeVisible();
     await page.getByPlaceholder("搜索名称或网址").fill("Hacker");
@@ -130,25 +129,17 @@ test("snapshot preview distinguishes real copies from unavailable history", asyn
         data.statistics = { available: false, totals: { fetched: null, delivered: null, failed: null }, daily: [] };
         await route.fulfill({ response, json: data });
     });
+    await page.route("**/api/statistics?*", (route) =>
+        route.fulfill({ json: { available: false, buckets: [] } }),
+    );
     await page.reload();
     await expect(page.locator(".demo-banner")).toContainText("真实数据离线预览");
     await expect(page.locator(".demo-banner")).toContainText("修改仅保存在本地");
     await expect(page.locator(".stat").filter({ hasText: "累计推送" }).locator(".stat-value")).toHaveText("—");
     await expect(page.getByText("没有历史统计", { exact: true })).toBeVisible();
-    await expect(page.getByRole("img", { name: /内容流动趋势/ })).toHaveCount(0);
+    await expect(page.getByRole("img", { name: /最近 14 天|按本地时间显示的统计趋势/ })).toHaveCount(0);
     await page.setViewportSize({ width: 390, height: 844 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
-});
-
-test("active usage and bounded hourly/day trends", async ({ page }) => {
-    await expect(page.getByText("活跃会话", {exact: true})).toBeVisible();
-    await expect(page.getByRole("button", {name: "24 小时", exact: true})).toHaveAttribute("aria-pressed", "true");
-    await expect(page.getByText(/UTC 分桶/, {exact: false}).first()).toBeVisible();
-    const response = page.waitForResponse(r => r.url().includes("/api/statistics?") && r.url().includes("granularity=day"));
-    await page.getByRole("button", {name: "7 天", exact: true}).click();
-    const result = await (await response).json();
-    expect(result.buckets).toHaveLength(7);
-    await expect(page.getByRole("button", {name: "7 天", exact: true})).toHaveAttribute("aria-pressed", "true");
 });
 
 test("account security revokes sessions and rotates the persistent password", async ({ page, request, baseURL }) => {
@@ -159,7 +150,8 @@ test("account security revokes sessions and rotates the persistent password", as
         await page.getByRole("link", { name: "设置", exact: true }).click();
         await page.getByRole("button", { name: "账户安全", exact: true }).click();
         await expect(page.getByText(/preview-admin/)).toBeVisible();
-        await page.getByRole("button", { name: "撤销全部网页登录会话" }).click();
+        await page.getByRole("button", { name: "退出所有网页登录", exact: true }).click();
+        await page.getByRole("dialog").getByRole("button", { name: "确认", exact: true }).click();
         await expect(page.locator("#login-form")).toBeVisible();
         await page.getByLabel("管理台密码", { exact: true }).fill(original);
         await page.getByRole("button", { name: /进入管理台/ }).click();
@@ -190,4 +182,14 @@ test("account security revokes sessions and rotates the persistent password", as
         const logout = await request.post("/api/logout", { headers });
         expect(logout.status()).toBe(200);
     }
+});
+
+test("active usage and bounded hourly/day trends", async ({ page }) => {
+    await expect(page.getByText("活跃目的地", {exact: true})).toBeVisible();
+    await expect(page.getByRole("button", {name: "24 小时", exact: true})).toHaveAttribute("aria-pressed", "true");
+    const response = page.waitForResponse(r => r.url().includes("/api/statistics?") && r.url().includes("granularity=day"));
+    await page.getByRole("button", {name: "7 天", exact: true}).click();
+    const result = await (await response).json();
+    expect(result.buckets).toHaveLength(7);
+    await expect(page.getByRole("button", {name: "7 天", exact: true})).toHaveAttribute("aria-pressed", "true");
 });
