@@ -12,7 +12,7 @@ from aiohttp import web
 
 from .. import db, env
 from ..command import inner
-from . import metrics
+from . import metrics, notifications
 from .statistics import usage
 from .service import Problem, Service, chat_id, integer, BANNED_RESUME_MESSAGE
 from .store import Store
@@ -22,6 +22,7 @@ from .agent_contract import authorize_agent, openapi
 LOGGER = logging.getLogger('RSStT.management')
 STATIC = Path(__file__).parent / 'static'
 SAFE = {'GET', 'HEAD', 'OPTIONS'}
+NOTIFICATIONS_KEY = web.AppKey('notifications', notifications.Notifications)
 
 
 async def body(request):
@@ -445,6 +446,38 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
             raise web.HTTPNotFound()
         return web.FileResponse(STATIC / name)
 
+    notifier = await notifications.Notifications(store, offline=demo or bool(snapshot)).open()
+
+    async def notification_start(app):
+        notifier.start()
+
+    async def notification_stop(app):
+        await notifier.close()
+
+    app.on_startup.append(notification_start)
+    app.on_cleanup.append(notification_stop)
+    app[NOTIFICATIONS_KEY] = notifier
+
+    @routes.get('/api/notifications')
+    async def notification_config(request):
+        admin(request)
+        return web.json_response(await notifier.summary())
+
+    @routes.patch('/api/notifications')
+    async def notification_save(request):
+        admin(request)
+        return web.json_response(await notifier.configure(await body(request)))
+
+    @routes.get('/api/notifications/history')
+    async def notification_history(request):
+        admin(request)
+        return web.json_response({'items': await notifier.history()})
+
+    @routes.post('/api/notifications/test')
+    async def notification_test(request):
+        admin(request)
+        return web.json_response(await notifier.test((await body(request)).get('channel')))
+
     from .subscriptions import install
     install(routes, service, body, admin)
     app.add_routes(routes)
@@ -470,6 +503,9 @@ async def start():
         await _runner.setup()
         await web.TCPSite(_runner, host, port).start()
         metrics.store = _store
+        notifier = app[NOTIFICATIONS_KEY]
+        await notifier.baseline()
+        notifications.active = notifier
         from . import feed_options
         feed_options.store = _store
     except BaseException:
@@ -480,6 +516,7 @@ async def start():
 
 async def stop():
     global _runner, _store
+    notifications.active = None
     metrics.store = None
     from . import feed_options
     feed_options.store = None

@@ -170,6 +170,10 @@ async function render(quiet = false) {
                 api("/settings"),
                 S.settings === "tokens" ? api("/tokens") : Promise.resolve(null),
             ]);
+            if (S.settings === "notifications") {
+                data.notifications = await api("/notifications");
+                data.notificationHistory = await api("/notifications/history");
+            }
             html = settings(data, tokens, S.settings === "runtime" ? await api("/runtime-config") : null);
         }
         if (serial !== S.serial) return;
@@ -321,6 +325,10 @@ function settings(d, tokens, runtime) {
     let content = "";
     if (S.settings === "general")
         content = `<form id="settings-form" class="panel"><div class="panel-head"><div><h2>更新与订阅</h2><p>新订阅使用的默认值，以及管理台提醒方式</p></div></div><div class="form-body">${settingRow("default_interval", "默认更新间隔", "单位：分钟。影响使用默认值的订阅。")}${settingRow("minimal_interval", "最短更新间隔", "单位：分钟。限制今后设置的更新间隔。")}${settingRow("user_sub_limit", "私聊订阅上限", "-1 表示不限，0 表示不允许添加。", -1)}${settingRow("channel_or_group_sub_limit", "频道 / 群组订阅上限", "每个目的地的默认上限，-1 表示不限。", -1)}${settingRow("attention_threshold", "需要检查的失败次数", "仅改变管理台提醒，不改变上游重试和停用策略。", 1, 100, d.console.attention_threshold)}<div class="form-row"><label for="limit-message">订阅上限提示<p>达到上限时机器人显示的附加说明。</p></label><textarea id="limit-message" name="sub_limit_reached_message" maxlength="2000">${esc(o.sub_limit_reached_message)}</textarea></div></div><div class="form-footer"><button class="primary" type="submit">保存设置</button></div></form>`;
+    if (S.settings === "notifications") {
+        const cfg = d.notifications, p = cfg.policy;
+        content = `<section class="panel"><div class="panel-head"><h2>管理员通知</h2></div><div class="form-body"><p>${cfg.offline ? "离线模式：所有通知及测试仅模拟，不会外连。" : "保存渠道不会发送测试。新用户首次出现通知一次；重新活跃不重复通知。"}</p><form id="notification-policy"><label><input type="checkbox" name="enabled" ${p.enabled ? "checked" : ""}>启用业务通知</label><label><input type="checkbox" name="new_users" ${p.new_users ? "checked" : ""}>新用户 / 会话</label><label>连续失败阈值<input type="number" name="threshold" min="1" max="100" value="${p.threshold}"></label><label>冷却秒数<input type="number" name="cooldown" min="1" max="604800" value="${p.cooldown}"></label><button type="submit">保存策略</button></form><hr><form id="notification-channel"><label>渠道<select name="channel">${["bark", "telegram", "webhook", "ntfy"].map(k => `<option>${k}</option>`).join("")}</select></label><label>通知 URL（Telegram 留空）<input type="password" name="url" autocomplete="new-password"></label><label>Token（Telegram / ntfy）<input type="password" name="token" autocomplete="new-password"></label><label>Telegram 接收 ID<input name="chat_id"></label><label>ntfy topic<input name="topic"></label><label><input type="checkbox" name="enabled" checked>启用渠道</label><p>留空保留已有值。凭据不回显；通用 Webhook 自定义请求头可通过 API 配置。</p><button type="submit">保存渠道</button></form><hr>${["bark", "telegram", "webhook", "ntfy"].map(k => `<form class="notification-test"><input type="hidden" name="channel" value="${k}"><span>${k}：${cfg.channels[k]?.enabled ? "已启用" : cfg.channels[k] ? "已停用" : "未配置"}</span><button type="submit" ${cfg.channels[k]?.enabled ? "" : "disabled"}>${cfg.offline ? "模拟测试" : "发送测试"}</button></form>`).join("")}<h3>最近通知（最多 200 条）</h3>${d.notificationHistory.items.map(j => `<p>${esc(j.event)} · ${esc(j.channel)} · ${esc(j.status)} · 尝试 ${j.attempts} 次</p>`).join("") || "暂无通知"}</div></section>`;
+    }
     if (S.settings === "tokens")
         content = `<section class="panel"><div class="panel-head"><div><h2>连接授权</h2><p>允许外部应用通过 API 管理选定的会话</p></div><button class="primary" data-action="new-token">${icon("plus", 14)}创建授权</button></div>${tokens.items.length ? tokens.items.map((t) => `<div class="token-row">${icon("key", 20)}<div><p>${esc(t.name)} ${pill(t.permission === "write" ? "读写" : "只读", "gray")}</p><small>${t.targets === null ? "全部会话（含今后新增）" : `${t.targets.length} 个指定会话`} · ${dateText(t.expires_at * 1000)} 到期</small></div><button class="danger" data-revoke="${esc(t.id)}">撤销</button></div>`).join("") : empty("还没有连接授权", "未来接入 FeedLantern 时，在这里创建专用授权。")}<div class="form-body"><div class="notice">授权只允许访问指定会话的订阅，不包含管理台设置、创建授权或退出频道等管理员操作。完整密钥只显示一次。</div></div></section>`;
     if (S.settings === "security")
@@ -335,6 +343,7 @@ function settings(d, tokens, runtime) {
             ["general", "settings", "更新与订阅"],
             ["runtime", "settings", "运行配置"],
             ["tokens", "key", "连接授权"],
+            ["notifications", "alert", "管理员通知"],
             ["security", "key", "账户安全"],
             ["instance", "rss", "实例信息"],
         ]
@@ -735,6 +744,24 @@ document.addEventListener("submit", async (event) => {
             await api("/login", { method: "POST", body: { password: f.get("password") } });
             await boot();
             return;
+        }
+        if (form.id === "notification-policy") {
+            await api("/notifications", {method: "PATCH", body: {policy: {enabled: f.has("enabled"), new_users: f.has("new_users"), threshold: Number(f.get("threshold")), cooldown: Number(f.get("cooldown"))}}});
+            toast("通知策略已保存");
+            return render(true);
+        }
+        if (form.id === "notification-channel") {
+            const kind = f.get("channel"), channel = {enabled: f.has("enabled")};
+            const fields = kind === "telegram" ? ["token", "chat_id"] : kind === "ntfy" ? ["url", "token", "topic"] : ["url"];
+            for (const key of fields) if (f.get(key)) channel[key] = f.get(key);
+            await api("/notifications", {method: "PATCH", body: {channels: {[kind]: channel}}});
+            toast("渠道已保存，未发送测试");
+            return render(true);
+        }
+        if (form.classList.contains("notification-test")) {
+            const result = await api("/notifications/test", {method: "POST", body: {channel: f.get("channel")}});
+            toast(result.message);
+            return render(true);
         }
         if (form.id === "runtime-form") {
             const values = {};
