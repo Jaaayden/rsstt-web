@@ -30,7 +30,7 @@ test.beforeEach(async ({ page }) => {
     await expect(page.locator("#main")).toBeVisible();
 });
 
-test("source recipients, filtered export and global User-Agent inheritance", async ({ page }) => {
+test("source recipients, filtered export and global 请求标识（User-Agent） inheritance", async ({ page }) => {
     await page.route("**/api/subscriptions?*", async (r) => {
         const response = await r.fetch();
         const data = await response.json();
@@ -46,15 +46,15 @@ test("source recipients, filtered export and global User-Agent inheritance", asy
         return r.fulfill({ json: { feed_id: 777, user_agent: null, inherits_global: true } });
     });
     await page.goto("/#subscriptions?q=Hacker");
-    await expect(page.getByRole("link", { name: "导出筛选结果" })).toHaveAttribute("href", /q=Hacker/);
+    await expect(page.getByRole("link", { name: "导出筛选订阅源（OPML）" })).toHaveAttribute("href", /q=Hacker/);
     await page.locator("[data-sub-edit]").first().click();
-    await page.getByRole("button", { name: "接收目的地", exact: true }).click();
+    await page.getByRole("button", { name: "管理接收会话", exact: true }).click();
     await expect(page.locator('input[value="-1001001"]')).toBeChecked();
     await page.locator('input[value="1"]').check();
-    await page.getByRole("button", { name: "保存接收目的地" }).click();
+    await page.getByRole("button", { name: "保存接收会话" }).click();
     expect(recipients).toEqual({ mode: "append", targets: ["-1001001", "1"] });
     await page.locator("[data-sub-edit]").first().click();
-    await page.getByRole("button", { name: "来源抓取设置" }).click();
+    await page.getByRole("button", { name: "订阅源请求设置" }).click();
     await page.getByRole("button", { name: "保存设置", exact: true }).click();
     expect(fetchOptions).toEqual({ user_agent: null });
 });
@@ -93,7 +93,7 @@ test("hourly statistics distinguish unavailable, partial and known zero", async 
     const rows = page.locator(".chart-wrap tbody tr");
     await expect(rows.nth(0)).toContainText("—");
     await expect(rows.nth(1)).toContainText("0");
-    await expect(rows.nth(2)).toContainText("部分");
+    await expect(rows.nth(2)).toContainText("记录不完整");
     await page.getByRole("button", { name: "7 天", exact: true }).click();
     await expect.poll(() => granularity).toBe("day");
     await expect(page.getByRole("img", { name: "按 UTC 日聚合的统计趋势" })).toBeVisible();
@@ -144,7 +144,7 @@ test("runtime configuration remains pending restart and hides stored secrets", a
     await expect(page.getByText("已配置（不回显）")).toBeVisible();
     await page.locator('[data-runtime-edit="HTTP_TIMEOUT"]').click();
     await page.getByLabel("配置值", { exact: true }).fill("45");
-    await page.getByRole("button", { name: "保存并等待重启" }).click();
+    await page.getByRole("button", { name: "保存（重启后生效）" }).click();
     expect(patch).toEqual({ HTTP_TIMEOUT: 45 });
     await expect(page.getByText("待重启", { exact: true }).first()).toBeVisible();
     await expect(page.locator("tr").filter({ hasText: "HTTP_TIMEOUT" })).toContainText("30");
@@ -168,11 +168,11 @@ test("notification policy and explicit offline simulation", async ({ page }) => 
         return r.fulfill({ json: { ok: true, simulated: true } });
     });
     await page.goto("/#settings?section=notifications");
-    await page.getByLabel("连续失败阈值").fill("5");
+    await page.getByLabel("连续抓取失败次数").fill("5");
     await page.getByRole("button", { name: "保存通知策略" }).click();
     expect(policy.policy.threshold).toBe(5);
     await page.getByRole("button", { name: "模拟测试" }).click();
-    await page.getByRole("button", { name: "确认", exact: true }).click();
+    await page.getByRole("dialog").locator(".dialog-footer button[type=submit]").click();
     expect(testBody).toEqual({ channel: "bark" });
     await expect(page.locator("#toast")).toContainText("仅模拟");
 });
@@ -202,17 +202,17 @@ test("backup restore preserves raw upload, defaults to retaining credentials and
     await page
         .locator("input[name=backup]")
         .setInputFiles({ name: "test.json", mimeType: "application/json", buffer: Buffer.from(raw) });
-    await page.getByRole("button", { name: "预检备份" }).click();
-    await expect(page.getByText("保留当前凭据和配置。")).toBeVisible();
+    await page.getByRole("button", { name: "检查备份" }).click();
+    await expect(page.getByText("订阅、会话和基础管理数据仍将替换；未勾选的可选数据保留当前值。")).toBeVisible();
     expect(preflight.raw).toBe(raw);
     expect(preflight.url).toContain("admin_credentials=false");
-    await page.getByRole("button", { name: "暂存恢复任务" }).click();
+    await page.getByRole("button", { name: "安排重启后恢复" }).click();
     expect(staged).toBeUndefined();
     await page.locator("input[name=confirm_restore]").check();
-    await page.getByRole("button", { name: "暂存恢复任务" }).click();
-    await expect(page.getByRole("button", { name: "取消待恢复任务" })).toBeVisible();
+    await page.getByRole("button", { name: "安排重启后恢复" }).click();
+    await expect(page.getByRole("button", { name: "取消已安排的恢复" })).toBeVisible();
     expect(staged).toEqual({ raw, sha: "test-sha256" });
-    await expect(page.locator(".notice.warning")).toContainText("尚未应用");
+    await expect(page.locator(".notice.warning")).toContainText("当前数据尚未替换");
 });
 
 test("role protection and Bot language remain separate from console language", async ({ page }) => {
@@ -243,12 +243,12 @@ test("role protection and Bot language remain separate from console language", a
     });
     await page.goto("/#targets");
     await page.locator('[data-target-edit="1"]').click();
-    await expect(page.getByText("管理者受保护")).toBeVisible();
+    await expect(page.getByText("机器人管理者受保护")).toBeVisible();
     await expect(page.getByRole("button", { name: "修改角色" })).toHaveCount(0);
     await page.keyboard.press("Escape");
     await page.locator('[data-target-edit="10002"]').click();
-    await page.getByLabel("Bot 语言").fill("en");
-    await page.getByRole("button", { name: "保存默认设置" }).click();
+    await page.getByLabel("Bot 回复语言").selectOption("en");
+    await page.getByRole("button", { name: "保存会话默认设置" }).click();
     expect(defaultPatch.lang).toBe("en");
     await expect(page.locator("html")).toHaveAttribute("lang", "zh-CN");
     await page.locator('[data-target-edit="10002"]').click();
@@ -262,15 +262,17 @@ test("backup capability disables unsupported restore while preserving export and
     const info = { sqlite: true, restore_supported: false, restore: { status: "none" } };
     await page.route("**/api/backups", (route) => route.fulfill({ json: info }));
     await page.goto("/#settings?section=backups");
-    await expect(page.getByRole("button", { name: "预检备份", exact: true })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "检查备份", exact: true })).toBeDisabled();
     await expect(page.getByRole("button", { name: "下载备份", exact: true })).toBeEnabled();
-    await expect(page.getByText("当前平台不支持恢复预检与自动恢复，仍可导出备份。", { exact: true })).toBeVisible();
+    await expect(
+        page.getByText("当前平台可导出备份；网页检查与自动恢复需在受支持的 POSIX 环境执行。", { exact: true }),
+    ).toBeVisible();
     await page.locator("#language").selectOption("en");
     await expect(page.getByRole("button", { name: "Validate backup", exact: true })).toBeDisabled();
     await expect(page.getByRole("button", { name: "Download backup", exact: true })).toBeEnabled();
     await expect(
         page.getByText(
-            "This platform does not support restore validation or automatic restoration. Backup export remains available.",
+            "Backup export is available. Web validation and automatic restoration require a supported POSIX environment.",
             { exact: true },
         ),
     ).toBeVisible();

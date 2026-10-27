@@ -498,3 +498,526 @@ export const english = {
     浅色: "Light",
     深色: "Dark",
 };
+
+// Runtime settings are displayed by purpose, with the deployment key retained for reference.
+export const runtimeCopy = {
+    TOKEN: [
+        "Telegram 机器人 Token",
+        "Telegram bot token",
+        "用于机器人身份认证，与管理台 API 访问令牌不同；敏感值不回显。",
+        "Authenticates the Telegram bot. This is different from a console API access token. The saved secret is hidden.",
+    ],
+    API_ID: [
+        "Telegram 应用 API ID",
+        "Telegram application API ID",
+        "与 API Hash 配对的数字应用标识；不是会话 ID。",
+        "Numeric Telegram application ID, paired with API Hash. This is not a chat ID.",
+    ],
+    API_HASH: [
+        "Telegram 应用 API Hash",
+        "Telegram application API hash",
+        "与 API ID 配对的应用凭据；敏感值不回显。",
+        "Telegram application credential paired with API ID. The saved secret is hidden.",
+    ],
+    TELEGRAPH_TOKEN: [
+        "Telegraph 发布凭据",
+        "Telegraph access tokens",
+        "用于发布 Telegraph 文章。多个 Token 可用逗号或分号分隔；敏感值不回显。",
+        "Credentials used to publish Telegraph posts. For multiple tokens, separate them with commas or semicolons.",
+    ],
+    MULTIUSER: [
+        "允许多用户使用机器人",
+        "Allow multiple bot users",
+        "开关控制原版多用户模式；不是管理台多账号开关，也不是新用户通知开关。",
+        "Controls the original bot multi-user mode. This does not create additional console accounts or enable new-user alerts.",
+    ],
+    ERROR_LOGGING_CHAT: [
+        "接收错误日志的 Telegram 会话 ID",
+        "Telegram chat ID for error logs",
+        "是错误日志接收者；与 RSS 推送接收者、管理通知渠道分开。",
+        "Telegram chat ID that receives error logs, separate from feed delivery chats and management alert channels.",
+    ],
+    CRON_SECOND: [
+        "每分钟启动订阅检查的秒数",
+        "Second of each minute to start feed checks",
+        "0–59 秒；不是检查间隔，也不是每条订阅每分钟都抓取的承诺。",
+        "Second of each minute to start the scheduler, from 0 to 59. This is not the feed check interval.",
+    ],
+    SOCKS_PROXY: [
+        "默认代理（SOCKS_PROXY）",
+        "Default proxy (SOCKS_PROXY)",
+        "默认代理优先级：SOCKS_PROXY、HTTP_PROXY、HTTPS_PROXY；专用代理优先于默认代理。",
+        "Default proxy candidate. SOCKS_PROXY takes precedence over HTTP_PROXY, then HTTPS_PROXY; dedicated proxies take precedence.",
+    ],
+    HTTP_PROXY: [
+        "默认代理（HTTP_PROXY）",
+        "Default proxy (HTTP_PROXY)",
+        "当前实现将其作为默认代理回退候选，不应按变量名误写“仅用于 HTTP 请求”。",
+        "Fallback candidate for the default proxy, after SOCKS_PROXY. It is not limited to HTTP URLs.",
+    ],
+    HTTPS_PROXY: [
+        "默认代理（HTTPS_PROXY）",
+        "Default proxy (HTTPS_PROXY)",
+        "当前实现将其作为默认代理回退候选；不要误写成 TLS 校验开关或仅 HTTPS 专用代理。",
+        "Fallback candidate for the default proxy, after SOCKS_PROXY and HTTP_PROXY. It is not a TLS validation switch.",
+    ],
+    T_PROXY: [
+        "Telegram API 专用代理",
+        "Telegram API proxy",
+        "留空时回退默认代理；适用机器人到 Telegram 的连接，不是 RSS 订阅源代理。",
+        "Dedicated proxy for Telegram API connections. Leave empty to fall back to the default proxy.",
+    ],
+    R_PROXY: [
+        "订阅源请求代理",
+        "Feed request proxy",
+        "留空时回退默认代理；作用范围与实际网络客户端实现对齐，不宣称覆盖管理台浏览器请求。",
+        "Proxy for feed requests. Leave empty to fall back to the default proxy. This does not route browser traffic.",
+    ],
+    PROXY_BYPASS_PRIVATE: [
+        "访问私有 IP 时绕过代理",
+        "Bypass proxy for private IP addresses",
+        "是网络请求路由规则，不是用户隐私开关或访问授权。",
+        "Bypass the proxy when requesting private IP addresses. This is a routing rule, not an access permission.",
+    ],
+    PROXY_BYPASS_DOMAINS: [
+        "绕过代理的域名列表",
+        "Domains that bypass the proxy",
+        "这些域名的请求不经过代理，可用逗号、分号或空格分隔；不是订阅源白名单。",
+        "Domains requested without a proxy. Separate entries with commas, semicolons, or spaces. This is not a feed allowlist.",
+    ],
+    USER_AGENT: [
+        "默认请求标识（User-Agent）",
+        "Default request User-Agent",
+        "用于订阅源请求；单个订阅源已有独立设置时使用其覆盖值。",
+        "Default User-Agent for feed requests. A feed-specific override takes precedence.",
+    ],
+    IPV6_PRIOR: [
+        "优先通过 IPv6 抓取订阅源",
+        "Prefer IPv6 for feed requests",
+        "当前客户端主要在不使用代理时应用；失败可回退 IPv4，不代表仅允许 IPv6。",
+        "Prefer IPv6 for direct feed requests, with IPv4 fallback. This does not require IPv6-only connections.",
+    ],
+    VERIFY_TLS: [
+        "验证 HTTPS 证书",
+        "Verify HTTPS certificates",
+        "明确控制证书验证；不要笼统命名“安全连接”而隐藏实际开关含义。",
+        "Validate HTTPS server certificates. This controls certificate verification, not whether requests use HTTPS.",
+    ],
+    HTTP_TIMEOUT: [
+        "HTTP 请求超时（秒）",
+        "HTTP request timeout (seconds)",
+        "单位秒、合法范围 1–300；不是推送延迟或检查间隔。",
+        "Request timeout in seconds, from 1 to 300. This is not a feed check interval or delivery delay.",
+    ],
+    HTTP_CONCURRENCY: [
+        "HTTP 请求总并发上限",
+        "Total HTTP request concurrency",
+        "同时执行的请求总数，0 表示不限；不是每秒请求数。",
+        "Total number of concurrent HTTP requests. 0 means unlimited; this is not requests per second.",
+    ],
+    HTTP_CONCURRENCY_PER_HOST: [
+        "同一主机的 HTTP 并发上限",
+        "HTTP concurrency per host",
+        "每主机同时请求数，0 表示不限；不能写成每订阅源请求频率。",
+        "Concurrent HTTP requests to the same host. 0 means unlimited; this is not request frequency.",
+    ],
+    HTTP_MAX_LINE_SIZE: [
+        "HTTP 响应行大小上限（字节）",
+        "Maximum HTTP response line size (bytes)",
+        "HTTP 响应行的大小上限，单位为字节；不是完整 RSS 文件大小限制。",
+        "Maximum HTTP response line size in bytes. This is not the complete RSS file size limit.",
+    ],
+    HTTP_MAX_FIELD_SIZE: [
+        "HTTP 响应头字段大小上限（字节）",
+        "Maximum HTTP response header field size (bytes)",
+        "单个 HTTP 响应头字段的大小上限，单位为字节；不是文章字数上限。",
+        "Maximum HTTP response header field size in bytes. This is not a post length limit.",
+    ],
+    IMG_RELAY_SERVER: [
+        "媒体中转服务地址",
+        "Media relay service URL",
+        "标明是媒体中转服务的 HTTP(S) 地址；与 RSS 地址、通知 Webhook 地址分开。",
+        "HTTP(S) URL of a compatible media relay service, not a feed or notification webhook URL.",
+    ],
+    IMAGES_WESERV_NL: [
+        "图片处理服务地址（wsrv.nl 兼容）",
+        "Image processing service URL (wsrv.nl compatible)",
+        "兼容的图片处理服务，不是任意图片 URL；保留服务兼容性说明。",
+        "URL of a wsrv.nl-compatible image processing service, not an individual image URL.",
+    ],
+    TABLE_TO_IMAGE: [
+        "将文章表格转为图片",
+        "Convert article tables to images",
+        "原版关闭时可能丢弃相关表格；不是表格在管理台中转换截图。",
+        "Convert article tables to images. When disabled, the original formatter may omit these tables.",
+    ],
+    TRAFFIC_SAVING: [
+        "减少抓取与媒体处理流量",
+        "Reduce fetch and media-processing traffic",
+        "减少部分媒体验证和网页标题读取；不是压缩所有 RSS 内容，也不承诺同等识别能力。",
+        "Reduce some media validation and webpage title requests. Some media detection may become less reliable.",
+    ],
+    LAZY_MEDIA_VALIDATION: [
+        "将媒体验证交给 Telegram",
+        "Let Telegram validate media",
+        "减少本地媒体读取验证，会影响长图等识别；不是简单“延迟加载图片”。",
+        "Let Telegram validate media instead of fetching it locally. This affects long-image and icon detection.",
+    ],
+};
+
+// Precise, context-specific UI copy. Dynamic user content is never translated.
+Object.assign(english, {
+    运行概况: "Overview",
+    "查看订阅启用情况、抓取异常和推送统计。": "Review enabled subscriptions, feed issues, and delivery statistics.",
+    管理台管理员: "Console administrator",
+    工作空间: "Console",
+    管理台会话: "Browser session",
+    退出登录: "Sign out",
+    活跃会话: "Active chats",
+    会话分类: "Chat breakdown",
+    订阅总数: "Subscriptions",
+    "有启用订阅 / 已记录会话": "With enabled subscriptions / recorded chats",
+    "活跃会话未被封禁，且至少有一条已启用订阅，其订阅源也已启用。":
+        "An active chat is not blocked and has an enabled subscription to an enabled feed.",
+    "同一订阅源推送到两个会话，计两条订阅。": "One feed delivered to two chats counts as two subscriptions.",
+    "累计成功推送（篇次）": "Successful deliveries",
+    抓取与推送趋势: "Feed discovery & delivery trends",
+    新发现文章: "New entries",
+    "成功推送（篇次）": "Successful deliveries",
+    "每小时新发现文章（篇）与成功推送（篇次），按本地时间显示":
+        "Hourly new entries and successful deliveries, shown in local time",
+    "每天新发现文章（篇）与成功推送（篇次），按 UTC 日聚合":
+        "Daily new entries and successful deliveries, aggregated by UTC day",
+    "新发现文章按订阅源计数；同一文章推送给多个会话，分别计为成功推送篇次。":
+        "New entries are counted per feed. Delivering the same entry to multiple chats counts as multiple deliveries.",
+    抓取异常: "Fetch issues",
+    抓取异常的订阅: "Subscriptions with fetch issues",
+    仅看抓取异常: "Show fetch issues only",
+    查看异常订阅: "View affected subscriptions",
+    抓取异常订阅: "Subscriptions with fetch issues",
+    目前没有需要检查的订阅: "No subscriptions with fetch issues",
+    "偶发失败会自动重试，你可以安心阅读。": "Occasional fetch failures are retried automatically.",
+    快照不含历史推送统计: "This snapshot has no delivery history",
+    快照不含历史统计: "This snapshot has no statistics history",
+    "这份快照不含历史推送统计；新版运行后开始记录，无法从已有订阅倒推。":
+        "This snapshot contains no delivery history. Statistics start when the new version runs; existing subscriptions cannot reconstruct past deliveries.",
+    "未记录的时间段显示为空，不计为零；空心点表示该时间段记录不完整。":
+        "Unrecorded periods are blank, not zero. Hollow points indicate incomplete records for that period.",
+    记录完整: "Complete",
+    记录不完整: "Incomplete",
+    未记录: "Not recorded",
+    记录状态: "Record coverage",
+    "时间段开始（本地时间）": "Period start (local time)",
+    "查看已记录的私聊、群组和频道，管理各自的订阅与推送设置。":
+        "View recorded private chats, groups, and channels, and manage their subscriptions and delivery settings.",
+    会话显示范围: "Chats to show",
+    未封禁: "Not blocked",
+    活跃: "Active",
+    不活跃: "Inactive",
+    全部: "All",
+    类型待核验: "Type unverified",
+    "默认隐藏已封禁会话；可选择“已封禁”或“全部”查看。活跃会话指未封禁，且有已启用订阅和已启用订阅源的会话。隐藏不删除数据。":
+        "Blocked chats are hidden by default; choose Blocked or All to view them. Active chats are not blocked and have enabled subscriptions to enabled feeds. Hiding does not delete data.",
+    会话: "Chat",
+    会话类型: "Chat type",
+    会话设置: "Chat settings",
+    机器人访问状态: "Bot access",
+    上次核验可发送: "Last verified for delivery",
+    已记录私聊: "Recorded private chat",
+    机器人已退出: "Bot has left",
+    尚未核验: "Not verified",
+    没有符合条件的会话: "No matching chats",
+    "请调整搜索、类型或显示范围；没有会话记录时，可添加已与机器人建立联系的会话。":
+        "Adjust the search, type, or visibility filter. If no chats are recorded, add an existing chat that has already interacted with the bot.",
+    添加已有会话: "Add an existing chat",
+    验证并添加: "Verify & add",
+    "当前会话：": "Current chat: ",
+    按会话筛选: "Filter by chat",
+    接收会话: "Receiving chats",
+    选择接收会话: "Choose a receiving chat",
+    "选择接收会话（可多选）": "Choose receiving chats (multiple allowed)",
+    选择要查看订阅的会话: "Choose a chat to view its subscriptions",
+    选择允许管理的会话: "Choose chats this token can access",
+    "搜索会话名称、用户名或 ID": "Search chat name, username, or ID",
+    没有匹配的会话: "No matching chats",
+    "请调整会话名称、用户名或 ID 后重试。": "Try a different chat name, username, or ID.",
+    "机器人需要先与用户建立联系，或加入群组、频道；然后可在“会话与频道”添加已有会话。":
+        "The bot must first interact with the user or join the group or channel. Then add the existing chat in Chats & channels.",
+    "搜索订阅源名称或 RSS 地址": "Search feed name or RSS URL",
+    订阅源: "Feed",
+    检查间隔: "Check interval",
+    "订阅源地址（RSS/Atom）": "Feed URL (RSS/Atom)",
+    没有符合条件的订阅: "No matching subscriptions",
+    更新中: "Enabled",
+    已启用: "Enabled",
+    暂停订阅: "Pause subscription",
+    恢复订阅: "Resume subscription",
+    暂停所选订阅: "Pause selected subscriptions",
+    恢复所选订阅: "Resume selected subscriptions",
+    取消所选订阅: "Unsubscribe selected subscriptions",
+    取消这条订阅: "Unsubscribe this subscription",
+    "导出筛选订阅源（OPML）": "Export filtered feeds (OPML)",
+    "导出所选订阅源（OPML）": "Export selected feeds (OPML)",
+    "导出订阅源（OPML）": "Export feeds (OPML)",
+    "导出当前筛选的全部页，相同 RSS 地址合并；不含接收会话与推送设置。":
+        "Export all pages matching the filters, merging duplicate RSS URLs. Receiving chats and delivery settings are not included.",
+    "相同 RSS 地址合并；不含接收会话与推送设置。":
+        "Duplicate RSS URLs are merged. Receiving chats and delivery settings are not included.",
+    "个。所选会话已经订阅的地址会跳过，保留原设置；其他会话可以订阅同一地址。":
+        "per request. URLs already subscribed in the selected chat are skipped and keep their settings; other chats can subscribe to the same feed.",
+    管理接收会话: "Manage receiving chats",
+    保存接收会话: "Save receiving chats",
+    接收会话已保存: "Receiving chats saved",
+    "每次检查只抓取一次订阅源，再推送到各接收会话。已有订阅的推送设置保持不变。":
+        "Each check fetches the feed once and delivers updates to its receiving chats. Existing delivery settings are preserved.",
+    "添加接收会话（保留已有会话）": "Add receiving chats; keep existing chats",
+    按当前选择设置接收会话: "Set receiving chats to this selection",
+    "未勾选的会话将取消对此订阅源的订阅。已选会话继续接收；API 令牌范围外的订阅保持不变。":
+        "Unchecked chats will be unsubscribed from this feed. Selected chats keep receiving updates; subscriptions outside an API token’s scope are preserved.",
+    订阅源请求设置: "Feed request settings",
+    "此设置按 RSS 地址共享，影响所有订阅此地址的会话，下次抓取生效。":
+        "These settings are shared by feed URL and apply to every chat subscribed to this URL, starting with the next fetch.",
+    "请求标识（User-Agent）": "Request User-Agent",
+    "用于访问该订阅源。最多 512 个英文字符、数字及可打印符号，不含换行；留空使用全局 User-Agent。":
+        "Used to request this feed. Up to 512 printable ASCII characters with no line breaks. Leave blank to use the global User-Agent.",
+    此订阅的显示名称: "Subscription display name",
+    留空使用订阅源名称: "Leave blank to use the feed title",
+    推送附加标签: "Additional delivery tags",
+    原文出处显示方式: "Original article attribution",
+    结尾显示订阅源名称及原文链接: "Feed title linked to the original article at the end",
+    "标题链接到原文，另显示订阅源名称": "Article title linked to the original, with feed title",
+    "结尾显示原文链接，不显示订阅源名称": "Original article hyperlink at the end, without feed title",
+    "标题链接到原文，不显示订阅源名称": "Article title linked to the original, without feed title",
+    "结尾显示原文网址，不显示订阅源名称": "Original article URL at the end, without feed title",
+    "Telegram 推送声音": "Telegram notification sound",
+    正常提示: "Normal notification",
+    推送格式: "Delivery format",
+    自动选择格式: "Automatic format",
+    仅标题与出处: "Title and source only",
+    "始终使用 Telegraph": "Always use Telegraph",
+    "始终使用 Telegram 消息": "Always use Telegram messages",
+    文章媒体: "Post media",
+    仅发送有媒体的文章: "Media-only posts",
+    文章自带标签: "Entry-provided tags",
+    消息排版样式: "Message layout style",
+    "检查间隔（分钟）": "Check interval (minutes)",
+    留空使用默认间隔: "Leave blank to use the default interval",
+    "留空使用会话默认间隔；抓取时会与其他接收会话共享同一订阅源。":
+        "Leave blank to use this chat’s default interval. Fetching is shared with other chats subscribed to the same feed.",
+    "留空使用全局默认间隔；仅影响继承此会话默认值的订阅。":
+        "Leave blank to use the global interval. This affects subscriptions that inherit this chat’s defaults.",
+    "自动格式按文章长度和媒体选择发送方式；强制 Telegram 可能拆分为多条消息。":
+        "Automatic format chooses delivery based on article length and media. Forced Telegram delivery may split an article into multiple messages.",
+    推送格式说明: "Delivery format details",
+    "仅发送有媒体的文章：无媒体的文章会跳过；标题、作者和出处仍按各自设置显示。自动标题只显示非自动补全的标题；自动作者在名称未包含于订阅源标题时显示。RSStT 和 flowerss 是两种消息排版样式。":
+        "Media-only posts skip entries without media; title, author, and source follow their own settings. Automatic titles exclude auto-filled titles; automatic authors are shown when their name is not already in the feed title. RSStT and flowerss are message layout styles.",
+    "自动模式的转 Telegraph 长度阈值（字符）": "Telegraph threshold in automatic mode (characters)",
+    "仅在自动格式下生效；达到阈值时转为 Telegraph。0 表示不额外限制，仍受 Telegram 消息长度限制。":
+        "Only applies to automatic format. At this threshold, use Telegraph. 0 adds no limit; Telegram’s message limits still apply.",
+    "-100 表示继承会话默认值。": "-100 inherits this chat’s default.",
+    "Bot 使用权限": "Bot access role",
+    "Bot 用户角色：": "Bot user role: ",
+    机器人管理者: "Bot manager",
+    "Bot 管理员": "Bot administrator",
+    普通用户: "Regular user",
+    机器人管理者受保护: "Bot manager is protected",
+    "角色控制机器人使用权限。部署中的机器人管理者不可在网页降级或封禁。":
+        "Roles control bot access. A deployment-configured Bot manager cannot be demoted or blocked here.",
+    "封禁会暂停该会话的订阅，解除封禁后需手动恢复。Bot 管理员不会获得管理台账号或 MANAGER 专属命令权限。":
+        "Blocking pauses this chat’s subscriptions; unblocking requires manual resume. Bot administrators do not receive console accounts or MANAGER-only commands.",
+    "Bot 回复语言": "Bot reply language",
+    自动识别: "Detect automatically",
+    繁体中文: "繁體中文",
+    "Bot 回复语言与管理台界面语言独立。自动识别沿用原版语言规则。":
+        "Bot reply language is independent of the console language. Automatic detection follows the original bot’s rules.",
+    保存会话默认设置: "Save chat defaults",
+    "-1 表示不限，0 禁止新增；留空使用全局上限，不删除现有订阅。":
+        "-1 means unlimited; 0 prevents new subscriptions. Leave blank to use the global limit. Existing subscriptions are not removed.",
+    "更新 Telegram 会话信息": "Refresh Telegram chat details",
+    会话名称与机器人访问权限已更新: "Chat name and bot access updated",
+    让机器人退出: "Remove the bot from this chat",
+    "让机器人退出此群组或频道后，保留本地订阅记录并暂停该会话的订阅。":
+        "Removing the bot from this group or channel keeps local subscription records and pauses its subscriptions.",
+    "让机器人退出此群组或频道，并暂停该会话的订阅。重新加入需在 Telegram 中操作。":
+        "Remove the bot from this group or channel and pause its subscriptions. Rejoin through Telegram.",
+    "API 访问令牌": "API access tokens",
+    "创建 API 访问令牌": "Create API access token",
+    创建令牌: "Create token",
+    "复制并保管 API 访问令牌": "Copy and keep this API access token",
+    复制令牌: "Copy token",
+    我已妥善保存: "I have saved it",
+    令牌名称: "Token name",
+    "撤销 API 访问令牌": "Revoke API access token",
+    撤销令牌: "Revoke token",
+    令牌已撤销: "Token revoked",
+    "授权 Agent 或外部应用读取、管理所选会话的订阅":
+        "Grant an Agent or external app subscription access to selected chats",
+    "为 Agent 或外部应用创建专用令牌，并限制可访问的会话。":
+        "Create a dedicated token for an Agent or external app and restrict the chats it can access.",
+    "令牌仅允许访问所选会话的订阅，不包含用户角色、全局设置、备份或令牌管理。完整令牌只显示一次。":
+        "Tokens only grant subscription access to selected chats. They do not grant role changes, global settings, backups, or token management. The full token is shown once.",
+    "下载 API 接口说明（OpenAPI）": "Download API specification (OpenAPI)",
+    仅读取订阅: "Read subscriptions",
+    读取和修改订阅: "Read & modify subscriptions",
+    "全部会话（包括今后新增）": "All chats (including future chats)",
+    "允许访问全部会话，包括今后新增的会话": "Allow access to all chats, including future chats",
+    "使用此令牌的 Agent 或外部应用将立即失去访问权限。":
+        "Agents or external apps using this token will immediately lose access.",
+    "令牌已创建，完整内容只显示这一次。请复制给使用 API 的应用，并妥善保管。":
+        "The token has been created. Its full value is shown only once. Copy it to the API client and keep it safe.",
+    退出所有网页登录会话: "Sign out all browser sessions",
+    个有效的网页登录会话: "valid browser sessions",
+    "至少 16 个字符。修改后所有网页登录会话（包括当前窗口）将退出，API 访问令牌保持有效。":
+        "Use at least 16 characters. Changing the password signs out every browser session, including this window. API access tokens remain valid.",
+    "所有网页登录会话（包括当前窗口）将退出，API 访问令牌保持有效。":
+        "All browser sessions, including this window, will be signed out. API access tokens remain valid.",
+    全局订阅默认值和管理台抓取异常标记: "Global subscription defaults and console fetch-issue indicators",
+    "每个频道或群组的默认订阅上限。-1 表示不限，0 禁止新增。":
+        "Default subscription limit for each channel or group. -1 means unlimited; 0 prevents new subscriptions.",
+    管理台抓取异常阈值: "Console fetch-issue threshold",
+    "只影响管理台异常列表，不控制外部通知发送，也不改变抓取重试策略。":
+        "Only controls the console issue list. It does not send external alerts or change fetch retries.",
+    "机器人连接配置可在运行配置中保存，重启后生效；管理台密码在账户安全中修改。敏感值不会在页面回显。":
+        "Bot connection settings can be saved in Runtime configuration and applied after restart. Change the console password in Account security. Saved secrets are hidden.",
+    "保存后在下次重启时生效，本页不会自动重启服务。":
+        "Saved values apply on the next restart. This page does not restart the service.",
+    当前进程使用值: "Current process value",
+    "已保存值（下次启动使用）": "Saved value for next start",
+    配置来源与状态: "Configuration source & status",
+    网页覆盖: "Web override",
+    部署配置或应用默认值: "Deployment configuration or app default",
+    "已保存（不回显）": "Saved (hidden)",
+    未设置网页覆盖: "No web override",
+    "移除网页覆盖，重启后使用部署配置": "Remove web override; use deployment configuration after restart",
+    "保存（重启后生效）": "Save for next restart",
+    "敏感值不会显示；留空不修改已保存的值。": "Saved secrets are hidden. Leave blank to keep the saved value.",
+    需在部署配置中修改: "Deployment-only settings",
+    "管理者、数据库和监听地址等需在部署配置中修改，并按部署方式重启服务。当前进程使用值来自启动配置，不代表远端连接已验证成功。":
+        "Manager identity, database, and listening addresses are configured in deployment settings. Restart using your deployment method. Current process values are startup inputs; they do not prove that remote connections work.",
+    订阅源抓取故障与新增使用会话通知: "Feed fetch failures and new bot users or chats",
+    "有新用户、群组或频道开始使用机器人时通知我": "Notify me when a new user, group, or channel starts using the bot",
+    连续抓取失败次数: "Consecutive fetch failures before alerting",
+    "重复通知的最短间隔（秒）": "Minimum interval between repeat alerts (seconds)",
+    启用自动通知: "Enable automatic notifications",
+    "连续抓取失败达到阈值时通知；同一事件去重并遵守最短间隔，恢复后再次失败可重新通知。此设置不控制 RSS 重试频率。":
+        "Alert when consecutive fetch failures reach the threshold. Duplicate events are suppressed and respect the minimum interval; a new failure after recovery can alert again. This does not control RSS retry frequency.",
+    "自动通知总开关已关闭。已启用渠道仍可接收手动测试通知。":
+        "Automatic notifications are off. Enabled channels can still receive manual test notifications.",
+    "Telegram 机器人 Token": "Telegram bot token",
+    "接收通知的 Telegram 会话 ID": "Telegram chat ID for alerts",
+    "ntfy 服务器地址": "ntfy server URL",
+    "ntfy 主题": "ntfy topic",
+    "ntfy 访问令牌": "ntfy access token",
+    "Bark 推送地址": "Bark push URL",
+    "Webhook 通知地址": "Webhook notification URL",
+    最近通知发送记录: "Recent notification delivery attempts",
+    通知渠道: "Notification channel",
+    事件与对象: "Event & subject",
+    发送状态: "Delivery status",
+    订阅源抓取失败: "Feed fetch failure",
+    新使用会话: "New bot user or chat",
+    已提交到通知渠道: "Submitted to channel",
+    离线模拟完成: "Simulated offline",
+    时间: "Time",
+    "测试通知已排队，请查看通知记录。": "Test notification queued. Check the notification history.",
+    "备份订阅、会话和管理台数据；检查备份后，可安排在下次重启时恢复。":
+        "Back up subscriptions, chats, and console data. Validate a backup, then schedule a restore on the next restart.",
+    "额外包含的数据（默认不包含）": "Additional data (excluded by default)",
+    "从备份覆盖的数据（默认保留当前值）": "Data to replace from backup (preserved by default)",
+    此项当前不可用: "Not available in this instance",
+    管理台管理员账号和密码凭据: "Console administrator account and password credentials",
+    网页保存的非敏感运行配置: "Non-secret runtime overrides",
+    通知渠道凭据与配置: "Notification channel credentials and configuration",
+    确认下次重启时恢复此备份: "Confirm restore on next restart",
+    安排重启后恢复: "Schedule restore on restart",
+    检查备份: "Validate backup",
+    "检查通过尚未恢复数据。确认后，下次正常重启会用备份替换订阅、会话和基础管理数据。":
+        "Validation has not restored data. After confirmation, the next normal restart replaces subscriptions, chats, and core console data with this backup.",
+    "订阅、会话和基础管理数据仍将替换；未勾选的可选数据保留当前值。":
+        "Subscriptions, chats, and core console data will still be replaced. Unselected optional data is preserved.",
+    "订阅、会话和基础管理数据将替换；下列已勾选数据也将从备份覆盖。":
+        "Subscriptions, chats, and core console data will be replaced. The selected data below will also be replaced from the backup.",
+    "我确认安排下次重启时恢复，并会在重启前备份当前数据。":
+        "I confirm this restore on the next restart and will back up current data before restarting.",
+    "恢复已安排，当前数据尚未替换。请按部署方式正常重启服务以执行恢复。":
+        "The restore is scheduled; current data has not been replaced. Restart normally using your deployment method to restore.",
+    取消已安排的恢复: "Cancel scheduled restore",
+    "取消下次启动时的恢复任务，继续使用现有数据。":
+        "Cancel the restore scheduled for the next startup and continue using existing data.",
+    "默认不导出凭据。备份始终不包含机器人 Token、Telegram 登录会话和部署环境配置。":
+        "Credentials are excluded by default. Backups never include bot tokens, Telegram login sessions, or deployment environment settings.",
+    "网页备份仅支持文件型 SQLite。PostgreSQL 请使用维护文档中的数据库备份工具。":
+        "Web backups support file-based SQLite only. For PostgreSQL, use the database backup tools in the maintenance documentation.",
+    "当前平台可导出备份；网页检查与自动恢复需在受支持的 POSIX 环境执行。":
+        "Backup export is available. Web validation and automatic restoration require a supported POSIX environment.",
+    用户与会话: "Users & chats",
+    会话信息: "Chat details",
+    全局设置: "Global settings",
+    日统计: "Daily statistics",
+    小时统计: "Hourly statistics",
+    管理操作记录: "Management activity",
+    管理台管理员凭据: "Console administrator credentials",
+    通知渠道配置: "Notification channel configuration",
+    通知事件去重记录: "Notification event deduplication",
+    非敏感运行配置: "Non-secret runtime configuration",
+    操作完成: "Completed",
+    "已订阅，已跳过": "Already subscribed; skipped",
+    确认操作: "Confirm action",
+    删除此渠道配置: "Delete this channel configuration",
+    执行离线模拟: "Run offline simulation",
+    发送测试通知: "Send test notification",
+    修改订阅源接收会话: "Changed a feed’s receiving chats",
+    "修改订阅源 User-Agent": "Changed a feed’s User-Agent",
+    原版无历史统计: "No history in this snapshot",
+});
+
+Object.assign(english, {
+    "会话已封禁，订阅已暂停。可切换到“已封禁”查看。":
+        "Chat blocked; its subscriptions are paused. Choose Blocked to view it.",
+    "会话已解除封禁，订阅仍保持暂停。请在管理订阅中手动恢复。":
+        "Chat unblocked; its subscriptions remain paused. Resume them manually in Manage subscriptions.",
+    "管理台加载失败：": "Unable to load the console: ",
+    "请根据上述原因处理后重试；网络连接异常时，请确认服务正在运行。":
+        "Resolve the reported issue and try again. For a connection problem, confirm that the service is running.",
+    "仅显示前 50 个，请继续搜索缩小范围。": "Showing the first 50; narrow your search for more.",
+    "上次恢复未成功。当前数据状态需根据恢复结果与回退记录确认；请检查服务日志后再安排恢复。":
+        "The last restore did not succeed. Confirm the current data state from the restore and rollback records, and check the service logs before scheduling another restore.",
+    "群组或频道（类型待核验）": "Group or channel (type unverified)",
+    订阅源名称: "Feed title",
+    原文链接: "Original article link",
+    修改会话默认设置: "Changed chat defaults",
+    退出所有网页登录会话: "Sign out all browser sessions",
+    仅媒体: "Media only",
+    我已妥善保存: "I have saved it",
+});
+
+Object.assign(english, {
+    达到管理台连续抓取失败阈值的启用订阅数:
+        "Number of enabled subscriptions that reached the console consecutive fetch-failure threshold",
+    显示订阅源名称及原文链接: "Show feed title and original article link",
+    上次核验可发送: "Verified access",
+    添加已有会话: "Add an existing chat",
+});
+
+Object.assign(english, {
+    "尚未创建 API 访问令牌": "No API access tokens yet",
+    管理台: "Console",
+    "仅发送有媒体的文章：无媒体的文章会跳过；标题、作者和出处仍按各自设置显示。自动标题只显示非自动补全的标题；自动作者在名称未包含于订阅源标题时显示。已启用标题和出处时，RSStT 通常为“文章标题 → 正文 → 出处”，flowerss 为“订阅源名称 → 文章标题 → 正文 → 出处”。":
+        "Media-only posts skip entries without media; title, author, and source follow their own settings. Automatic titles exclude auto-filled titles; automatic authors are shown when their name is not in the feed title. With title and source enabled, RSStT usually shows title → body → source; flowerss shows feed title → article title → body → source.",
+    "访客按多用户模式和所在会话权限检查，并非只读角色；普通用户和 Bot 管理员沿用原版命令权限。":
+        "Guest access follows multi-user mode and chat permissions; it is not a read-only role. Regular users and Bot administrators retain the original bot’s command permissions.",
+});
+
+Object.assign(english, {
+    "API 访问": "API access",
+    "修改 Bot 用户角色": "Changed a Bot user role",
+    机器人退出会话并暂停订阅: "Removed the bot from a chat and paused its subscriptions",
+    "导入订阅源（OPML）": "Imported feeds (OPML)",
+    更新全局设置: "Updated global settings",
+    "保存运行配置（待重启）": "Saved runtime configuration for next restart",
+});
+
+Object.assign(english, {
+    "会话名称来自 Telegram 本地缓存，可能已过时；缺失名称显示 ID。“类型待核验”表示尚未确定群组或频道类型，当前访问权限未联网验证。":
+        "Chat names come from Telegram’s local cache and may be outdated; missing names show the ID. “Type unverified” means the group or channel type is not yet confirmed. Current access permissions have not been verified online.",
+});

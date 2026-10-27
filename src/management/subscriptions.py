@@ -29,7 +29,7 @@ async def replace_recipients(service, feed, principal, values):
     users = {u.id: u for u in [await service.user(t, principal) for t in targets]}
     for user in users.values():
         if user.state == -1:
-            raise Problem('不能向已封禁的会话添加订阅。', 409)
+            raise Problem('该会话已被封禁，无法添加订阅。请先在会话设置中解除封禁，再重试。', 409, code='TARGET_BANNED')
         meta = (await service.store.target_map([user.id])).get(str(user.id), {})
         if meta.get('membership') in ('left', 'banned', 'disabled'):
             raise Problem('接收会话已退出或禁用。', 409)
@@ -41,7 +41,7 @@ async def replace_recipients(service, feed, principal, values):
             for ident in sorted(users):
                 user = await db.User.filter(id=ident).select_for_update().get()
                 if user.state == -1:
-                    raise Problem('接收会话已被封禁。', 409)
+                    raise Problem('该会话已被封禁，无法添加订阅。请先在会话设置中解除封禁，再重试。', 409, code='TARGET_BANNED')
             existing = set(await db.Sub.filter(feed_id=feed.id).values_list('user_id', flat=True))
             for ident in users.keys() - existing:
                 reached, *_ = await inner.utils.check_sub_limit(ident)

@@ -1,4 +1,4 @@
-import { locale, tr, html, setLocale, setTheme, errorText, count, message } from "./i18n.js";
+import { locale, tr, html, setLocale, setTheme, errorText, count, message, runtimeText } from "./i18n.js";
 const $ = (s, root = document) => root.querySelector(s);
 const $$ = (s, root = document) => [...root.querySelectorAll(s)];
 const esc = (v) =>
@@ -57,6 +57,46 @@ const labels = {
 };
 const kindName = { private: tr("私聊"), channel: tr("频道"), group: tr("群组") };
 const kindIcon = { private: "user", channel: "channel", group: "group" };
+const languageNames = new Intl.DisplayNames([locale], { type: "language" });
+const botLanguages = [
+    "ar",
+    "be",
+    "ca",
+    "cs",
+    "de",
+    "el",
+    "en",
+    "es",
+    "eu",
+    "fa",
+    "fr",
+    "he",
+    "id",
+    "it",
+    "ja",
+    "ko",
+    "lv",
+    "pl",
+    "pt-BR",
+    "pt",
+    "ru",
+    "si",
+    "ta",
+    "tr",
+    "uk",
+    "uz",
+    "yue",
+    "zh-Hans",
+    "zh-Hant",
+].map((code) => {
+    let label;
+    try {
+        label = languageNames.of(code);
+    } catch {
+        label = code;
+    }
+    return [code, label || code];
+});
 const S = {
     route: "dashboard",
     session: null,
@@ -70,6 +110,7 @@ const S = {
     page: 1,
     q: "",
     kind: "",
+    visibility: "unbanned",
     target: "",
     status: "",
     attention: false,
@@ -139,7 +180,7 @@ function shell() {
                 <div><strong>RSStT</strong><small>YOUR READING RELAY</small></div></a
             >
             <div>
-                <div class="nav-label">工作空间</div>
+                <div class="nav-label">管理台</div>
                 <nav class="nav">
                     ${Object.entries(labels)
                         .map(
@@ -165,11 +206,11 @@ function shell() {
                 <div class="profile">
                     <div class="avatar">${icon("user", 16)}</div>
                     <div>
-                        <span class="small">管理员</span>
+                        <span class="small">管理台管理员</span>
                         <p class="muted micro">${S.demo ? tr("本地预览") : tr("管理台会话")}</p>
                     </div>
                     <button class="quiet" data-action="logout" title="退出登录" aria-label="退出登录">
-                        ${icon("exit", 16)}退出
+                        ${icon("exit", 16)}退出登录
                     </button>
                 </div>
             </div>
@@ -179,7 +220,7 @@ function shell() {
                 <div class="breadcrumb">
                     <button class="quiet mobile-menu" data-action="menu" aria-label="展开导航" aria-expanded="false">
                         ${icon("menu")}</button
-                    ><span>工作空间</span>${icon("chevron", 12)}<strong id="breadcrumb"></strong>
+                    ><span>管理台</span>${icon("chevron", 12)}<strong id="breadcrumb"></strong>
                 </div>
                 ${preferences()}
                 <div class="date">${new Intl.DateTimeFormat(locale, { dateStyle: "full" }).format(new Date())}</div>
@@ -205,9 +246,9 @@ function header(title, description, button = "") {
             <div class="eyebrow">
                 ${{
                     dashboard: "OVERVIEW",
-                    targets: "DESTINATIONS",
+                    targets: "CHATS & CHANNELS",
                     subscriptions: "SUBSCRIPTIONS",
-                    settings: "PREFERENCES",
+                    settings: "SETTINGS",
                 }[S.route]}
             </div>
             <h1>${title}</h1>
@@ -216,10 +257,7 @@ function header(title, description, button = "") {
         ${button}
     </div>`;
 }
-const targetKindName = (item) =>
-    String(item.id).startsWith("-") && ![50, 51].includes(item.state) && item.membership !== "available"
-        ? tr("群组/频道（未核验）")
-        : kindName[item.kind] || tr("群组/频道（未核验）");
+const targetKindName = (item) => kindName[item.kind] || tr("类型待核验");
 const newButton = () => html`<button class="primary" data-action="new-sub">${icon("plus", 16)}添加订阅</button>`;
 const credit = () =>
     html`<footer class="credit">
@@ -256,7 +294,10 @@ async function render(quiet = false) {
         if (e.dataset.nav === S.route) e.setAttribute("aria-current", "page");
         else e.removeAttribute("aria-current");
     });
-    if (!quiet) $("#main").innerHTML = html`<div class="loading" role="status">正在加载${labels[S.route]}…</div>`;
+    if (!quiet)
+        $("#main").innerHTML = html`<div class="loading" role="status">
+            ${message("loading", { page: labels[S.route] })}
+        </div>`;
     try {
         let html;
         if (S.route === "dashboard") {
@@ -280,7 +321,9 @@ async function render(quiet = false) {
             html = dashboard(data);
         }
         if (S.route === "targets") {
-            const data = await api("/targets?" + new URLSearchParams({ page: S.page, q: S.q, kind: S.kind }));
+            const data = await api(
+                "/targets?" + new URLSearchParams({ page: S.page, q: S.q, kind: S.kind, visibility: S.visibility }),
+            );
             if (serial !== S.serial) return;
             S.items = data.items;
             html = targets(data);
@@ -355,21 +398,20 @@ function dashboard(d) {
     const cards = [
         [
             "rss",
-            tr("订阅关系"),
+            tr("订阅总数"),
             c.subscriptions,
-            html`<em>${n(d.usage?.active_subscriptions ?? c.active)}</em> 个${S.snapshot
-                    ? tr("已启用")
-                    : tr("正在更新")}
-                · ${n(c.feeds)} 个独立来源`,
+            html`${message("enabledSubs", { count: n(d.usage?.active_subscriptions ?? c.active) })} ·
+                ${count(c.feeds, "feed")}
+                <p class="hint">${tr("同一订阅源推送到两个会话，计两条订阅。")}</p>`,
         ],
         [
             "chats",
-            d.usage ? tr("活跃目的地") : tr("已知会话"),
+            d.usage ? tr("活跃会话") : tr("已知会话"),
             d.usage ? d.usage.active.total : c.users + c.groups + c.channels,
             d.usage
-                ? html`已知 ${n(d.usage.known.total)} · 未核验类型 ${n(d.usage.known.unknown)}
+                ? html`${message("recordedChats", { total: n(d.usage.known.total), unknown: n(d.usage.known.unknown) })}
                       <details>
-                          <summary>目的地分类</summary>
+                          <summary>会话分类</summary>
                           ${["private", "channel", "group", "unknown"]
                               .map(
                                   (kind) =>
@@ -385,7 +427,8 @@ function dashboard(d) {
                                           / ${n(d.usage.known[kind])}
                                       </div>`,
                               )
-                              .join("")}<span>活跃 / 已知</span>
+                              .join("")}<span>${tr("有启用订阅 / 已记录会话")}</span>
+                          <p class="hint">${tr("活跃会话未被封禁，且至少有一条已启用订阅，其订阅源也已启用。")}</p>
                       </details>`
                 : S.snapshot
                   ? html`${n(c.channels + c.groups)} 个群组/频道 · ${n(c.users)} 个私聊`
@@ -393,14 +436,14 @@ function dashboard(d) {
         ],
         [
             "send",
-            tr("累计推送"),
+            tr("累计成功推送（篇次）"),
             t.delivered,
-            S.snapshot ? tr("原版没有累计统计") : html`累计抓取 <em>${n(t.fetched)}</em> 篇新内容`,
+            S.snapshot ? tr("快照不含历史推送统计") : html`${message("discoveredTotal", { count: n(t.fetched) })}`,
         ],
-        ["alert", tr("需要检查"), c.attention, html`连续失败 ${d.threshold} 次后提醒`],
+        ["alert", tr("抓取异常"), c.attention, message("attentionThreshold", { count: n(d.threshold) })],
     ];
     return (
-        header(tr("一切动态，尽在眼前。"), tr("看看订阅的近况，让值得阅读的内容持续抵达。"), newButton()) +
+        header(tr("运行概况"), tr("查看订阅启用情况、抓取异常和推送统计。"), newButton()) +
         (!d.bot.connected && !S.demo
             ? html`<div class="notice warning">机器人当前未连接 Telegram，订阅推送暂不可用。</div>
                   <br />`
@@ -424,13 +467,13 @@ function dashboard(d) {
             <section class="panel">
                 <div class="panel-head">
                     <div>
-                        <h2>内容流动</h2>
+                        <h2>抓取与推送趋势</h2>
                         <p>
                             ${d.trend?.granularity === "hour"
-                                ? tr("每小时的新内容与成功推送，按本地时间显示")
+                                ? tr("每小时新发现文章（篇）与成功推送（篇次），按本地时间显示")
                                 : d.trend
-                                  ? tr("每天的新内容与成功推送，按 UTC 日聚合")
-                                  : tr("每天发现的新内容，以及成功送达的篇次")}
+                                  ? tr("每天新发现文章（篇）与成功推送（篇次），按 UTC 日聚合")
+                                  : tr("每天发现的新发现文章，以及成功送达的篇次")}
                         </p>
                     </div>
                     <div class="segmented" aria-label="趋势时间范围">
@@ -453,8 +496,10 @@ function dashboard(d) {
                     </div>
                 </div>
                 <div class="chart-wrap">
+                    <p class="hint">${tr("新发现文章按订阅源计数；同一文章推送给多个会话，分别计为成功推送篇次。")}</p>
                     <div class="chart-meta">
-                        <span><i class="legend"></i>成功推送</span><span><i class="legend orange"></i>新内容</span
+                        <span><i class="legend"></i>成功推送（篇次）</span
+                        ><span><i class="legend orange"></i>新发现文章</span
                         ><span
                             >${d.trend?.granularity === "day"
                                 ? tr("按 UTC 日聚合（00:00–24:00 UTC）")
@@ -466,7 +511,10 @@ function dashboard(d) {
                     ${d.trend
                         ? trendChart(d.trend)
                         : S.snapshot
-                          ? empty(tr("没有历史统计"), tr("原版未记录累计推送和每日趋势，无法从订阅快照还原。"))
+                          ? empty(
+                                tr("没有历史统计"),
+                                tr("这份快照不含历史推送统计；新版运行后开始记录，无法从已有订阅倒推。"),
+                            )
                           : chart(d.statistics.daily)}
                 </div>
                 <div class="chart-footer">
@@ -486,8 +534,8 @@ function dashboard(d) {
             <div class="dashboard-lower">
                 <section class="panel">
                     <div class="panel-head">
-                        <h2>需要检查 <span class="muted small">${n(c.attention)}</span></h2>
-                        <button class="text-link" data-action="attention">查看全部 ${icon("arrow", 13)}</button>
+                        <h2>抓取异常 <span class="muted small">${n(c.attention)}</span></h2>
+                        <button class="text-link" data-action="attention">查看异常订阅 ${icon("arrow", 13)}</button>
                     </div>
                     ${d.attention.length
                         ? d.attention
@@ -499,7 +547,7 @@ function dashboard(d) {
                                               <strong>${esc(item.title)}</strong
                                               ><small>${esc(item.target_title)}</small>
                                           </div>
-                                          ${pill(html`连续失败 ${item.errors} 次`, "warn")}
+                                          ${pill(message("fetchFailures", { count: n(item.errors) }), "warn")}
                                       </div>`,
                               )
                               .join("")
@@ -606,7 +654,7 @@ function chart(rows) {
     </svg>`;
 }
 
-function searchBox(placeholder = tr("搜索名称或网址")) {
+function searchBox(placeholder = tr("搜索订阅源名称或 RSS 地址")) {
     return html`<div class="search">
         ${icon("search", 16)}<input
             id="page-search"
@@ -618,7 +666,14 @@ function searchBox(placeholder = tr("搜索名称或网址")) {
     </div>`;
 }
 const select = (id, entries, value) =>
-    html`<select id="${id}" aria-label="${id === "kind-filter" ? tr("会话类型") : tr("订阅状态")}">
+    html`<select
+        id="${id}"
+        aria-label="${id === "kind-filter"
+            ? tr("会话类型")
+            : id === "visibility-filter"
+              ? tr("会话显示范围")
+              : tr("订阅状态")}"
+    >
         ${entries
             .map(
                 ([key, label]) =>
@@ -646,8 +701,8 @@ function targets(d) {
     return (
         header(
             tr("会话与频道"),
-            tr("管理机器人已知的接收目的地，以及各自的订阅和推送偏好。"),
-            html`<button class="primary" data-action="register">${icon("plus", 16)}登记会话</button>`,
+            tr("查看已记录的私聊、群组和频道，管理各自的订阅与推送设置。"),
+            html`<button class="primary" data-action="register">${icon("plus", 16)}添加已有会话</button>`,
         ) +
         html`<section class="panel">
                 <div class="toolbar">
@@ -656,22 +711,38 @@ function targets(d) {
                         [
                             ["", tr("全部类型")],
                             ["channel", tr("频道")],
-                            ["group", S.snapshot ? tr("群组/待分类") : tr("群组")],
+                            ["group", tr("群组")],
+                            ["unknown", tr("类型待核验")],
                             ["private", tr("私聊")],
                         ],
                         S.kind,
+                    )}${select(
+                        "visibility-filter",
+                        [
+                            ["unbanned", tr("未封禁")],
+                            ["active", tr("活跃")],
+                            ["inactive", tr("不活跃")],
+                            ["banned", tr("已封禁")],
+                            ["all", tr("全部")],
+                        ],
+                        S.visibility,
                     )}<span class="count">${count(d.total, "destination")}</span>
                 </div>
+                <p class="filter-help">
+                    ${tr(
+                        "默认隐藏已封禁会话；可选择“已封禁”或“全部”查看。活跃会话指未封禁，且有已启用订阅和已启用订阅源的会话。隐藏不删除数据。",
+                    )}
+                </p>
                 ${d.items.length
                     ? html`<div class="table-wrap">
-                          <table>
+                          <table class="chat-table">
                               <thead>
                                   <tr>
                                       <th>会话</th>
                                       <th>类型</th>
                                       <th>订阅数</th>
-                                      <th>需要检查</th>
-                                      <th>访问状态</th>
+                                      <th title="${tr("达到管理台连续抓取失败阈值的启用订阅数")}">抓取异常</th>
+                                      <th>机器人访问状态</th>
                                       <th></th>
                                   </tr>
                               </thead>
@@ -684,7 +755,8 @@ function targets(d) {
                                                       <div class="table-feed">
                                                           <div class="feed-mark">${icon(kindIcon[item.kind], 17)}</div>
                                                           <div class="feed-info">
-                                                              <strong>${esc(item.title)}</strong
+                                                              <strong title="${esc(item.title)}"
+                                                                  >${esc(item.title)}</strong
                                                               ><small
                                                                   >${item.username
                                                                       ? "@" + esc(item.username) + " · "
@@ -705,10 +777,10 @@ function targets(d) {
                                                           item.state === -1
                                                               ? tr("已封禁")
                                                               : {
-                                                                    available: tr("可用"),
-                                                                    known: tr("已识别"),
-                                                                    left: tr("已退出"),
-                                                                    unknown: tr("待同步"),
+                                                                    available: tr("上次核验可发送"),
+                                                                    known: tr("已记录私聊"),
+                                                                    left: tr("机器人已退出"),
+                                                                    unknown: tr("尚未核验"),
                                                                     snapshot: tr("离线快照"),
                                                                 }[item.membership] || tr("待同步"),
                                                           item.membership === "available" && item.state !== -1
@@ -734,14 +806,14 @@ function targets(d) {
                           </table>
                       </div>`
                     : empty(
-                          tr("还没有匹配的会话"),
-                          tr("机器人与用户互动后会留下记录；也可以登记已知的会话 ID。"),
+                          tr("没有符合条件的会话"),
+                          tr("请调整搜索、类型或显示范围；没有会话记录时，可添加已与机器人建立联系的会话。"),
                       )}${pager(d)}
             </section>
             <p class="muted small page-note">
                 ${S.snapshot
                     ? tr(
-                          "会话名称来自 Telegram 本地缓存，可能已过时；缺失名称显示 ID；未明确区分类型的显示为“群组/频道”，当前权限未联网验证。",
+                          "会话名称来自 Telegram 本地缓存，可能已过时；缺失名称显示 ID。“类型待核验”表示尚未确定群组或频道类型，当前访问权限未联网验证。",
                       )
                     : tr(
                           "会话列表来自 RSStT 记录；名称和权限在手动同步或添加订阅时更新。机器人需先在 Telegram 中加入频道或群组。",
@@ -753,9 +825,9 @@ function targets(d) {
 function subscriptions(d) {
     return (
         header(
-            S.attention ? tr("需要检查的订阅") : tr("全部订阅"),
+            S.attention ? tr("抓取异常的订阅") : tr("全部订阅"),
             S.target
-                ? html`当前目的地：${esc(d.items[0]?.target_title || S.target)}`
+                ? html`当前会话：${esc(d.items[0]?.target_title || S.target)}`
                 : tr("在一张列表里查看、筛选和调整所有订阅。"),
             newButton(),
         ) +
@@ -765,30 +837,40 @@ function subscriptions(d) {
                     "status-filter",
                     [
                         ["", tr("全部状态")],
-                        ["1", S.snapshot ? tr("已启用") : tr("更新中")],
+                        ["1", tr("已启用")],
                         ["0", tr("已暂停")],
                     ],
                     S.status,
-                )}<button data-action="filter-target" class="small">${icon("chats", 14)}选择目的地</button
+                )}<button data-action="filter-target" class="small">${icon("chats", 14)}按会话筛选</button
                 >${d.items.some((i) => i.feed_id)
-                    ? html`<a class="button-link" href="${filteredExportURL()}" download>导出筛选结果</a>`
+                    ? html`<a
+                          class="button-link"
+                          href="${filteredExportURL()}"
+                          download
+                          title="${tr("导出当前筛选的全部页，相同 RSS 地址合并；不含接收会话与推送设置。")}"
+                          >导出筛选订阅源（OPML）</a
+                      >`
                     : S.target
                       ? html`<a class="button-link" href="/api/targets/${encodeURIComponent(S.target)}/opml" download
-                            >导出 OPML</a
+                            >导出订阅源（OPML）</a
                         >`
                       : ""}<button data-action="toggle-attention" class="${S.attention ? "primary" : ""} small">
-                    ${icon("alert", 14)}需要检查</button
+                    ${icon("alert", 14)}仅看抓取异常</button
                 >${S.target
                     ? tr('<button class="quiet small" data-action="clear-target">清除会话筛选 ×</button>')
                     : ""}<span class="count">${count(d.total, "subscription")}</span>
             </div>
             ${S.selected.size
                 ? html`<div class="bulkbar">
-                      <span>已选择 ${S.selected.size} 条</span><button data-batch="pause">暂停</button
-                      ><button data-batch="resume">恢复</button
-                      ><button class="danger" data-batch="delete">取消订阅</button>${d.items.some((i) => i.feed_id)
-                          ? html`<a class="button-link" href="${filteredExportURL([...S.selected])}" download
-                                >导出所选</a
+                      <span>${message("selectedSubs", { count: n(S.selected.size) })}</span
+                      ><button data-batch="pause">暂停所选订阅</button><button data-batch="resume">恢复所选订阅</button
+                      ><button class="danger" data-batch="delete">取消所选订阅</button>${d.items.some((i) => i.feed_id)
+                          ? html`<a
+                                class="button-link"
+                                href="${filteredExportURL([...S.selected])}"
+                                download
+                                title="${tr("相同 RSS 地址合并；不含接收会话与推送设置。")}"
+                                >导出所选订阅源（OPML）</a
                             >`
                           : ""}<button class="quiet" data-action="clear-selection">清空选择</button>
                   </div>`
@@ -805,10 +887,10 @@ function subscriptions(d) {
                                           ${d.items.every((i) => S.selected.has(i.id)) ? "checked" : ""}
                                       />
                                   </th>
-                                  <th>订阅内容</th>
-                                  <th>目的地</th>
+                                  <th>订阅源</th>
+                                  <th>接收会话</th>
                                   <th>状态</th>
-                                  <th>间隔</th>
+                                  <th>检查间隔</th>
                                   <th></th>
                               </tr>
                           </thead>
@@ -840,10 +922,10 @@ function subscriptions(d) {
                                                       item.state === 0
                                                           ? tr("已暂停")
                                                           : item.errors
-                                                            ? html`失败 ${item.errors} 次`
+                                                            ? message("fetchFailures", { count: n(item.errors) })
                                                             : S.snapshot
                                                               ? tr("已启用")
-                                                              : tr("更新中"),
+                                                              : tr("已启用"),
                                                       item.state === 0 ? "gray" : item.errors ? "warn" : "",
                                                   )}
                                               </td>
@@ -852,14 +934,14 @@ function subscriptions(d) {
                                                   <div class="table-actions">
                                                       <button
                                                           data-sub-toggle="${item.id}"
-                                                          title="${item.state ? tr("暂停") : tr("恢复")}"
-                                                          aria-label="${item.state ? tr("暂停") : tr("恢复")} ${esc(
-                                                              item.title,
-                                                          )}"
+                                                          title="${item.state ? tr("暂停订阅") : tr("恢复订阅")}"
+                                                          aria-label="${item.state
+                                                              ? tr("暂停订阅")
+                                                              : tr("恢复订阅")} ${esc(item.title)}"
                                                       >
                                                           ${icon(item.state ? "pause" : "play", 15)}${item.state
-                                                              ? tr("暂停")
-                                                              : tr("恢复")}</button
+                                                              ? tr("暂停订阅")
+                                                              : tr("恢复订阅")}</button
                                                       ><button
                                                           data-sub-edit="${item.id}"
                                                           aria-label="编辑 ${esc(item.title)}"
@@ -880,7 +962,7 @@ function subscriptions(d) {
                       </table>
                   </div>`
                 : empty(
-                      S.attention ? tr("目前没有需要检查的订阅") : tr("没有匹配的订阅"),
+                      S.attention ? tr("目前没有需要检查的订阅") : tr("没有符合条件的订阅"),
                       S.attention
                           ? tr("偶发失败会自动重试，连续失败达到设置的次数后才会出现在这里。")
                           : tr("试试调整筛选，或添加一个新的 RSS 地址。"),
@@ -912,7 +994,7 @@ function settings(d, tokens, security, feature) {
             <div class="panel-head">
                 <div>
                     <h2>更新与订阅</h2>
-                    <p>新订阅使用的默认值，以及管理台提醒方式</p>
+                    <p>全局订阅默认值和管理台抓取异常标记</p>
                 </div>
             </div>
             <div class="form-body">
@@ -932,12 +1014,12 @@ function settings(d, tokens, security, feature) {
                 )}${settingRow(
                     "channel_or_group_sub_limit",
                     tr("频道 / 群组订阅上限"),
-                    tr("每个目的地的默认上限，-1 表示不限。"),
+                    tr("每个频道或群组的默认订阅上限。-1 表示不限，0 禁止新增。"),
                     -1,
                 )}${settingRow(
                     "attention_threshold",
-                    tr("需要检查的失败次数"),
-                    tr("仅改变管理台提醒，不改变上游重试和停用策略。"),
+                    tr("管理台抓取异常阈值"),
+                    tr("只影响管理台异常列表，不控制外部通知发送，也不改变抓取重试策略。"),
                     1,
                     100,
                     d.console.attention_threshold,
@@ -957,10 +1039,10 @@ ${esc(o.sub_limit_reached_message)}</textarea
         content = html`<section class="panel">
             <div class="panel-head">
                 <div>
-                    <h2>连接授权</h2>
-                    <p>允许外部应用通过 API 管理选定的会话</p>
+                    <h2>API 访问令牌</h2>
+                    <p>授权 Agent 或外部应用读取、管理所选会话的订阅</p>
                 </div>
-                <button class="primary" data-action="new-token">${icon("plus", 14)}创建授权</button>
+                <button class="primary" data-action="new-token">${icon("plus", 14)}创建令牌</button>
             </div>
             ${tokens.items.length
                 ? tokens.items
@@ -971,11 +1053,14 @@ ${esc(o.sub_limit_reached_message)}</textarea
                                   <div>
                                       <p>
                                           ${esc(t.name)}
-                                          ${pill(t.permission === "write" ? tr("读写") : tr("只读"), "gray")}
+                                          ${pill(
+                                              t.permission === "write" ? tr("读取和修改订阅") : tr("仅读取订阅"),
+                                              "gray",
+                                          )}
                                       </p>
                                       <small
                                           >${t.targets === null
-                                              ? tr("全部会话（含今后新增）")
+                                              ? tr("全部会话（包括今后新增）")
                                               : html`${count(t.targets.length, "selectedDestination")}`}
                                           · ${dateText(t.expires_at * 1000)} 到期</small
                                       >
@@ -984,15 +1069,15 @@ ${esc(o.sub_limit_reached_message)}</textarea
                               </div>`,
                       )
                       .join("")
-                : empty(tr("还没有连接授权"), tr("未来接入 FeedLantern 时，在这里创建专用授权。"))}
+                : empty(tr("尚未创建 API 访问令牌"), tr("为 Agent 或外部应用创建专用令牌，并限制可访问的会话。"))}
             <div class="form-body">
                 <div class="notice">
-                    授权只允许访问指定会话的订阅，不包含管理台设置、创建授权或退出频道等管理员操作。完整密钥只显示一次。
+                    令牌仅允许访问所选会话的订阅，不包含用户角色、全局设置、备份或令牌管理。完整令牌只显示一次。
                 </div>
                 ${S.features.security
                     ? html`<p>
                           <a class="text-link" href="/api/openapi.json" download="rsstt-openapi.json"
-                              >下载 Agent API 契约</a
+                              >下载 API 接口说明（OpenAPI）</a
                           >
                       </p>`
                     : ""}
@@ -1033,12 +1118,11 @@ ${esc(o.sub_limit_reached_message)}</textarea
                     </div>
                     <div>
                         <dt>统计存储</dt>
-                        <dd>${S.snapshot ? tr("原版无历史统计") : tr("独立 SQLite · 累计值永久保留")}</dd>
+                        <dd>${S.snapshot ? tr("快照不含历史统计") : tr("独立 SQLite · 累计值永久保留")}</dd>
                     </div>
                 </dl>
                 <div class="notice">
-                    机器人 Token、Telegram API
-                    凭证、代理与管理台密码通过部署环境配置。修改这些配置后重启实例即可生效。管理台不会读取或显示这些密钥。
+                    机器人连接配置可在运行配置中保存，重启后生效；管理台密码在账户安全中修改。敏感值不会在页面回显。
                 </div>
             </div>
         </section>`;
@@ -1068,14 +1152,16 @@ ${esc(o.sub_limit_reached_message)}</textarea
                         maxlength="512"
                         required
                 /></label>
-                <p class="hint">至少 16 个字符。修改后所有网页登录会话将退出，Agent 授权保持有效。</p>
+                <p class="hint">
+                    ${tr("至少 16 个字符。修改后所有网页登录会话（包括当前窗口）将退出，API 访问令牌保持有效。")}
+                </p>
                 <p class="error" role="alert"></p>
                 <div><button type="submit" class="primary">修改密码并退出</button></div>
             </form>
             <div class="form-body">
                 <h2>网页登录会话</h2>
-                <p>${n(sessions.items.length)} ${tr("个活动会话")}</p>
-                <button class="danger" data-action="revoke-sessions">退出所有网页登录</button>
+                <p>${n(sessions.items.length)} ${tr("个有效的网页登录会话")}</p>
+                <button class="danger" data-action="revoke-sessions">退出所有网页登录会话</button>
             </div>
         </section>`;
     }
@@ -1085,7 +1171,7 @@ ${esc(o.sub_limit_reached_message)}</textarea
             <nav class="settings-nav" aria-label="设置栏目">
                 ${[
                     ["general", "settings", tr("更新与订阅")],
-                    ["tokens", "key", tr("连接授权")],
+                    ["tokens", "key", tr("API 访问令牌")],
                     ...["runtime", "notifications", "backups"]
                         .filter((key) => S.features[key])
                         .map((key) => [
@@ -1131,19 +1217,19 @@ const saveFooter = (text) =>
     html`<button type="button" data-action="close">取消</button><button class="primary" type="submit">${text}</button>`;
 const formatLabels = {
     notify: [
-        tr("通知方式"),
+        tr("Telegram 推送声音"),
         [
-            [1, tr("正常通知")],
+            [1, tr("正常提示")],
             [0, tr("静默发送")],
         ],
     ],
     send_mode: [
-        tr("发送方式"),
+        tr("推送格式"),
         [
-            [0, tr("自动选择")],
-            [-1, tr("仅链接")],
-            [1, "Telegraph"],
-            [2, tr("Telegram 消息")],
+            [0, tr("自动选择格式")],
+            [-1, tr("仅标题与出处")],
+            [1, tr("始终使用 Telegraph")],
+            [2, tr("始终使用 Telegram 消息")],
         ],
     ],
     link_preview: [
@@ -1155,10 +1241,10 @@ const formatLabels = {
         ],
     ],
     display_media: [
-        tr("媒体内容"),
+        tr("文章媒体"),
         [
             [0, tr("显示")],
-            [1, tr("仅媒体")],
+            [1, tr("仅发送有媒体的文章")],
             [-1, tr("隐藏")],
         ],
     ],
@@ -1179,25 +1265,25 @@ const formatLabels = {
         ],
     ],
     display_via: [
-        tr("来源"),
+        tr("原文出处显示方式"),
         [
-            [0, tr("源标题与链接")],
-            [1, tr("源标题与文章标题链接")],
-            [-1, tr("结尾超链接，无源标题")],
+            [0, tr("显示订阅源名称及原文链接")],
+            [1, tr("标题链接到原文，另显示订阅源名称")],
+            [-1, tr("结尾显示原文链接，不显示订阅源名称")],
             [-2, tr("完全隐藏")],
-            [-3, tr("文章标题链接，无源标题")],
-            [-4, tr("结尾完整网址，无源标题")],
+            [-3, tr("标题链接到原文，不显示订阅源名称")],
+            [-4, tr("结尾显示原文网址，不显示订阅源名称")],
         ],
     ],
     display_entry_tags: [
-        tr("条目标签"),
+        tr("文章自带标签"),
         [
             [1, tr("显示")],
             [-1, tr("隐藏")],
         ],
     ],
     style: [
-        tr("排版样式"),
+        tr("消息排版样式"),
         [
             [0, "RSStT"],
             [1, "flowerss"],
@@ -1215,15 +1301,29 @@ function formatFields(o, isSub) {
         >`;
     return html`<div class="field-grid">
             <label
-                >更新间隔（分钟）<input
+                >检查间隔（分钟）<input
                     type="number"
                     name="interval"
                     min="1"
                     max="32767"
-                    placeholder="默认"
-                    value="${o.interval ?? ""}" /></label
+                    placeholder="留空使用默认间隔"
+                    value="${o.interval ?? ""}"
+                /><span class="hint"
+                    >${isSub
+                        ? tr("留空使用会话默认间隔；抓取时会与其他接收会话共享同一订阅源。")
+                        : tr("留空使用全局默认间隔；仅影响继承此会话默认值的订阅。")}</span
+                ></label
             >${field("send_mode", ...formatLabels.send_mode)}
         </div>
+        <p class="hint">${tr("自动格式按文章长度和媒体选择发送方式；强制 Telegram 可能拆分为多条消息。")}</p>
+        <details class="format-explanation">
+            <summary>${tr("推送格式说明")}</summary>
+            <p class="hint">
+                ${tr(
+                    "仅发送有媒体的文章：无媒体的文章会跳过；标题、作者和出处仍按各自设置显示。自动标题只显示非自动补全的标题；自动作者在名称未包含于订阅源标题时显示。已启用标题和出处时，RSStT 通常为“文章标题 → 正文 → 出处”，flowerss 为“订阅源名称 → 文章标题 → 正文 → 出处”。",
+                )}
+            </p>
+        </details>
         <details>
             <summary>更多推送与排版设置</summary>
             <div class="field-grid">
@@ -1231,13 +1331,17 @@ function formatFields(o, isSub) {
                     .filter(([k]) => k !== "send_mode")
                     .map(([k, [l, v]]) => field(k, l, v))
                     .join("")}<label
-                    >Telegraph 长度阈值<input
+                    >自动模式的转 Telegraph 长度阈值（字符）<input
                         name="length_limit"
                         type="number"
                         min="${isSub ? -100 : 0}"
                         max="4096"
                         value="${o.length_limit}"
-                    /><span class="hint">0 为自动${isSub ? tr("，-100 为继承会话默认值") : ""}。</span></label
+                    /><span class="hint"
+                        >${tr(
+                            "仅在自动格式下生效；达到阈值时转为 Telegraph。0 表示不额外限制，仍受 Telegram 消息长度限制。",
+                        )}${isSub ? tr("-100 表示继承会话默认值。") : ""}</span
+                    ></label
                 >
             </div>
         </details>`;
@@ -1260,25 +1364,40 @@ async function targetPicker(multiple = false) {
                               name="target-choice"
                               value="${i.id}"
                               ${modalState.chosen.has(i.id) ? "checked" : ""}
-                          />${icon(kindIcon[i.kind], 15)}${esc(i.title)}<small>${kindName[i.kind]}</small></label
+                          /><span class="target-choice-main"
+                              >${icon(kindIcon[i.kind], 15)}<span class="target-choice-name" title="${esc(i.title)}"
+                                  >${esc(i.title)}</span
+                              ></span
+                          ><small class="target-choice-kind">${targetKindName(i)}</small></label
                       >`,
               )
               .join("")
-        : empty(tr("没有匹配的会话"), tr("先在「会话与频道」中登记。"));
-    $("#picker-hint").textContent = html`匹配 ${data.total}
-    个会话${data.total > 50 ? tr("，先显示前 50 个，请继续搜索缩小范围") : ""}${multiple
-        ? html` · 已选 ${modalState.chosen.size} 个`
-        : ""}`;
+        : empty(
+              tr("没有匹配的会话"),
+              $("#picker-search")?.value
+                  ? tr("请调整会话名称、用户名或 ID 后重试。")
+                  : tr("机器人需要先与用户建立联系，或加入群组、频道；然后可在“会话与频道”添加已有会话。"),
+          );
+    $("#picker-hint").textContent =
+        message("pickerSummary", { total: n(data.total) }) +
+        (data.total > 50 ? " · " + tr("仅显示前 50 个，请继续搜索缩小范围。") : "") +
+        (multiple ? " · " + message("pickerSelected", { count: n(modalState.chosen.size) }) : "");
 }
-const pickerHtml = (multiple) =>
-    html`<label
-            >选择${multiple ? tr("允许管理的会话") : tr("接收会话")}<input
-                id="picker-search"
-                placeholder="搜索会话名称、用户名或 ID"
-                autocomplete="off"
+const pickerHtml = (multiple, purpose = "receiving") => {
+    const label =
+        purpose === "filter"
+            ? tr("选择要查看订阅的会话")
+            : purpose === "authorization"
+              ? tr("选择允许管理的会话")
+              : multiple
+                ? tr("选择接收会话（可多选）")
+                : tr("选择接收会话");
+    return html`<label
+            >${label}<input id="picker-search" placeholder="${tr("搜索会话名称、用户名或 ID")}" autocomplete="off"
         /></label>
         <div class="target-choices" id="target-picker"></div>
         <span class="hint" id="picker-hint"></span>`;
+};
 
 async function newSub() {
     modalState = { action: "new-sub", chosen: S.target ? [S.target] : [] };
@@ -1286,14 +1405,14 @@ async function newSub() {
         tr("添加订阅"),
         pickerHtml(false) +
             html`<label
-                >RSS 地址<textarea
+                >订阅源地址（RSS/Atom）<textarea
                     name="urls"
                     required
                     placeholder="https://example.com/feed.xml&#10;可以粘贴多个地址，每行一个"
                 ></textarea
                 ><span class="hint"
                     >每次最多 100
-                    个。已存在的订阅会自动跳过，保留原来的设置。${S.snapshot
+                    个。所选会话已经订阅的地址会跳过，保留原设置；其他会话可以订阅同一地址。${S.snapshot
                         ? tr(" 离线新增不会读取 RSS 内容或校验地址。")
                         : ""}</span
                 ></label
@@ -1309,17 +1428,17 @@ function editSub(item) {
         html`<div class="notice">${esc(item.url)}<br />接收会话：${esc(item.target_title)}</div>
             ${item.feed_id
                 ? html`<div class="inline">
-                      <button type="button" data-feed-recipients="${item.feed_id}">接收目的地</button
-                      ><button type="button" data-feed-fetch="${item.feed_id}">来源抓取设置</button>
+                      <button type="button" data-feed-recipients="${item.feed_id}">管理接收会话</button
+                      ><button type="button" data-feed-fetch="${item.feed_id}">订阅源请求设置</button>
                   </div>`
                 : ""}<label
-                >自定义标题<input
+                >此订阅的显示名称<input
                     name="title"
                     value="${esc(item.custom_title || "")}"
                     maxlength="1024"
-                    placeholder="使用订阅源原标题" /></label
+                    placeholder="留空使用订阅源名称" /></label
             ><label
-                >附加标签<input
+                >推送附加标签<input
                     name="tags"
                     value="${esc(item.tags || "")}"
                     maxlength="255"
@@ -1335,11 +1454,11 @@ function editTarget(item) {
         html`<div class="spread">
                 <span class="muted mono small">${esc(item.id)} · ${targetKindName(item)}</span
                 ><button type="button" data-refresh-target="${item.id}" class="small">
-                    ${icon("refresh", 13)}同步名称与权限
+                    ${icon("refresh", 13)}更新 Telegram 会话信息
                 </button>
             </div>
             <div class="inline">
-                <a class="text-link" href="/api/targets/${item.id}/opml" download>导出 OPML</a
+                <a class="text-link" href="/api/targets/${item.id}/opml" download>导出订阅源（OPML）</a
                 ><button type="button" class="text-link" data-import-target="${item.id}">导入 OPML</button>
             </div>
             <label
@@ -1350,27 +1469,44 @@ function editTarget(item) {
                     max="32767"
                     value="${item.sub_limit ?? ""}"
                     placeholder="使用实例默认值"
-                /><span class="hint">-1 表示不限，留空则继承实例设置。</span></label
+                /><span class="hint">-1 表示不限，0 禁止新增；留空使用全局上限，不删除现有订阅。</span></label
             >${item.role
                 ? html`<div class="spread">
-                      <span>用户角色：${esc(roleName(item.role))}</span>${item.role_protected
-                          ? html`<span class="hint">管理者受保护</span>`
+                      <span>Bot 用户角色：${esc(roleName(item.role))}</span>${item.role_protected
+                          ? html`<span class="hint">机器人管理者受保护</span>`
                           : html`<button type="button" data-role-target="${item.id}">修改角色</button>`}
                   </div>`
                 : ""}${item.lang !== undefined
                 ? html`<label
-                      >Bot 语言<input name="lang" value="${esc(item.lang || "null")}" maxlength="16" /><span
-                          class="hint"
-                          >例如 zh-Hans、en；null 使用自动语言。与管理台界面语言独立。</span
-                      ></label
+                      >Bot 回复语言<select name="lang">
+                          ${[
+                              ["null", tr("自动识别")],
+                              ...botLanguages,
+                              ...(item.lang &&
+                              !botLanguages.some(([code]) => code === item.lang) &&
+                              item.lang !== "null"
+                                  ? [[item.lang, item.lang]]
+                                  : []),
+                          ]
+                              .map(
+                                  ([value, label]) =>
+                                      html`<option
+                                          value="${esc(value)}"
+                                          ${(item.lang || "null") === value ? "selected" : ""}
+                                      >
+                                          ${esc(label)}
+                                      </option>`,
+                              )
+                              .join("")}</select
+                      ><span class="hint">Bot 回复语言与管理台界面语言独立。自动识别沿用原版语言规则。</span></label
                   >`
                 : ""}${formatFields(item.options, false)}${item.id.startsWith("-")
                 ? html`<div class="spread">
-                      <span class="hint">退出后保留订阅记录，并暂停更新。</span
-                      ><button type="button" class="danger small" data-leave-target="${item.id}">退出会话</button>
+                      <span class="hint">让机器人退出此群组或频道后，保留本地订阅记录并暂停该会话的订阅。</span
+                      ><button type="button" class="danger small" data-leave-target="${item.id}">让机器人退出</button>
                   </div>`
                 : ""}`,
-        saveFooter(tr("保存默认设置")),
+        saveFooter(tr("保存会话默认设置")),
     );
 }
 function confirmation(title, description, action, extra = {}) {
@@ -1383,16 +1519,39 @@ function confirmation(title, description, action, extra = {}) {
                       >输入会话 ID 确认<input name="confirm" required placeholder="${esc(extra.id)}" autocomplete="off"
                   /></label>`
                 : ""}`,
-        saveFooter(tr("确认")),
+        saveFooter(
+            tr(
+                {
+                    "delete-sub": "取消这条订阅",
+                    batch:
+                        extra.batchAction === "pause"
+                            ? "暂停所选订阅"
+                            : extra.batchAction === "resume"
+                              ? "恢复所选订阅"
+                              : "取消所选订阅",
+                    revoke: "撤销令牌",
+                    "revoke-sessions": "退出所有网页登录会话",
+                    leave: "让机器人退出",
+                    "notify-test": S.demo ? "执行离线模拟" : "发送测试通知",
+                    "notify-delete": "删除此渠道配置",
+                    "cancel-restore": "取消已安排的恢复",
+                }[action] || "确认操作",
+            ),
+        ),
     );
 }
 function resultModal(result) {
     const failed = result.results.filter((r) => r.status === "failed" || r.ok === false).length;
+    const skipped = result.results.filter((r) => r.status === "existing").length;
     modalState = { action: "done" };
     modal(
         failed ? tr("处理完成，部分条目未成功") : tr("处理完成"),
         html`<div class="notice">
-                ${result.results.length - failed} 条完成，${failed} 条失败。失败条目可修正后重新提交。
+                ${message("resultCounts", {
+                    completed: n(result.results.length - failed - skipped),
+                    skipped: n(skipped),
+                    failed: n(failed),
+                })}
             </div>
             <div class="result-list">
                 ${result.results
@@ -1401,15 +1560,21 @@ function resultModal(result) {
                             html`<div class="result-item">
                                 ${pill(
                                     r.status === "existing"
-                                        ? tr("已存在")
+                                        ? tr("已订阅，已跳过")
                                         : r.status === "failed" || r.ok === false
                                           ? tr("失败")
-                                          : tr("完成"),
+                                          : tr("操作完成"),
                                     r.status === "failed" || r.ok === false ? "warn" : "",
                                 )}
                                 <div>
                                     ${esc(r.url || tr("订阅 #") + r.id)}${r.message || r.error
-                                        ? html`<small>${esc(errorText(r, 400))}</small>`
+                                        ? html`<small
+                                              >${esc(
+                                                  r.ok === false || r.status === "failed"
+                                                      ? errorText({ ...r, error: r.error || r.message }, 400)
+                                                      : r.message || r.error,
+                                              )}</small
+                                          >`
                                         : ""}
                                 </div>
                             </div>`,
@@ -1445,8 +1610,8 @@ document.addEventListener("click", async (event) => {
         }
         if (d.action === "revoke-sessions") {
             return confirmation(
-                tr("退出所有网页登录"),
-                tr("所有网页登录会话将失效。Agent 授权保持有效。"),
+                tr("退出所有网页登录会话"),
+                tr("所有网页登录会话（包括当前窗口）将退出，API 访问令牌保持有效。"),
                 "revoke-sessions",
             );
         }
@@ -1472,7 +1637,7 @@ document.addEventListener("click", async (event) => {
                 tr("修改角色"),
                 html`<p>${esc(item.title)}</p>
                     <label
-                        >用户角色<select name="role">
+                        >Bot 使用权限<select name="role">
                             ${["banned", "guest", "user", ...(item.id.startsWith("-") ? [] : ["admin"])]
                                 .map(
                                     (role) =>
@@ -1483,9 +1648,15 @@ document.addEventListener("click", async (event) => {
                                 .join("")}
                         </select></label
                     >
-                    <p class="hint">角色影响机器人权限。管理者不能在此降级或封禁。</p>
+                    <p class="hint">角色控制机器人使用权限。部署中的机器人管理者不可在网页降级或封禁。</p>
                     <p class="hint">
-                        封禁会暂停订阅，解封不会自动恢复。管理员角色不授予网页登录或管理者专属命令权限。
+                        ${tr(
+                            "访客按多用户模式和所在会话权限检查，并非只读角色；普通用户和 Bot 管理员沿用原版命令权限。",
+                        )}
+                    </p>
+                    <p class="hint">
+                        封禁会暂停该会话的订阅，解除封禁后需手动恢复。Bot 管理员不会获得管理台账号或 MANAGER
+                        专属命令权限。
                     </p>`,
                 saveFooter(tr("保存角色")),
             );
@@ -1497,8 +1668,10 @@ document.addEventListener("click", async (event) => {
             const value = item.sensitive ? "" : (item.value ?? item.effective_value ?? "");
             modal(
                 tr("运行配置"),
-                html`<p class="mono">${esc(item.key)}</p>
-                    <p class="notice">保存后待重启，不会立即改变当前进程。</p>
+                html`<h3>${esc(runtimeText(item.key).label)}</h3>
+                    <p class="mono">${esc(item.key)}</p>
+                    <p class="hint">${esc(runtimeText(item.key).help)}</p>
+                    <p class="notice">保存后在下次重启时生效，本页不会自动重启服务。</p>
                     <label
                         >配置值${item.type === "boolean"
                             ? html`<select name="value">
@@ -1518,11 +1691,11 @@ document.addEventListener("click", async (event) => {
                                       : "maxlength=4096"}
                                   autocomplete="off"
                               />`}</label
-                    >${item.sensitive ? html`<p class="hint">密钥不回显；留空保留现有值。</p>` : ""}<label
+                    >${item.sensitive ? html`<p class="hint">敏感值不会显示；留空不修改已保存的值。</p>` : ""}<label
                         class="inline-label"
-                        ><input type="checkbox" name="reset" />恢复部署默认值</label
+                        ><input type="checkbox" name="reset" />移除网页覆盖，重启后使用部署配置</label
                     >`,
-                saveFooter(tr("保存并等待重启")),
+                saveFooter(tr("保存（重启后生效）")),
             );
             return;
         }
@@ -1537,12 +1710,12 @@ document.addEventListener("click", async (event) => {
             modal(
                 tr("配置通知渠道"),
                 html`<p class="mono">${esc(d.notifyChannel)}</p>
-                    <p class="hint">密钥不回显；留空保留现有值。</p>
+                    <p class="hint">敏感值不会显示；留空不修改已保存的值。</p>
                     ${fields
                         .map(
                             (key) =>
                                 html`<label
-                                    >${esc(key)}<input
+                                    >${esc(notificationFieldLabel(d.notifyChannel, key))}<input
                                         name="${key}"
                                         type="${key === "token" || key === "url" ? "password" : "text"}"
                                         autocomplete="off"
@@ -1572,7 +1745,11 @@ document.addEventListener("click", async (event) => {
                 { channel: d.notifyTest },
             );
         if (d.action === "cancel-restore")
-            return confirmation(tr("取消待恢复任务"), tr("取消已暂存的恢复任务，现有数据保持不变。"), "cancel-restore");
+            return confirmation(
+                tr("取消已安排的恢复"),
+                tr("取消下次启动时的恢复任务，继续使用现有数据。"),
+                "cancel-restore",
+            );
         if (d.feedRecipients) {
             const result = await api(`/feeds/${d.feedRecipients}/recipients`);
             modalState = {
@@ -1581,16 +1758,19 @@ document.addEventListener("click", async (event) => {
                 chosen: result.items.map((i) => String(i.target)),
             };
             modal(
-                tr("接收目的地"),
-                html`<p class="notice">同一来源只抓取一次。已有目的地的推送设置保持不变。</p>
+                tr("管理接收会话"),
+                html`<p class="mono small">${esc(result.items[0]?.url || "")}</p>
+                    <p class="notice">每次检查只抓取一次订阅源，再推送到各接收会话。已有订阅的推送设置保持不变。</p>
                     <label
                         >修改方式<select name="mode">
-                            <option value="append">仅添加接收目的地</option>
-                            <option value="replace">替换当前授权范围内的目的地</option>
+                            <option value="append">仅添加接收会话</option>
+                            <option value="replace">按当前选择设置接收会话</option>
                         </select></label
                     >${pickerHtml(true)}
-                    <p class="hint">替换会移除未选目的地的订阅。当前授权范围外的订阅保持不变。</p>`,
-                saveFooter(tr("保存接收目的地")),
+                    <p class="hint">
+                        未勾选的会话将取消对此订阅源的订阅。已选会话继续接收；API 令牌范围外的订阅保持不变。
+                    </p>`,
+                saveFooter(tr("保存接收会话")),
             );
             await targetPicker(true);
             return;
@@ -1599,23 +1779,28 @@ document.addEventListener("click", async (event) => {
             const result = await api(`/feeds/${d.feedFetch}/fetch-options`);
             modalState = { action: "feed-fetch", feedId: d.feedFetch };
             modal(
-                tr("来源抓取设置"),
-                html`<p class="notice">此设置影响该来源的所有接收目的地。</p>
+                tr("订阅源请求设置"),
+                html`<p class="mono small">
+                        ${esc(S.items.find((item) => item.feed_id === Number(d.feedFetch))?.url || "")}
+                    </p>
+                    <p class="notice">此设置按 RSS 地址共享，影响所有订阅此地址的会话，下次抓取生效。</p>
                     <label
-                        >User-Agent<input
+                        >请求标识（User-Agent）<input
                             name="user_agent"
                             maxlength="512"
                             value="${esc(result.user_agent || "")}"
                             placeholder="继承全局默认值"
                     /></label>
-                    <p class="hint">仅支持可打印 ASCII 字符；留空恢复全局设置。</p>`,
+                    <p class="hint">
+                        用于访问该订阅源。最多 512 个英文字符、数字及可打印符号，不含换行；留空使用全局 User-Agent。
+                    </p>`,
                 saveFooter(tr("保存设置")),
             );
             return;
         }
         if (d.action === "filter-target") {
             modalState = { action: "filter-target", chosen: S.target ? [S.target] : [] };
-            modal(tr("选择目的地"), pickerHtml(false), saveFooter(tr("应用筛选")));
+            modal(tr("按会话筛选"), pickerHtml(false, "filter"), saveFooter(tr("应用筛选")));
             await targetPicker();
             return;
         }
@@ -1623,11 +1808,11 @@ document.addEventListener("click", async (event) => {
         if (d.action === "register") {
             modalState = { action: "register" };
             modal(
-                tr("登记已有会话"),
+                tr("添加已有会话"),
                 tr(
                     '<p class="muted small">请先在 Telegram 中让用户启动机器人，或将机器人加入频道 / 群组并授予发布权限。</p><label>Telegram 会话 ID<input name="id" required placeholder="例如 -1001234567890" inputmode="numeric"></label>',
                 ),
-                saveFooter(tr("验证并登记")),
+                saveFooter(tr("验证并添加")),
             );
             return;
         }
@@ -1687,21 +1872,21 @@ document.addEventListener("click", async (event) => {
             return confirmation(
                 tr("批量处理订阅"),
                 html`对选中的 ${S.selected.size}
-                条订阅执行「${{ pause: tr("暂停"), resume: tr("恢复"), delete: tr("取消订阅") }[d.batch]}」？`,
+                条订阅执行「${{ pause: tr("暂停订阅"), resume: tr("恢复订阅"), delete: tr("取消订阅") }[d.batch]}」？`,
                 "batch",
                 { batchAction: d.batch, ids: [...S.selected] },
             );
         if (d.refreshTarget) {
             b.disabled = true;
             const item = await api(html`/targets/${d.refreshTarget}/refresh`, { method: "POST", body: {} });
-            toast(tr("名称与权限已同步"));
+            toast(tr("会话名称与机器人访问权限已更新"));
             editTarget(item);
             return render(true);
         }
         if (d.leaveTarget)
             return confirmation(
-                tr("退出会话"),
-                tr("机器人退出后，订阅将暂停。重新加入需要在 Telegram 中操作。"),
+                tr("让机器人退出"),
+                tr("让机器人退出此群组或频道，并暂停该会话的订阅。重新加入需在 Telegram 中操作。"),
                 "leave",
                 {
                     id: d.leaveTarget,
@@ -1721,33 +1906,38 @@ document.addEventListener("click", async (event) => {
         if (d.action === "new-token") {
             modalState = { action: "new-token" };
             modal(
-                tr("创建连接授权"),
-                html`<label>授权名称<input name="name" required maxlength="80" placeholder="例如 FeedLantern" /></label>
+                tr("创建API 访问令牌"),
+                html`<label>令牌名称<input name="name" required maxlength="80" placeholder="例如 FeedLantern" /></label>
                     <div class="field-grid">
                         <label
                             >权限<select name="permission">
-                                <option value="read">只读</option>
-                                <option value="write">读写订阅</option>
+                                <option value="read">仅读取订阅</option>
+                                <option value="write">读取和修改订阅</option>
                             </select></label
                         ><label
                             >有效天数<input name="days" type="number" value="90" min="1" max="365" required
                         /></label>
                     </div>
-                    ${pickerHtml(true)}<label class="inline-label"
-                        ><input type="checkbox" name="all_targets" />允许全部会话，包括今后新增的会话</label
+                    ${pickerHtml(true, "authorization")}<label class="inline-label"
+                        ><input type="checkbox" name="all_targets" />允许访问全部会话，包括今后新增的会话</label
                     >`,
-                saveFooter(tr("创建授权")),
+                saveFooter(tr("创建令牌")),
             );
             await targetPicker(true);
             return;
         }
         if (d.revoke)
-            return confirmation(tr("撤销连接授权"), tr("使用这个授权的外部应用将立即失去访问权限。"), "revoke", {
-                id: d.revoke,
-            });
+            return confirmation(
+                tr("撤销API 访问令牌"),
+                tr("使用此令牌的 Agent 或外部应用将立即失去访问权限。"),
+                "revoke",
+                {
+                    id: d.revoke,
+                },
+            );
         if (d.action === "copy-token") {
             await navigator.clipboard.writeText($("#token-secret").textContent);
-            toast(tr("已复制授权密钥"));
+            toast(tr("已复制API 访问令牌"));
         }
     } catch (e) {
         if ($("#dialog").open) $(".dialog-error").textContent = e.message;
@@ -1785,6 +1975,12 @@ document.addEventListener("change", (e) => {
     if (t.id === "kind-filter") {
         S.kind = t.value;
         S.page = 1;
+        render(true);
+    }
+    if (t.id === "visibility-filter") {
+        S.visibility = t.value;
+        S.page = 1;
+        S.selected.clear();
         render(true);
     }
     if (t.id === "status-filter") {
@@ -1862,9 +2058,11 @@ document.addEventListener("submit", async (event) => {
             const summary = await rawAPI("/backups/preflight?" + query, raw);
             modalState = { action: "restore", raw, query: String(query), sha: summary.sha256 };
             modal(
-                tr("确认恢复预检"),
-                html`<p class="notice">预检通过不代表已经恢复。提交后将在正常重启时应用，覆盖现有订阅数据。</p>
-                    <p>${esc(dateText(summary.created_at))}</p>
+                tr("确认下次重启时恢复此备份"),
+                html`<p class="notice">
+                        检查通过尚未恢复数据。确认后，下次正常重启会用备份替换订阅、会话和基础管理数据。
+                    </p>
+                    <p>${message("backupCreated", { time: dateText(summary.created_at) })}</p>
                     <div class="table-wrap">
                         <table>
                             <tbody>
@@ -1872,7 +2070,7 @@ document.addEventListener("submit", async (event) => {
                                     .map(
                                         ([key, value]) =>
                                             html`<tr>
-                                                <th>${esc(key)}</th>
+                                                <th>${esc(backupCountLabel(key))}</th>
                                                 <td>${n(value)}</td>
                                             </tr>`,
                                     )
@@ -1882,8 +2080,8 @@ document.addEventListener("submit", async (event) => {
                     </div>
                     <p>
                         ${Object.values(flags).some(Boolean)
-                            ? tr("将覆盖选定的敏感组件。")
-                            : tr("保留当前凭据和配置。")}
+                            ? tr("订阅、会话和基础管理数据将替换；下列已勾选数据也将从备份覆盖。")
+                            : tr("订阅、会话和基础管理数据仍将替换；未勾选的可选数据保留当前值。")}
                     </p>
                     <ul>
                         ${backupKeys
@@ -1896,9 +2094,9 @@ document.addEventListener("submit", async (event) => {
                             name="confirm_restore"
                             type="checkbox"
                             required
-                        />我确认暂存恢复任务，并将在重启前备份当前数据。</label
+                        />我确认安排下次重启时恢复，并会在重启前备份当前数据。</label
                     >`,
-                saveFooter(tr("暂存恢复任务")),
+                saveFooter(tr("安排重启后恢复")),
             );
             return;
         }
@@ -1923,7 +2121,16 @@ document.addEventListener("submit", async (event) => {
         const m = modalState;
         if (m.action === "role") {
             await api(`/targets/${m.id}/role`, { method: "PATCH", body: { role: f.get("role") } });
-            toast(tr("角色已保存"));
+            const wasBanned = S.items.find((item) => item.id === m.id)?.role === "banned";
+            toast(
+                tr(
+                    f.get("role") === "banned"
+                        ? "会话已封禁，订阅已暂停。可切换到“已封禁”查看。"
+                        : wasBanned
+                          ? "会话已解除封禁，订阅仍保持暂停。请在管理订阅中手动恢复。"
+                          : "角色已保存",
+                ),
+            );
         }
         if (m.action === "runtime") {
             if (!f.has("reset") && m.item.sensitive && !f.get("value")) {
@@ -1950,13 +2157,13 @@ document.addEventListener("submit", async (event) => {
             await api("/notifications", { method: "PATCH", body: { channels: { [m.channel]: null } } });
         if (m.action === "notify-test") {
             const result = await api("/notifications/test", { method: "POST", body: { channel: m.channel } });
-            toast(result.simulated ? tr("离线模式仅模拟，不会外连。") : tr("测试通知已加入队列。"));
+            toast(result.simulated ? tr("离线模式仅模拟，不会外连。") : tr("测试通知已排队，请查看通知记录。"));
         }
         if (m.action === "cancel-restore") await api("/backups/pending", { method: "DELETE" });
         if (m.action === "restore") {
             await rawAPI("/backups/restore?" + m.query, m.raw, { "X-Backup-SHA256": m.sha });
             m.raw = null;
-            toast(tr("恢复任务已暂存，尚未应用。请正常重启实例。"));
+            toast(tr("恢复已安排，当前数据尚未替换。请按部署方式正常重启服务以执行恢复。"));
         }
         if (m.action === "recipients") {
             await api(`/feeds/${m.feedId}/recipients`, {
@@ -1964,7 +2171,7 @@ document.addEventListener("submit", async (event) => {
                 body: { mode: f.get("mode"), targets: [...m.chosen] },
             });
             S.selected.clear();
-            toast(tr("接收目的地已保存"));
+            toast(tr("接收会话已保存"));
         }
         if (m.action === "feed-fetch") {
             await api(`/feeds/${m.feedId}/fetch-options`, {
@@ -2018,7 +2225,7 @@ document.addEventListener("submit", async (event) => {
         }
         if (m.action === "leave") {
             await api(html`/targets/${m.id}/leave`, { method: "POST", body: { confirm: f.get("confirm") } });
-            toast(tr("已退出会话并暂停订阅"));
+            toast(tr("机器人已退出，订阅已暂停"));
         }
         if (m.action === "import") {
             const file = f.get("opml");
@@ -2038,18 +2245,18 @@ document.addEventListener("submit", async (event) => {
             });
             modalState = { action: "done" };
             modal(
-                tr("保存连接密钥"),
-                html`<p class="muted small">完整密钥只在这里显示一次。复制到需要连接的应用中，并妥善保存。</p>
+                tr("保存API 访问令牌"),
+                html`<p class="muted small">完整令牌只在这里显示一次。复制到需要连接的应用中，并妥善保存。</p>
                     <div class="secret" id="token-secret">${esc(r.token)}</div>`,
-                html`<button type="button" data-action="copy-token">复制密钥</button
-                    ><button type="button" class="primary" data-action="close">已保存</button>`,
+                html`<button type="button" data-action="copy-token">复制令牌</button
+                    ><button type="button" class="primary" data-action="close">我已妥善保存</button>`,
             );
             render(true);
             return;
         }
         if (m.action === "revoke") {
             await api(html`/tokens/${m.id}`, { method: "DELETE" });
-            toast(tr("授权已撤销"));
+            toast(tr("令牌已撤销"));
         }
         if (result) resultModal(result);
         else $("#dialog").close();
@@ -2070,6 +2277,9 @@ function route() {
     S.page = Math.max(1, Number(params.get("page")) || 1);
     S.q = params.get("q") || "";
     S.kind = params.get("kind") || "";
+    S.visibility = ["unbanned", "active", "inactive", "banned", "all"].includes(params.get("visibility"))
+        ? params.get("visibility")
+        : "unbanned";
     S.target = params.get("target") || "";
     S.status = params.get("state") || "";
     S.attention = params.get("attention") === "1";
@@ -2115,7 +2325,10 @@ async function boot() {
         shell();
         route();
     } catch (e) {
-        $("#app").innerHTML = html`<div class="initial">无法连接管理台：${esc(e.message)}。请刷新页面重试。</div>`;
+        $("#app").innerHTML = html`<div class="initial">
+            ${tr("管理台加载失败：")}${esc(e.message)}
+            <p>${tr("请根据上述原因处理后重试；网络连接异常时，请确认服务正在运行。")}</p>
+        </div>`;
     }
 }
 // Only the visible dashboard refreshes, using one request per minute.
@@ -2130,6 +2343,7 @@ function syncURL() {
         page: S.page > 1 ? S.page : "",
         q: S.q,
         kind: S.kind,
+        visibility: S.route === "targets" ? S.visibility : "",
         target: S.target,
         state: S.status,
         attention: S.attention ? "1" : "",
@@ -2225,7 +2439,7 @@ function trendChart(data) {
                   timeZone: "UTC",
               }).format(new Date(v)) + " UTC"
             : dateText(v);
-    return html`<p class="muted small">未记录的时间段显示为空，不计为零。空心点表示尚未完整的时间段。</p>
+    return html`<p class="muted small">未记录的时间段显示为空，不计为零；空心点表示该时间段记录不完整。</p>
         <svg
             class="chart"
             viewBox="0 0 ${width} 172"
@@ -2248,7 +2462,14 @@ function trendChart(data) {
                                   r="${r.availability === "partial" ? 4 : 2}"
                                   fill="${r.availability === "partial" ? "var(--panel)" : "var(--green)"}"
                                   stroke="var(--green)"
-                                  ><title>${esc(bucketTime(r.start))} · ${n(r.delivered)}</title></circle
+                                  ><title>
+                                      ${esc(
+                                          message("deliveryPoint", {
+                                              time: bucketTime(r.start),
+                                              count: n(r.delivered),
+                                          }),
+                                      )}
+                                  </title></circle
                               >`}${i % Math.ceil(rows.length / (width < 500 ? 4 : 7)) === 0
                             ? html`<text x="${x(i)}" y="158" text-anchor="middle">${esc(shortDate(r.start))}</text>`
                             : ""}`,
@@ -2261,10 +2482,10 @@ function trendChart(data) {
                 <table>
                     <thead>
                         <tr>
-                            <th>${data.granularity === "day" ? tr("UTC 日期") : tr("开始时间")}</th>
-                            <th>新内容</th>
-                            <th>成功推送</th>
-                            <th>数据状态</th>
+                            <th>${data.granularity === "day" ? tr("UTC 日期") : tr("时间段开始（本地时间）")}</th>
+                            <th>新发现文章</th>
+                            <th>成功推送（篇次）</th>
+                            <th>记录状态</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -2277,7 +2498,7 @@ function trendChart(data) {
                                         <td>${n(r.delivered)}</td>
                                         <td>
                                             ${tr(
-                                                { available: "完整", partial: "部分", unavailable: "不可用" }[
+                                                { available: "记录完整", partial: "记录不完整", unavailable: "未记录" }[
                                                     r.availability
                                                 ],
                                             )}
@@ -2292,24 +2513,55 @@ function trendChart(data) {
 }
 
 const roleName = (role) =>
-    tr({ manager: "管理者", admin: "管理员", user: "用户", guest: "访客", banned: "已封禁" }[role] || role);
+    tr(
+        { manager: "机器人管理者", admin: "Bot 管理员", user: "普通用户", guest: "访客", banned: "已封禁" }[role] ||
+            role,
+    );
+const notificationFieldLabel = (channel, key) =>
+    tr(
+        ({
+            telegram: { token: "Telegram 机器人 Token", chat_id: "接收通知的 Telegram 会话 ID" },
+            ntfy: { url: "ntfy 服务器地址", topic: "ntfy 主题", token: "ntfy 访问令牌" },
+            bark: { url: "Bark 推送地址" },
+            webhook: { url: "Webhook 通知地址" },
+        }[channel] || {})[key] || key,
+    );
+const backupCountLabel = (key) =>
+    tr(
+        {
+            "main.user": "用户与会话",
+            "main.feed": "订阅源",
+            "main.sub": "订阅",
+            "main.option": "全局设置",
+            "console.targets": "会话信息",
+            "console.metrics": "日统计",
+            "console.metrics_hourly": "小时统计",
+            "console.activity": "管理操作记录",
+            "console.credentials": "API 访问令牌",
+            "console.console_admin": "管理台管理员凭据",
+            "console.notify_config": "通知渠道配置",
+            "console.notify_seen": "通知事件去重记录",
+            "console.feed_fetch_options": "订阅源请求设置",
+            "runtime.config": "非敏感运行配置",
+        }[key] || key,
+    );
 const backupKeys = ["agent_tokens", "admin_credentials", "runtime_config", "notification_secrets"];
 const backupLabels = {
-    agent_tokens: "Agent 授权",
-    admin_credentials: "网页登录凭据",
-    runtime_config: "运行配置",
-    notification_secrets: "通知密钥",
+    agent_tokens: "API 访问令牌",
+    admin_credentials: "管理台管理员账号和密码凭据",
+    runtime_config: "网页保存的非敏感运行配置",
+    notification_secrets: "通知渠道凭据与配置",
 };
 function backupOptions(components, restore = false) {
     return html`<details>
-        <summary>${restore ? tr("敏感组件选项（默认保留当前值）") : tr("可选组件（默认不包含）")}</summary>
+        <summary>${restore ? tr("从备份覆盖的数据（默认保留当前值）") : tr("额外包含的数据（默认不包含）")}</summary>
         ${backupKeys
             .map(
                 (key) =>
                     html`<label class="inline-label"
                         ><input type="checkbox" name="${key}" ${components?.[key]?.length ? "" : "disabled"} />${tr(
                             backupLabels[key],
-                        )}${components?.[key]?.length ? "" : html` <span class="hint">未安装此组件</span>`}</label
+                        )}${components?.[key]?.length ? "" : html` <span class="hint">此项当前不可用</span>`}</label
                     >`,
             )
             .join("")}
@@ -2335,7 +2587,7 @@ function featureSettings(key, data) {
             <div class="panel-head">
                 <div>
                     <h2>运行配置</h2>
-                    <p>保存后待重启，不会立即改变当前进程。</p>
+                    <p>保存后在下次重启时生效，本页不会自动重启服务。</p>
                 </div>
                 ${data.pending_restart ? pill(tr("待重启"), "warn") : ""}
             </div>
@@ -2344,8 +2596,9 @@ function featureSettings(key, data) {
                     <thead>
                         <tr>
                             <th>配置项</th>
-                            <th>当前生效值</th>
-                            <th>状态</th>
+                            <th>当前进程使用值</th>
+                            <th>已保存值（下次启动使用）</th>
+                            <th>配置来源与状态</th>
                             <th></th>
                         </tr>
                     </thead>
@@ -2354,16 +2607,27 @@ function featureSettings(key, data) {
                             .map(
                                 (item) =>
                                     html`<tr>
-                                        <td class="mono">${esc(item.key)}</td>
+                                        <td>
+                                            <strong>${esc(runtimeText(item.key).label)}</strong
+                                            ><small class="runtime-key mono">${esc(item.key)}</small>
+                                        </td>
                                         <td>
                                             ${item.sensitive
                                                 ? tr(item.effective_configured ? "已配置（不回显）" : "未设置")
                                                 : esc(item.effective_value ?? "—")}
                                         </td>
                                         <td>
-                                            ${item.pending_restart
-                                                ? pill(tr("待重启"), "warn")
-                                                : tr(item.source === "web" ? "网页配置" : "部署默认值")}
+                                            ${item.configured
+                                                ? item.sensitive
+                                                    ? tr("已保存（不回显）")
+                                                    : esc(item.value ?? "—")
+                                                : tr("未设置网页覆盖")}
+                                        </td>
+                                        <td>
+                                            <div>
+                                                ${tr(item.source === "web" ? "网页覆盖" : "部署配置或应用默认值")}
+                                            </div>
+                                            ${item.pending_restart ? pill(tr("待重启"), "warn") : ""}
                                         </td>
                                         <td><button data-runtime-edit="${esc(item.key)}">编辑</button></td>
                                     </tr>`,
@@ -2373,7 +2637,12 @@ function featureSettings(key, data) {
                 </table>
             </div>
             <details class="form-body">
-                <summary>仅部署时设置</summary>
+                <summary>需在部署配置中修改</summary>
+                <p>
+                    ${tr(
+                        "管理者、数据库和监听地址等需在部署配置中修改，并按部署方式重启服务。当前进程使用值来自启动配置，不代表远端连接已验证成功。",
+                    )}
+                </p>
                 <p class="mono small">${data.deployment_only.map(esc).join(" · ")}</p>
             </details>
         </section>`;
@@ -2382,24 +2651,24 @@ function featureSettings(key, data) {
             <div class="panel-head">
                 <div>
                     <h2>通知</h2>
-                    <p>来源故障与新用户提醒</p>
+                    <p>订阅源抓取故障与新增使用会话通知</p>
                     ${data.degraded ? html`<p class="notice warning">通知存储异常，请检查服务日志。</p>` : ""}
                 </div>
                 ${data.offline ? pill(tr("离线模式仅模拟，不会外连。"), "gray") : ""}
             </div>
             <form id="notification-form" class="form-body stack">
                 <label class="inline-label"
-                    ><input type="checkbox" name="enabled" ${data.policy.enabled ? "checked" : ""} />启用通知</label
+                    ><input type="checkbox" name="enabled" ${data.policy.enabled ? "checked" : ""} />启用自动通知</label
                 ><label class="inline-label"
                     ><input
                         type="checkbox"
                         name="new_users"
                         ${data.policy.new_users ? "checked" : ""}
-                    />提醒新用户与会话</label
+                    />有新用户、群组或频道开始使用机器人时通知我</label
                 >
                 <div class="field-grid">
                     <label
-                        >连续失败阈值<input
+                        >连续抓取失败次数<input
                             type="number"
                             name="threshold"
                             min="1"
@@ -2407,7 +2676,7 @@ function featureSettings(key, data) {
                             value="${data.policy.threshold}"
                             required /></label
                     ><label
-                        >冷却时间（秒）<input
+                        >重复通知的最短间隔（秒）<input
                             type="number"
                             name="cooldown"
                             min="1"
@@ -2416,6 +2685,11 @@ function featureSettings(key, data) {
                             required
                     /></label>
                 </div>
+                <p class="hint">
+                    ${tr(
+                        "连续抓取失败达到阈值时通知；同一事件去重并遵守最短间隔，恢复后再次失败可重新通知。此设置不控制 RSS 重试频率。",
+                    )}
+                </p>
                 <p class="error" role="alert"></p>
                 <div><button type="submit" class="primary">保存通知策略</button></div>
             </form>
@@ -2444,11 +2718,21 @@ function featureSettings(key, data) {
                     )
                     .join("")}
             </div>
-            ${data.history?.length
+            ${!data.policy.enabled
+                ? html`<p class="notice">${tr("自动通知总开关已关闭。已启用渠道仍可接收手动测试通知。")}</p>`
+                : ""}${data.history?.length
                 ? html`<details class="form-body">
-                      <summary>最近通知记录</summary>
+                      <summary>最近通知发送记录</summary>
                       <div class="table-wrap">
                           <table>
+                              <thead>
+                                  <tr>
+                                      <th>时间</th>
+                                      <th>通知渠道</th>
+                                      <th>事件与对象</th>
+                                      <th>发送状态</th>
+                                  </tr>
+                              </thead>
                               <tbody>
                                   ${data.history
                                       .slice(0, 20)
@@ -2461,10 +2745,25 @@ function featureSettings(key, data) {
                                                       ${esc(
                                                           tr(
                                                               {
+                                                                  fetch: "订阅源抓取失败",
+                                                                  user: "新使用会话",
+                                                                  test: "测试通知",
+                                                              }[item.event] ||
+                                                                  item.event ||
+                                                                  "",
+                                                          ),
+                                                      )}${item.subject && item.event !== "test"
+                                                          ? html` · ${esc(item.subject)}`
+                                                          : ""}
+                                                  </td>
+                                                  <td>
+                                                      ${esc(
+                                                          tr(
+                                                              {
                                                                   pending: "等待发送",
-                                                                  sent: "已发送",
+                                                                  sent: "已提交到通知渠道",
                                                                   failed: "失败",
-                                                                  simulated: "已模拟",
+                                                                  simulated: "离线模拟完成",
                                                                   cancelled: "已取消",
                                                               }[item.status] || item.status,
                                                           ),
@@ -2484,28 +2783,34 @@ function featureSettings(key, data) {
             <div class="panel-head">
                 <div>
                     <h2>备份与恢复</h2>
-                    <p>一致快照；恢复预检后，在重启时应用。</p>
+                    <p>备份订阅、会话和管理台数据；检查备份后，可安排在下次重启时恢复。</p>
                 </div>
             </div>
             <div class="form-body stack">
                 ${!data.sqlite
-                    ? html`<p class="notice">当前数据库不支持此备份方式。</p>`
+                    ? html`<p class="notice">
+                          网页备份仅支持文件型 SQLite。PostgreSQL 请使用维护文档中的数据库备份工具。
+                      </p>`
                     : html`${data.restore?.status === "succeeded"
                               ? html`<p class="notice">上次恢复已在启动时应用。</p>`
                               : data.restore?.status === "failed"
                                 ? html`<p class="notice warning">
-                                      上次恢复失败。请检查服务日志与回退记录，再决定下一步。
+                                      上次恢复未成功。当前数据状态需根据恢复结果与回退记录确认；请检查服务日志后再安排恢复。
                                   </p>`
                                 : ""}${data.restore?.status === "pending_restart"
                               ? html`<div class="notice warning">
-                                    恢复任务已暂存，尚未应用。请正常重启实例。<button data-action="cancel-restore">
-                                        取消待恢复任务
+                                    恢复已安排，当前数据尚未替换。请按部署方式正常重启服务以执行恢复。<button
+                                        data-action="cancel-restore"
+                                    >
+                                        取消已安排的恢复
                                     </button>
                                 </div>`
                               : ""}
                           <form id="backup-export-form" class="stack">
                               <h2>导出备份</h2>
-                              <p class="hint">默认不导出凭据。机器人 Token 和 Telegram session 始终不包含。</p>
+                              <p class="hint">
+                                  默认不导出凭据。备份始终不包含机器人 Token、Telegram 登录会话和部署环境配置。
+                              </p>
                               ${backupOptions(data.components)}
                               <p class="error" role="alert"></p>
                               <div><button type="submit">下载备份</button></div>
@@ -2514,7 +2819,9 @@ function featureSettings(key, data) {
                           <form id="backup-restore-form" class="stack">
                               <h2>恢复备份</h2>
                               ${data.restore_supported === false
-                                  ? html`<p class="notice">当前平台不支持恢复预检与自动恢复，仍可导出备份。</p>`
+                                  ? html`<p class="notice">
+                                        当前平台可导出备份；网页检查与自动恢复需在受支持的 POSIX 环境执行。
+                                    </p>`
                                   : ""}
                               <label
                                   >JSON 备份文件<input
@@ -2532,7 +2839,7 @@ function featureSettings(key, data) {
                                           ? "disabled"
                                           : ""}
                                   >
-                                      预检备份
+                                      检查备份
                                   </button>
                               </div>
                           </form>`}
@@ -2546,31 +2853,30 @@ $("#dialog").addEventListener("close", () => {
 
 // Translate only exact, documented audit codes. Free-form details remain opaque.
 function auditAction(action) {
-    const known = {
+    const labels = {
         login: "网页登录",
         password_changed: "修改密码",
-        sessions_revoked: "撤销网页登录会话",
-        agent_request: "Agent 请求",
+        sessions_revoked: "退出所有网页登录会话",
+        agent_request: "API 访问",
+        登记会话: "添加已有会话",
+        修改会话默认设置: "修改会话默认设置",
+        修改用户角色: "修改 Bot 用户角色",
+        退出会话并暂停订阅: "机器人退出会话并暂停订阅",
+        "导入 OPML": "导入订阅源（OPML）",
+        添加订阅: "添加订阅",
+        修改订阅: "修改订阅",
+        取消订阅: "取消订阅",
+        批量处理订阅: "批量处理订阅",
+        更新设置: "更新全局设置",
+        "保存运行配置（待重启）": "保存运行配置（待重启）",
+        创建连接授权: "创建 API 访问令牌",
+        撤销连接授权: "撤销 API 访问令牌",
+        修改来源接收者: "修改订阅源接收会话",
+        "修改来源 UA": "修改订阅源 User-Agent",
     };
-    const legacy = new Set([
-        "登记会话",
-        "修改会话默认设置",
-        "修改用户角色",
-        "退出会话并暂停订阅",
-        "导入 OPML",
-        "添加订阅",
-        "修改订阅",
-        "取消订阅",
-        "批量处理订阅",
-        "更新设置",
-        "保存运行配置（待重启）",
-        "创建连接授权",
-        "撤销连接授权",
-        "修改来源接收者",
-        "修改来源 UA",
-    ]);
-    return Object.hasOwn(known, action) ? tr(known[action]) : legacy.has(action) ? tr(action) : action;
+    return Object.hasOwn(labels, action) ? tr(labels[action]) : action;
 }
+
 function auditDetail(action, detail) {
     const known = {
         login: { success: "登录成功" },

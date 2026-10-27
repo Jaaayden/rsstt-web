@@ -448,7 +448,7 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
     @routes.get('/assets/{name}')
     async def assets(request):
         name = request.match_info['name']
-        if name not in ('app.js', 'app.css', 'mark.svg', 'i18n.js', 'messages.js'):
+        if name not in ('app.js', 'app.css', 'mark.svg', 'i18n.js', 'messages.js', 'error-messages.js'):
             raise web.HTTPNotFound()
         return web.FileResponse(STATIC / name)
 

@@ -11,37 +11,37 @@ test("English workflows, persistent locale and unchanged user content", async ({
     page.on("pageerror", (e) => errors.push(e.message));
     await page.goto("/");
     await page.locator("#language").selectOption("en");
-    await expect(page.getByRole("heading", { name: "Your feeds at a glance." })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Overview" })).toBeVisible();
     await page.getByRole("link", { name: "Chats & channels", exact: true }).click();
     await page.getByPlaceholder("Search name, username or ID").fill("技术");
     await expect(page.locator("tbody tr")).toHaveCount(1);
     await expect(page.locator("tbody")).toContainText("技术与创造");
     await page.getByRole("button", { name: "Manage subscriptions", exact: true }).click();
-    await page.getByPlaceholder("Search name or URL").fill("Hacker");
+    await page.getByPlaceholder("Search feed name or RSS URL").fill("Hacker");
     await expect(page.locator("tbody tr")).toHaveCount(1);
     await expect(page).toHaveURL(/target=-1001001/);
     await expect(page).toHaveURL(/q=Hacker/);
     await page.reload();
-    await expect(page.getByPlaceholder("Search name or URL")).toHaveValue("Hacker");
+    await expect(page.getByPlaceholder("Search feed name or RSS URL")).toHaveValue("Hacker");
     await page.getByRole("button", { name: /Edit Hacker/ }).click();
     await expect(page.getByRole("heading", { name: "Subscription settings" })).toBeVisible();
-    await page.getByRole("textbox", { name: "Custom title" }).fill("中文标题保持原样");
+    await page.getByRole("textbox", { name: "Subscription display name", exact: true }).fill("中文标题保持原样");
     await page.getByRole("button", { name: "Save settings", exact: true }).click();
-    await page.getByPlaceholder("Search name or URL").fill("中文标题保持原样");
+    await page.getByPlaceholder("Search feed name or RSS URL").fill("中文标题保持原样");
     await expect(page.locator("tbody")).toContainText("中文标题保持原样");
     await page.getByRole("button", { name: /Edit 中文标题/ }).click();
-    await page.getByRole("textbox", { name: "Custom title" }).fill("");
+    await page.getByRole("textbox", { name: "Subscription display name", exact: true }).fill("");
     await page.getByRole("button", { name: "Save settings", exact: true }).click();
     await page.getByRole("link", { name: "Settings", exact: true }).click();
-    await page.getByRole("button", { name: "Connection access", exact: true }).click();
-    await page.getByRole("button", { name: "Create access token", exact: true }).click();
+    await page.getByRole("button", { name: "API access tokens", exact: true }).click();
+    await page.getByRole("button", { name: "Create token", exact: true }).click();
     await expect(page.getByRole("textbox", { name: "Token name" })).toBeVisible();
     await page.keyboard.press("Escape");
     await page.locator("#theme").selectOption("dark");
     await page.reload();
     await expect(page.locator("#theme")).toHaveValue("dark");
     await expect(page.locator("html")).toHaveAttribute("lang", "en");
-    await expect(page.getByRole("heading", { name: "Connection access" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "API access tokens" })).toBeVisible();
     await page.screenshot({ path: "test-results/english-settings.png", fullPage: true });
     expect(errors).toEqual([]);
 });
@@ -51,7 +51,7 @@ test("destination picker, pagination, safe error fallback and keyboard navigatio
     await expect(page.locator(".pager")).toContainText("第 2 /");
     await page.reload();
     await expect(page.locator(".pager")).toContainText("第 2 /");
-    await page.getByRole("button", { name: "选择目的地", exact: true }).click();
+    await page.getByRole("button", { name: "按会话筛选", exact: true }).click();
     await page
         .locator("#target-picker")
         .getByRole("radio", { name: /技术与创造/ })
@@ -60,12 +60,12 @@ test("destination picker, pagination, safe error fallback and keyboard navigatio
     await expect(page.locator(".pager")).toContainText("第 1 /");
     const features = (await (await page.request.get("/api/public")).json()).features;
     if (features?.recipients) {
-        const href = await page.getByRole("link", { name: "导出筛选结果", exact: true }).getAttribute("href");
+        const href = await page.getByRole("link", { name: "导出筛选订阅源（OPML）", exact: true }).getAttribute("href");
         const url = new URL(href, page.url());
         expect(url.pathname).toBe("/api/subscriptions/opml");
         expect(url.searchParams.get("target")).toBe("-1001001");
     } else {
-        await expect(page.getByRole("link", { name: "导出 OPML" })).toHaveAttribute(
+        await expect(page.getByRole("link", { name: "导出订阅源（OPML）" })).toHaveAttribute(
             "href",
             "/api/targets/-1001001/opml",
         );
@@ -166,6 +166,8 @@ test("static localization preserves user strings and uses plural rules and stabl
             one: m.count(1, "subscription"),
             many: m.count(2, "subscription"),
             error: m.errorText({ code: "FORBIDDEN", error: "private detail" }, 403),
+            passwordError: m.errorText({ code: "CURRENT_PASSWORD_INCORRECT" }, 400),
+            loginError: m.errorText({ code: "INVALID_CREDENTIALS" }, 401),
         };
     });
     expect(data.copy).toBe("<p>Manage subscriptions 管理订阅</p>");
@@ -173,6 +175,10 @@ test("static localization preserves user strings and uses plural rules and stabl
     expect(data.many).toBe("2 subscriptions");
     expect(data.error).toContain("(FORBIDDEN)");
     expect(data.error).not.toContain("private detail");
+    expect(data.passwordError).toBe(
+        "The current password is incorrect. Your password was not changed. (CURRENT_PASSWORD_INCORRECT)",
+    );
+    expect(data.loginError).toBe("Incorrect password. Try again. (INVALID_CREDENTIALS)");
 });
 
 test("overflow hint exposes mobile management actions and disappears when the table fits", async ({ page }) => {
@@ -200,7 +206,7 @@ test("audit localization translates exact codes while preserving free-form detai
             data = await response.json();
         data.activity = [
             { action: "login", detail: "success", at: "2026-10-26T00:00:00Z" },
-            { action: "创建连接授权", detail: "success", at: "2026-10-26T00:00:00Z" },
+            { action: "创建API 访问令牌", detail: "success", at: "2026-10-26T00:00:00Z" },
             { action: "custom_action", detail: "登录成功", at: "2026-10-26T00:00:00Z" },
             { action: "sessions_revoked", detail: "all", at: "2026-10-26T00:00:00Z" },
         ];
