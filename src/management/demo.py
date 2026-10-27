@@ -7,8 +7,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[2]
-CONFIG = Path(os.environ.get('RSSTT_DEMO_CONFIG', str(ROOT / '.demo')))
-PORT = int(os.environ.get('RSSTT_DEMO_PORT', '8730'))
+CONFIG = Path(os.environ.get('WEB_DEMO_CONFIG', os.environ.get('RSSTT_DEMO_CONFIG', str(ROOT / '.demo')))).resolve()
+PORT = int(os.environ.get('WEB_PORT', os.environ.get('RSSTT_DEMO_PORT', os.environ.get('DEMO_PORT', '8730'))))
 ORIGIN = f'http://127.0.0.1:{PORT}'
 os.environ.update(TOKEN='test', MANAGER='1', MULTIPROCESSING='0', DATABASE_URL=f'sqlite:{CONFIG / "db.sqlite3"}')
 sys.argv = [sys.argv[0], '-c', str(CONFIG)]
@@ -78,7 +78,7 @@ async def main():
     gateway = DemoGateway()
     gateway.store = store
     upstream_web.feed_get = offline_feed
-    app = await create_app(store, 'rsstt-local-preview', ORIGIN, gateway, demo=True)
+    app = await create_app(store, os.environ.get('WEB_PASSWORD', ''), ORIGIN, gateway, demo=True)
     runner = web.AppRunner(app, access_log=None)
     await runner.setup()
     try:
