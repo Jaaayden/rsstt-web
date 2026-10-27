@@ -1,0 +1,66 @@
+name: Web console tests
+on:
+  pull_request:
+  push:
+    branches: [dev, main, 'integration/**']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: console-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  backend:
+    name: Web backend Python ${{ matrix.python }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+      - run: python -m pip install -r requirements-dev.txt
+      - run: python -m pytest -q
+  browser-package:
+    name: Browser and wheel
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+      - run: python -m pip install -r requirements-dev.txt build
+      - run: python -m venv --system-site-packages .venv
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - run: python -m build --wheel --outdir dist
+      - run: python scripts/ci_wheel_resources.py dist
+      - name: Start installed wheel without source checkout
+        shell: bash
+        env:
+          TOKEN: test
+          MANAGER: '1'
+          MULTIPROCESSING: '0'
+          WEB_ENABLED: '0'
+        run: |
+          python -m pip install --no-deps --force-reinstall dist/*.whl
+          cd "$RUNNER_TEMP"
+          python -m rsstt -c "$RUNNER_TEMP/wheel-config"
+      - uses: actions/upload-artifact@v6
+        if: failure()
+        with:
+          name: console-test-results
+          path: test-results
+          retention-days: 7

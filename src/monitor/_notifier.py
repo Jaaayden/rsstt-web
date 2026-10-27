@@ -284,7 +284,10 @@ class Notifier:
                 if isinstance(post, str):
                     await env.bot.send_message(user_id, post, parse_mode='html', silent=not sub.notify)
                     return None
-                await post.send_formatted_post_according_to_sub(sub)
+                delivered = await post.send_formatted_post_according_to_sub(sub)
+                from ..management.metrics import record
+                if delivered:
+                    await record(delivered=1)
                 if self._user_blocked_counter[user_id]:  # reset the counter if success
                     del self._user_blocked_counter[user_id]
             except UserBlockedErrors as e:

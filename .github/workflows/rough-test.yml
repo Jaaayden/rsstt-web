@@ -1,131 +1,86 @@
-name: Rough Test
+name: Bot compatibility
 on:
-  pull_request: ~
-  workflow_dispatch: ~
+  pull_request:
   push:
-    branches-ignore:
-      - dependabot/**
-
+    branches: [dev, main, 'integration/**']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: bot-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+env:
+  TOKEN: test
+  MANAGER: '1'
+  MULTIPROCESSING: '0'
+  WEB_ENABLED: '0'
+  TABLE_TO_IMAGE: '1'
 jobs:
-  test:
+  startup:
+    name: Bot Python ${{ matrix.python }} / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        version: [ '3.9', '3.10', '3.11', '3.12', '3.13' ]
-        os: [ ubuntu-latest, macos-latest, windows-latest ]
-    name: Python ${{ matrix.version }} on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
+        include:
+          - {python: '3.9', os: ubuntu-latest}
+          - {python: '3.10', os: ubuntu-latest}
+          - {python: '3.11', os: ubuntu-latest}
+          - {python: '3.12', os: ubuntu-latest}
+          - {python: '3.13', os: ubuntu-latest}
+          - {python: '3.13', os: macos-15}
+          - {python: '3.13', os: windows-latest}
     steps:
-      - name: Check out the repo
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+      - run: python -m pip install -r requirements.txt
+      - run: python scripts/ci_bot_smoke.py
+  postgres:
+    name: PostgreSQL and legacy migrations
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U test -d test" --health-interval 5s
+          --health-timeout 5s --health-retries 12
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check out pinned Aerich 0.6 fixture
         uses: actions/checkout@v7
         with:
-          fetch-depth: 0
-      - name: Set up Python 3.9
-        uses: actions/setup-python@v7
-        id: cp39
+          repository: Rongronggg9/RSS-to-Telegram-Bot
+          ref: ceb602209a629b8595c03d94a42e49c1a2b46084
+          path: legacy-fixture
+          persist-credentials: false
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.9'
-          cache: 'pip'
-      - name: Set up Python ${{ matrix.version }}
-        uses: actions/setup-python@v7
+          cache: pip
+          cache-dependency-path: legacy-fixture/requirements.txt
+      - name: Prepare legacy interpreter
+        shell: bash
+        run: |
+          python -m venv .legacy-venv
+          .legacy-venv/bin/python -m pip install -r legacy-fixture/requirements.txt
+      - uses: actions/setup-python@v7
         with:
-          python-version: ${{ matrix.version }}
-          cache: 'pip'
-      - name: Install dependencies
-        shell: bash
-        run: |
-          set -eux
-          python3 -m pip install --upgrade pip wheel setuptools
-          pip install -r requirements.txt
-      - name: Setup PostgreSQL
-        if: matrix.os == 'ubuntu-latest'
-        shell: bash
-        run: |
-          set -eux
-          sudo apt-get -yq update
-          sudo apt-get -yq install postgresql
-          sudo systemctl start postgresql
-          sudo -u postgres psql -c "CREATE USER test WITH PASSWORD 'test';"
-          sudo -u postgres psql -c "CREATE DATABASE test OWNER test;"
-      - name: Prepare environment
-        shell: bash
-        run: |
-          set -eux
-          echo 'TOKEN=test' > .env_sqlite
-          echo 'MANAGER=-1' >> .env_sqlite
-          echo 'DEBUG=1' >> .env_sqlite
-          echo "PORT=$((RANDOM + 16384))" >> .env_sqlite
-          echo 'TABLE_TO_IMAGE=1' >> .env_sqlite
-          echo 'MULTIPROCESSING=1' >> .env_sqlite
-          cp .env_sqlite .env_postgresql
-          echo 'DATABASE_URL=postgres://test:test@localhost:5432/test' >> .env_postgresql
-          ln -s src rsstt
-      - name: Test RSS-to-Telegram-Bot (SQLite)
-        shell: bash
-        run: |
-          set -eux
-          cp .env_sqlite .env
-          python3 -u telegramRSSbot.py
-      - name: Test RSS-to-Telegram-Bot as a Python package (SQLite)
-        shell: bash
-        run: |
-          set -eux
-          python3 -m rsstt
-      - name: Test RSS-to-Telegram-Bot (PostgreSQL)
-        if: matrix.os == 'ubuntu-latest'
-        shell: bash
-        run: |
-          set -eux
-          cp .env_postgresql .env
-          python3 -u telegramRSSbot.py
-      - name: Test RSS-to-Telegram-Bot as a Python package (PostgreSQL)
-        if: matrix.os == 'ubuntu-latest'
-        shell: bash
-        run: |
-          set -eux
-          python3 -m rsstt
-      - name: Test scripts/aerich_helper.py (SQLite)
-        shell: bash
-        run: |
-          set -eux
-          ./scripts/aerich_helper.py -h
-          ./scripts/aerich_helper.py -v history
-          ./scripts/aerich_helper.py -v heads
-          ./scripts/aerich_helper.py -v upgrade True
-      - name: Test scripts/aerich_helper.py (PostgreSQL)
-        if: matrix.os == 'ubuntu-latest'
-        shell: bash
-        run: |
-          set -eux
-          . .env_postgresql
-          ./scripts/aerich_helper.py -v -u "$DATABASE_URL" history
-          ./scripts/aerich_helper.py -v -u "$DATABASE_URL" heads
-          ./scripts/aerich_helper.py -v -u "$DATABASE_URL" upgrade True
-      - name: Test aerich migration upgrade (SQLite)
-        shell: bash
-        run: |
-          set -eux
-          rm -rf config
-          cp .env_sqlite .env
-          CURR_REF="$(git rev-parse HEAD)"
-          git checkout stale/aerich-0.6
-          '${{ steps.cp39.outputs.python-path }}' -m pip install -qr requirements.txt
-          '${{ steps.cp39.outputs.python-path }}' -u telegramRSSbot.py
-          git checkout "$CURR_REF"
-          pip install -qr requirements.txt
-          python3 -u telegramRSSbot.py
-      - name: Test aerich migration upgrade (PostgreSQL)
-        if: matrix.os == 'ubuntu-latest'
-        shell: bash
-        run: |
-          set -eux
-          sudo -u postgres psql -c "DROP DATABASE test;"
-          sudo -u postgres psql -c "CREATE DATABASE test OWNER test;"
-          cp .env_postgresql .env
-          CURR_REF="$(git rev-parse HEAD)"
-          git checkout stale/aerich-0.6
-          '${{ steps.cp39.outputs.python-path }}' -m pip install -qr requirements.txt
-          '${{ steps.cp39.outputs.python-path }}' -u telegramRSSbot.py
-          git checkout "$CURR_REF"
-          pip install -qr requirements.txt
-          python3 -u telegramRSSbot.py
+          python-version: '3.13'
+          cache: pip
+      - run: python -m pip install -r requirements.txt
+      - name: Upgrade legacy SQLite and PostgreSQL databases
+        run: >-
+          python scripts/ci_legacy_migrations.py
+          --legacy-python .legacy-venv/bin/python
+          --legacy-source legacy-fixture
+          --postgres postgres://test:test@127.0.0.1:5432/test

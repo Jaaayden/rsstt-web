@@ -95,12 +95,15 @@ class MessageDispatcher:
         if not self.messages:
             await self.generate_messages()
         sent_msgs: list[types.Message] = []
+        all_sent = True
         try:
             async with self.user_sending_lock[self.user_id]:
                 for message in self.messages:
                     msg = await message.send(reply_to=sent_msgs[-1] if sent_msgs else None)
                     if msg:
                         sent_msgs.extend(msg) if isinstance(msg, list) else sent_msgs.append(msg)
+                    else:
+                        all_sent = False
         except MediaSendFailErrors as e:
             if sent_msgs:
                 await asyncio.gather(
@@ -108,6 +111,7 @@ class MessageDispatcher:
                     return_exceptions=True
                 )
             raise e
+        return bool(sent_msgs) and all_sent
 
 
 class Message:

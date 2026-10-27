@@ -1,0 +1,12 @@
+{
+    "name": "rsstt-web-console-tests",
+    "private": true,
+    "scripts": {
+        "test:e2e": "playwright test",
+        "preview": ".venv/bin/python -m src.management.demo"
+    },
+    "devDependencies": {
+        "@playwright/test": "1.63.0",
+        "prettier": "^3.6.2"
+    }
+}

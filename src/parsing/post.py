@@ -81,7 +81,7 @@ class Post:
         if not isinstance(sub.feed, db.User):
             await sub.fetch_related('user')
         user: db.User = sub.user
-        await self.send_formatted_post(
+        return await self.send_formatted_post(
             user_id=sub.user_id,
             sub_title=sub.title,
             tags=sub.tags.split(' ') if sub.tags else [],
