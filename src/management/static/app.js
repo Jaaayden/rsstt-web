@@ -12,7 +12,7 @@ const paths = {
     chats: "M21 11a8 8 0 0 1-8 8H7l-4 3V11a9 9 0 0 1 18 0Z M7 9h10 M7 13h6",
     rss: "M5 12a7 7 0 0 1 7 7 M5 5a14 14 0 0 1 14 14 M5 19h.01",
     settings:
-        "M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z M12 2v3 M12 19v3 M2 12h3 M19 12h3 M5 5l2 2 M17 17l2 2 M5 19l2-2 M17 7l2-2",
+        "M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z M9.5 2h5l.5 3 2 .8 2.5-1.5 2.5 4.4-2.3 1.9v2.8l2.3 1.9-2.5 4.4-2.5-1.5-2 .8-.5 3h-5l-.5-3-2-.8-2.5 1.5L2 15.3l2.3-1.9v-2.8L2 8.7l2.5-4.4L7 5.8 9 5Z",
     plus: "M12 5v14 M5 12h14",
     search: "M21 21l-5-5 M10 3a7 7 0 1 0 0 14 7 7 0 0 0 0-14Z",
     chevron: "m9 5 7 7-7 7",
@@ -121,7 +121,9 @@ const S = {
 let modalState = {},
     toastTimer,
     searchTimer,
-    pickerSerial = 0;
+    pickerSerial = 0,
+    menuReturnFocus = null;
+const mobileNavigation = window.matchMedia("(max-width: 820px)");
 
 async function api(path, options = {}) {
     const response = await fetch(html`/api${path}`, {
@@ -165,28 +167,59 @@ const dateText = (v) =>
           }).format(new Date(v))
         : tr("尚未同步");
 const feedMark = (title) => html`<div class="feed-mark">${esc((title || "R")[0].toUpperCase())}</div>`;
-const empty = (title, description) =>
+const empty = (title, description, symbol = "rss") =>
     html`<div class="empty">
-        ${icon("rss", 26)}<strong>${esc(title)}</strong>
+        ${icon(symbol, 26)}<strong>${esc(title)}</strong>
         <p>${esc(description)}</p>
     </div>`;
 
+function setMenu(open, { restoreFocus = true } = {}) {
+    const sidebar = $(".sidebar"),
+        workspace = $(".workspace"),
+        trigger = $(".topbar .mobile-menu"),
+        wasOpen = document.body.classList.contains("menu-open");
+    const isOpen = Boolean(open && mobileNavigation.matches && sidebar && workspace && !$("#dialog")?.open);
+    if (isOpen && !wasOpen) menuReturnFocus = trigger;
+    document.body.classList.toggle("menu-open", isOpen);
+    if (workspace) workspace.inert = isOpen;
+    if (sidebar) sidebar.inert = mobileNavigation.matches && !isOpen;
+    const scrim = $(".nav-scrim");
+    if (scrim) scrim.hidden = !isOpen;
+    const skip = $(".skip");
+    if (skip) skip.inert = isOpen;
+    $$(".mobile-menu").forEach((element) => element.setAttribute("aria-expanded", String(isOpen)));
+    if (isOpen && !wasOpen) $(".sidebar .nav a")?.focus({ preventScroll: true });
+    if (!isOpen) {
+        const target = menuReturnFocus?.isConnected ? menuReturnFocus : trigger;
+        menuReturnFocus = null;
+        if (wasOpen && restoreFocus && !$("#dialog")?.open && target?.getClientRects().length)
+            target.focus({ preventScroll: true });
+    }
+}
+
 function shell() {
+    setMenu(false, { restoreFocus: false });
     $("#app").innerHTML = html`<div class="layout">
-        <aside class="sidebar" aria-label="主导航">
-            <button class="quiet mobile-menu" data-action="menu">关闭导航</button
-            ><a class="brand" href="#dashboard"
-                ><img src="/assets/mark.svg" alt="" />
-                <div><strong>RSStT</strong><small>YOUR READING RELAY</small></div></a
-            >
-            <div>
-                <div class="nav-label">管理台</div>
+        <aside id="primary-navigation" class="sidebar" aria-label="主导航">
+            <div class="sidebar-head">
+                <a class="brand" href="#dashboard" aria-label="RSStT Web · ${tr("仪表盘")}">
+                    <img src="/assets/mark.svg" alt="" />
+                    <span class="brand-wordmark"
+                        ><strong>RSStT Web</strong><small class="brand-caption">RSS 到 Telegram</small></span
+                    >
+                </a>
+                <button class="quiet mobile-menu" data-action="menu" aria-label="关闭导航">${icon("close", 18)}</button>
+            </div>
+            <div class="sidebar-section">
+                <div class="nav-label">工作空间</div>
                 <nav class="nav">
                     ${Object.entries(labels)
                         .map(
                             ([key, label]) =>
                                 html`<a href="#${key}" data-nav="${key}"
-                                    >${icon({ targets: "chats", subscriptions: "rss" }[key] || key)}${label}</a
+                                    >${icon({ targets: "chats", subscriptions: "rss" }[key] || key)}<span
+                                        >${label}</span
+                                    ></a
                                 >`,
                         )
                         .join("")}
@@ -194,18 +227,23 @@ function shell() {
             </div>
             <div class="sidebar-bottom">
                 <div class="instance">
-                    <strong><span class="dot"></span>${S.demo ? tr("离线预览实例") : tr("RSStT 管理实例")}</strong
-                    ><small
+                    <span class="instance-label">实例模式</span>
+                    <strong class="instance-heading"
+                        ><span class="dot"></span>${S.snapshot
+                            ? tr("真实数据离线预览")
+                            : S.demo
+                              ? tr("离线预览实例")
+                              : tr("管理实例")}</strong
+                    ><small class="instance-meta"
                         >${S.snapshot
                             ? tr("真实数据副本 · 修改仅在本地")
                             : S.demo
                               ? tr("示例数据 · 不发送 Telegram 消息")
-                              : tr("同一个机器人，更清晰的掌控")}</small
+                              : tr("管理台已登录")}</small
                     >
                 </div>
                 <div class="profile">
-                    <div class="avatar">${icon("user", 16)}</div>
-                    <div>
+                    <div class="profile-copy">
                         <span class="small">管理台管理员</span>
                         <p class="muted micro">${S.demo ? tr("本地预览") : tr("管理台会话")}</p>
                     </div>
@@ -215,15 +253,28 @@ function shell() {
                 </div>
             </div>
         </aside>
+        <button class="nav-scrim" type="button" data-action="menu" aria-label="关闭导航" tabindex="-1" hidden></button>
         <div class="workspace">
             <header class="topbar">
-                <div class="breadcrumb">
-                    <button class="quiet mobile-menu" data-action="menu" aria-label="展开导航" aria-expanded="false">
+                <div class="breadcrumb workspace-context">
+                    <button
+                        class="quiet mobile-menu"
+                        data-action="menu"
+                        aria-label="展开导航"
+                        aria-controls="primary-navigation"
+                        aria-expanded="false"
+                    >
                         ${icon("menu")}</button
-                    ><span>管理台</span>${icon("chevron", 12)}<strong id="breadcrumb"></strong>
+                    ><span class="workspace-label">工作空间</span>${icon("chevron", 12)}<strong
+                        id="breadcrumb"
+                    ></strong>
                 </div>
-                ${preferences()}
-                <div class="date">${new Intl.DateTimeFormat(locale, { dateStyle: "full" }).format(new Date())}</div>
+                <div class="topbar-meta">
+                    <div class="date">
+                        ${new Intl.DateTimeFormat(locale, { dateStyle: "medium" }).format(new Date())}
+                    </div>
+                    ${preferences()}
+                </div>
             </header>
             ${S.demo
                 ? '<div class="demo-banner">' +
@@ -238,30 +289,23 @@ function shell() {
             <main id="main" tabindex="-1"></main>
         </div>
     </div>`;
+    setMenu(false, { restoreFocus: false });
 }
 
 function header(title, description, button = "") {
     return html`<div class="page-title">
-        <div>
-            <div class="eyebrow">
-                ${{
-                    dashboard: "OVERVIEW",
-                    targets: "CHATS & CHANNELS",
-                    subscriptions: "SUBSCRIPTIONS",
-                    settings: "SETTINGS",
-                }[S.route]}
-            </div>
+        <div class="page-heading">
             <h1>${title}</h1>
-            <p>${description}</p>
+            <p class="page-description">${description}</p>
         </div>
-        ${button}
+        ${button ? html`<div class="page-actions">${button}</div>` : ""}
     </div>`;
 }
 const targetKindName = (item) => kindName[item.kind] || tr("未知");
 const newButton = () => html`<button class="primary" data-action="new-sub">${icon("plus", 16)}添加订阅</button>`;
 const credit = () =>
     html`<footer class="credit">
-        <span>RSStT Web · 让信息有序抵达。</span
+        <span>RSStT Web</span
         ><a href="https://github.com/Rongronggg9/RSS-to-Telegram-Bot" target="_blank" rel="noreferrer"
             >基于 RSS-to-Telegram-Bot · AGPL-3.0</a
         >
@@ -341,6 +385,8 @@ async function render(quiet = false) {
             );
             if (serial !== S.serial) return;
             S.items = data.items;
+            $("#breadcrumb").textContent =
+                labels.subscriptions + (S.target ? " / " + (data.items[0]?.target_title || S.target) : "");
             html = subscriptions(data);
         }
         if (S.route === "settings") {
@@ -368,6 +414,7 @@ async function render(quiet = false) {
         if (serial !== S.serial) return;
         $("#main").innerHTML = html + credit();
         syncTableHints();
+        syncSettingsNavigation();
         if (quiet && (focusId || focusSelector)) {
             const next = focusId ? document.getElementById(focusId) : $(focusSelector);
             if (next) {
@@ -394,151 +441,201 @@ async function render(quiet = false) {
 
 function dashboard(d) {
     const c = d.counts,
-        t = d.statistics.totals;
+        t = d.statistics.totals,
+        knownBuckets = d.trend?.buckets?.filter((row) => row.availability !== "unavailable") || [];
+    const periodTotal = (key) => {
+        const values = knownBuckets.map((row) => row[key]).filter(Number.isFinite);
+        return values.length ? values.reduce((total, value) => total + value, 0) : null;
+    };
     const cards = [
-        [
-            "rss",
-            tr("订阅总数"),
-            c.subscriptions,
-            html`${message("enabledSubs", { count: n(d.usage?.active_subscriptions ?? c.active) })} ·
-                ${count(c.feeds, "feed")}
+        {
+            key: "delivery",
+            icon: "send",
+            label: tr("累计成功推送（篇次）"),
+            value: t.delivered,
+            primary: true,
+            foot: S.snapshot ? tr("快照不含历史推送统计") : message("discoveredTotal", { count: n(t.fetched) }),
+        },
+        {
+            key: "subscriptions",
+            icon: "rss",
+            label: tr("订阅总数"),
+            value: c.subscriptions,
+            foot: html`<span
+                    >${message("enabledSubs", { count: n(d.usage?.active_subscriptions ?? c.active) })} ·
+                    ${count(c.feeds, "feed")}</span
+                >
                 <p class="hint">${tr("同一订阅源推送到两个会话，计两条订阅。")}</p>`,
-        ],
-        [
-            "chats",
-            d.usage ? tr("活跃会话") : tr("已知会话"),
-            d.usage ? d.usage.active.total : c.users + c.groups + c.channels,
-            d.usage
-                ? html`${message("recordedChats", { total: n(d.usage.known.total), unknown: n(d.usage.known.unknown) })}
-                      <details>
+        },
+        {
+            key: "chats",
+            icon: "chats",
+            label: d.usage ? tr("活跃会话") : tr("已知会话"),
+            value: d.usage ? d.usage.active.total : c.users + c.groups + c.channels,
+            foot: d.usage
+                ? html`<span
+                          >${message("recordedChats", {
+                              total: n(d.usage.known.total),
+                              unknown: n(d.usage.known.unknown),
+                          })}</span
+                      >
+                      <details class="stat-details">
                           <summary>会话分类</summary>
-                          ${["private", "channel", "group", "unknown"]
-                              .map(
-                                  (kind) =>
-                                      html`<div>
-                                          ${tr(
-                                              {
-                                                  private: "私聊",
-                                                  channel: "频道",
-                                                  group: "群组",
-                                                  unknown: "未核验类型",
-                                              }[kind],
-                                          )}：${n(d.usage.active[kind])}
-                                          / ${n(d.usage.known[kind])}
-                                      </div>`,
-                              )
-                              .join("")}<span>${tr("有启用订阅 / 已记录会话")}</span>
+                          <dl class="chat-breakdown">
+                              ${["private", "group", "channel", "unknown"]
+                                  .map(
+                                      (kind) =>
+                                          html`<div>
+                                              <dt>${kindName[kind] || tr("未知")}</dt>
+                                              <dd>
+                                                  ${n(d.usage.active[kind])}<span> / ${n(d.usage.known[kind])}</span>
+                                              </dd>
+                                          </div>`,
+                                  )
+                                  .join("")}
+                          </dl>
+                          <span class="hint">有启用订阅 / 已记录会话</span>
                           <p class="hint">${tr("活跃会话未被封禁，且至少有一条已启用订阅，其订阅源也已启用。")}</p>
                       </details>`
                 : S.snapshot
                   ? html`${n(c.channels + c.groups)} 个群组/频道 · ${n(c.users)} 个私聊`
                   : html`${n(c.channels)} 个频道 · ${n(c.groups)} 个群组 · ${n(c.users)} 个私聊`,
-        ],
-        [
-            "send",
-            tr("累计成功推送（篇次）"),
-            t.delivered,
-            S.snapshot ? tr("快照不含历史推送统计") : html`${message("discoveredTotal", { count: n(t.fetched) })}`,
-        ],
-        ["alert", tr("抓取异常"), c.attention, message("attentionThreshold", { count: n(d.threshold) })],
+        },
+        {
+            key: "attention",
+            icon: "alert",
+            label: tr("抓取异常"),
+            value: c.attention,
+            foot: message("attentionThreshold", { count: n(d.threshold) }),
+        },
     ];
-    return (
-        header(tr("运行概况"), tr("查看订阅启用情况、抓取异常和推送统计。"), newButton()) +
-        (!d.bot.connected && !S.demo
-            ? html`<div class="notice warning">机器人当前未连接 Telegram，订阅推送暂不可用。</div>
-                  <br />`
-            : "") +
-        (d.metrics_error
-            ? html`<div class="notice warning">${esc(d.metrics_error)}</div>
-                  <br />`
-            : "") +
-        html`<section class="stats" aria-label="运行概况">
-                ${cards
-                    .map(
-                        ([i, label, value, foot], idx) =>
-                            html`<article class="stat ${idx === 3 && value ? "warning" : ""}">
-                                <div class="stat-head"><span>${label}</span>${icon(i, 17)}</div>
-                                <div class="stat-value">${n(value)}</div>
-                                <div class="stat-foot">${foot}</div>
-                            </article>`,
-                    )
-                    .join("")}
-            </section>
-            <section class="panel">
-                <div class="panel-head">
-                    <div>
-                        <h2>抓取与推送趋势</h2>
-                        <p>
-                            ${d.trend?.granularity === "hour"
-                                ? tr("每小时新发现文章（篇）与成功推送（篇次），按本地时间显示")
-                                : d.trend
-                                  ? tr("每天新发现文章（篇）与成功推送（篇次），按 UTC 日聚合")
-                                  : tr("每天发现的新发现文章，以及成功送达的篇次")}
-                        </p>
-                    </div>
-                    <div class="segmented" aria-label="趋势时间范围">
-                        ${(d.usage ? [24, 7, 30] : [7, 14, 30])
-                            .map(
-                                (v) =>
-                                    html`<button
-                                        data-period="${v}"
-                                        class="${(d.usage && S.granularity === "hour" ? v === 24 : S.period === v)
-                                            ? "active"
-                                            : ""}"
-                                        aria-pressed="${d.usage && S.granularity === "hour"
-                                            ? v === 24
-                                            : S.period === v}"
-                                    >
-                                        ${d.usage && v === 24 ? tr("24 小时") : count(v, "day")}
-                                    </button>`,
-                            )
-                            .join("")}
-                    </div>
-                </div>
-                <div class="chart-wrap">
-                    <p class="hint">${tr("新发现文章按订阅源计数；同一文章推送给多个会话，分别计为成功推送篇次。")}</p>
-                    <div class="chart-meta">
-                        <span><i class="legend"></i>成功推送（篇次）</span
-                        ><span><i class="legend orange"></i>新发现文章</span
-                        ><span
-                            >${d.trend?.granularity === "day"
-                                ? tr("按 UTC 日聚合（00:00–24:00 UTC）")
-                                : d.trend
-                                  ? esc(Intl.DateTimeFormat().resolvedOptions().timeZone)
-                                  : "UTC"}</span
+    return html`<div class="dashboard-page">
+        ${header(tr("运行概况"), tr("查看订阅启用情况、抓取异常和推送统计。"), newButton())}
+        <div class="overview-status">
+            <div class="overview-context">
+                <span class="bot-symbol">${icon("rss", 15)}</span><strong>${esc(d.bot.name || "RSStT")}</strong>${d.bot
+                    .username
+                    ? html`<span class="mono">@${esc(d.bot.username)}</span>`
+                    : ""}
+            </div>
+            <div class="overview-state">
+                ${pill(
+                    S.demo ? tr("未连接 Telegram") : d.bot.connected ? tr("机器人在线") : tr("机器人离线"),
+                    S.demo || !d.bot.connected ? "gray" : "",
+                )}<span class="refresh-note">页面可见时每分钟刷新</span>
+            </div>
+        </div>
+        ${!d.bot.connected && !S.demo
+            ? html`<div class="notice warning dashboard-notice">
+                  ${icon("alert", 16)}<span>机器人当前未连接 Telegram，订阅推送暂不可用。</span>
+              </div>`
+            : ""}
+        ${d.metrics_error
+            ? html`<div class="notice warning dashboard-notice">
+                  ${icon("alert", 16)}<span>${esc(d.metrics_error)}</span>
+              </div>`
+            : ""}
+        <section class="stats" aria-label="运行概况">
+            ${cards
+                .map(
+                    (card) =>
+                        html`<article
+                            class="stat stat-${card.key} ${card.primary ? "stat-primary" : ""} ${card.key ===
+                                "attention" && card.value
+                                ? "warning"
+                                : ""}"
                         >
-                    </div>
-                    ${d.trend
-                        ? trendChart(d.trend)
-                        : S.snapshot
-                          ? empty(
-                                tr("没有历史统计"),
-                                tr("这份快照不含历史推送统计；新版运行后开始记录，无法从已有订阅倒推。"),
-                            )
-                          : chart(d.statistics.daily)}
+                            <div class="stat-head"><span>${card.label}</span>${icon(card.icon, 18)}</div>
+                            <div class="stat-value-row"><div class="stat-value">${n(card.value)}</div></div>
+                            <div class="stat-foot">${card.foot}</div>
+                        </article>`,
+                )
+                .join("")}
+        </section>
+        <section class="panel trend-panel">
+            <div class="panel-head">
+                <div class="section-heading">
+                    <h2>抓取与推送趋势</h2>
+                    <p>
+                        ${d.trend?.granularity === "hour"
+                            ? tr("每小时新发现文章（篇）与成功推送（篇次），按本地时间显示")
+                            : d.trend
+                              ? tr("每天新发现文章（篇）与成功推送（篇次），按 UTC 日聚合")
+                              : tr("每天发现的新文章，以及成功送达的篇次")}
+                    </p>
                 </div>
-                <div class="chart-footer">
-                    <span
-                        >${d.trend
-                            ? tr("小时趋势保留 31 天，日趋势保留 90 天；累计值持续保留。")
-                            : S.snapshot
-                              ? tr("订阅与失败次数来自快照，不会自动更新")
-                              : (S.demo ? tr("示例统计") : tr("开始记录于 ") + dateText(d.started_at)) +
-                                tr(" · 累计值持续保留，趋势保留 90 天")}</span
-                    ><span
-                        >${S.demo ? tr("未连接 Telegram") : d.bot.connected ? tr("机器人在线") : tr("机器人离线")} ·
-                        @${esc(d.bot.username || tr("未设置"))}</span
+                <div class="segmented" aria-label="趋势时间范围">
+                    ${(d.usage ? [24, 7, 30] : [7, 14, 30])
+                        .map((value) => {
+                            const selected = d.usage && S.granularity === "hour" ? value === 24 : S.period === value;
+                            return html`<button
+                                data-period="${value}"
+                                class="${selected ? "active" : ""}"
+                                aria-pressed="${selected}"
+                            >
+                                ${d.usage && value === 24 ? tr("24 小时") : count(value, "day")}
+                            </button>`;
+                        })
+                        .join("")}
+                </div>
+            </div>
+            ${d.trend?.available
+                ? html`<div class="trend-summary">
+                      <span class="trend-summary-label">所选时段 · 已记录合计</span>
+                      <div><span>成功推送（篇次）</span><strong>${n(periodTotal("delivered"))}</strong></div>
+                      <div><span>新发现文章</span><strong>${n(periodTotal("fetched"))}</strong></div>
+                      ${d.trend.buckets.some((row) => row.availability !== "available")
+                          ? pill(tr("含未记录或不完整时段"), "gray")
+                          : ""}
+                  </div>`
+                : ""}
+            <div class="chart-wrap">
+                <div class="chart-meta">
+                    <span><i class="legend"></i>成功推送（篇次）</span
+                    ><span><i class="legend secondary"></i>新发现文章</span
+                    ><span class="chart-timezone"
+                        >${d.trend?.granularity === "day"
+                            ? tr("按 UTC 日聚合（00:00–24:00 UTC）")
+                            : d.trend
+                              ? esc(Intl.DateTimeFormat().resolvedOptions().timeZone)
+                              : "UTC"}</span
                     >
                 </div>
-            </section>
-            <div class="dashboard-lower">
-                <section class="panel">
-                    <div class="panel-head">
-                        <h2>抓取异常 <span class="muted small">${n(c.attention)}</span></h2>
-                        <button class="text-link" data-action="attention">查看异常订阅 ${icon("arrow", 13)}</button>
+                ${d.trend
+                    ? trendChart(d.trend)
+                    : S.snapshot
+                      ? empty(
+                            tr("没有历史统计"),
+                            tr("这份快照不含历史推送统计；新版运行后开始记录，无法从已有订阅倒推。"),
+                        )
+                      : chart(d.statistics.daily)}
+                <p class="chart-note">
+                    ${tr("新发现文章按订阅源计数；同一文章推送给多个会话，分别计为成功推送篇次。")}
+                </p>
+            </div>
+            <div class="chart-footer">
+                <span
+                    >${d.trend
+                        ? tr("小时趋势保留 31 天，日趋势保留 90 天；累计值持续保留。")
+                        : S.snapshot
+                          ? tr("订阅与失败次数来自快照，不会自动更新")
+                          : (S.demo ? tr("示例统计") : tr("开始记录于 ") + dateText(d.started_at)) +
+                            tr(" · 累计值持续保留，趋势保留 90 天")}</span
+                >
+            </div>
+        </section>
+        <div class="dashboard-lower">
+            <section class="panel attention-panel">
+                <div class="panel-head">
+                    <div class="section-heading">
+                        <h2>抓取异常 <span class="section-count">${n(c.attention)}</span></h2>
+                        <p>连续失败达到阈值的订阅</p>
                     </div>
-                    ${d.attention.length
-                        ? d.attention
+                    <button class="text-link" data-action="attention">查看异常订阅 ${icon("arrow", 13)}</button>
+                </div>
+                ${d.attention.length
+                    ? html`<div class="attention-list">
+                          ${d.attention
                               .map(
                                   (item) =>
                                       html`<div class="attention-row">
@@ -550,37 +647,40 @@ function dashboard(d) {
                                           ${pill(message("fetchFailures", { count: n(item.errors) }), "warn")}
                                       </div>`,
                               )
-                              .join("")
-                        : empty(tr("目前没有需要检查的订阅"), tr("偶发失败会自动重试，你可以安心阅读。"))}
-                </section>
-                <section class="panel">
-                    <div class="panel-head">
+                              .join("")}
+                      </div>`
+                    : empty(tr("目前没有需要检查的订阅"), tr("偶发失败会自动重试，连续失败达到阈值后显示。"))}
+            </section>
+            <section class="panel activity-panel">
+                <div class="panel-head">
+                    <div class="section-heading">
                         <h2>最近操作</h2>
-                        <span class="muted small">管理台记录</span>
+                        <p>管理台记录</p>
                     </div>
-                    <div class="activity">
-                        ${d.activity.length
-                            ? d.activity
-                                  .slice(0, 4)
-                                  .map(
-                                      (a) =>
-                                          html`<div class="activity-row">
-                                              <div class="activity-icon">${icon("check", 14)}</div>
-                                              <div>
-                                                  <p>${esc(auditAction(a.action))}</p>
-                                                  <small>${esc(auditDetail(a.action, a.detail))}</small>
-                                              </div>
-                                              <time>${dateText(a.at)}</time>
-                                          </div>`,
-                                  )
-                                  .join("")
-                            : empty(tr("还没有操作记录"), tr("你在管理台中的修改会出现在这里。"))}
-                    </div>
-                </section>
-            </div>`
-    );
+                    ${icon("clock", 17)}
+                </div>
+                <div class="activity">
+                    ${d.activity.length
+                        ? d.activity
+                              .slice(0, 4)
+                              .map(
+                                  (item) =>
+                                      html`<div class="activity-row">
+                                          <div class="activity-icon">${icon("check", 14)}</div>
+                                          <div class="activity-copy">
+                                              <p>${esc(auditAction(item.action))}</p>
+                                              <small>${esc(auditDetail(item.action, item.detail))}</small>
+                                          </div>
+                                          <time>${esc(dateText(item.at))}</time>
+                                      </div>`,
+                              )
+                              .join("")
+                        : empty(tr("还没有操作记录"), tr("你在管理台中的修改会出现在这里。"))}
+                </div>
+            </section>
+        </div>
+    </div>`;
 }
-
 function chart(rows) {
     const today = new Date(),
         data = [];
@@ -608,8 +708,8 @@ function chart(rows) {
     >
         <defs>
             <linearGradient id="chart-fill" x1="0" y1="0" x2="0" y2="1">
-                <stop stop-color="#8fbca0" stop-opacity=".18" />
-                <stop offset="1" stop-color="#8fbca0" stop-opacity="0" />
+                <stop stop-color="var(--accent)" stop-opacity=".16" />
+                <stop offset="1" stop-color="var(--accent)" stop-opacity="0" />
             </linearGradient>
         </defs>
         ${[0, 0.5, 1]
@@ -628,14 +728,15 @@ function chart(rows) {
             class="delivered"
             d="${line("delivered")}"
             fill="none"
-            stroke="#37795b"
+            stroke="var(--accent)"
             stroke-width="2.2"
             vector-effect="non-scaling-stroke"
         />
         <path
             d="${line("fetched")}"
             fill="none"
-            stroke="var(--orange)"
+            class="fetched"
+            stroke="var(--chart-secondary)"
             stroke-width="1.8"
             vector-effect="non-scaling-stroke"
         />
@@ -704,28 +805,31 @@ function targets(d) {
             tr("管理已接入机器人的会话，查看启用订阅并控制使用权限。"),
             html`<button class="primary" data-action="register">${icon("plus", 16)}添加已有会话</button>`,
         ) +
-        html`<section class="panel">
-                <div class="toolbar">
-                    ${searchBox(tr("搜索名称、用户名或 ID"))}${select(
-                        "kind-filter",
-                        [
-                            ["", tr("全部类型")],
-                            ["private", tr("私聊")],
-                            ["group", tr("群组")],
-                            ["channel", tr("频道")],
-                        ],
-                        S.kind,
-                    )}${select(
-                        "visibility-filter",
-                        [
-                            ["unbanned", tr("未封禁")],
-                            ["active", tr("活跃")],
-                            ["inactive", tr("不活跃")],
-                            ["banned", tr("已封禁")],
-                            ["all", tr("全部")],
-                        ],
-                        S.visibility,
-                    )}<span class="count">${count(d.total, "destination")}</span>
+        html`<section class="panel chats-panel">
+                <div class="toolbar toolbar-chats">
+                    <div class="toolbar-main">
+                        ${searchBox(tr("搜索名称、用户名或 ID"))}${select(
+                            "kind-filter",
+                            [
+                                ["", tr("全部类型")],
+                                ["private", tr("私聊")],
+                                ["group", tr("群组")],
+                                ["channel", tr("频道")],
+                            ],
+                            S.kind,
+                        )}${select(
+                            "visibility-filter",
+                            [
+                                ["unbanned", tr("未封禁")],
+                                ["active", tr("活跃")],
+                                ["inactive", tr("不活跃")],
+                                ["banned", tr("已封禁")],
+                                ["all", tr("全部")],
+                            ],
+                            S.visibility,
+                        )}
+                    </div>
+                    <div class="toolbar-secondary"><span class="count">${count(d.total, "destination")}</span></div>
                 </div>
                 <p class="filter-help">
                     ${tr(
@@ -742,7 +846,7 @@ function targets(d) {
                                       <th>订阅数</th>
                                       <th title="${tr("达到管理台连续抓取失败阈值的启用订阅数")}">抓取异常</th>
                                       <th>机器人访问状态</th>
-                                      <th></th>
+                                      <th class="row-actions-heading" scope="col">操作</th>
                                   </tr>
                               </thead>
                               <tbody>
@@ -802,7 +906,7 @@ function targets(d) {
                                                             >`
                                                           : ""}
                                                   </td>
-                                                  <td>
+                                                  <td class="row-actions-cell">
                                                       <div class="table-actions">
                                                           <button data-target-subs="${item.id}">管理订阅</button
                                                           ><button
@@ -822,6 +926,7 @@ function targets(d) {
                     : empty(
                           tr("没有符合条件的会话"),
                           tr("请调整搜索、类型或显示范围；没有会话记录时，可添加已与机器人建立联系的会话。"),
+                          "chats",
                       )}${pager(d)}
             </section>
             <p class="muted small page-note">
@@ -845,34 +950,46 @@ function subscriptions(d) {
                 : tr("查看未封禁会话的订阅，按订阅源、会话或状态筛选。已封禁会话的订阅可从该会话的“管理订阅”查看。"),
             newButton(),
         ) +
-        html`<section class="panel">
-            <div class="toolbar">
-                ${searchBox()}${select(
-                    "status-filter",
-                    [
-                        ["", tr("全部状态")],
-                        ["1", tr("已启用")],
-                        ["0", tr("已暂停")],
-                    ],
-                    S.status,
-                )}<button data-action="filter-target" class="small">${icon("chats", 14)}按会话筛选</button
-                >${d.items.some((i) => i.feed_id)
-                    ? html`<a
-                          class="button-link"
-                          href="${filteredExportURL()}"
-                          download
-                          title="${tr("导出当前筛选的全部页，相同 RSS 地址合并；不含接收会话与推送设置。")}"
-                          >导出筛选订阅源（OPML）</a
-                      >`
-                    : S.target
-                      ? html`<a class="button-link" href="/api/targets/${encodeURIComponent(S.target)}/opml" download
-                            >导出订阅源（OPML）</a
-                        >`
-                      : ""}<button data-action="toggle-attention" class="${S.attention ? "primary" : ""} small">
-                    ${icon("alert", 14)}仅看抓取异常</button
-                >${S.target
-                    ? tr('<button class="quiet small" data-action="clear-target">清除会话筛选 ×</button>')
-                    : ""}<span class="count">${count(d.total, "subscription")}</span>
+        html`<section class="panel subscriptions-panel">
+            <div class="toolbar toolbar-subscriptions">
+                <div class="toolbar-main">
+                    ${searchBox()}${select(
+                        "status-filter",
+                        [
+                            ["", tr("全部状态")],
+                            ["1", tr("已启用")],
+                            ["0", tr("已暂停")],
+                        ],
+                        S.status,
+                    )}<button data-action="filter-target" class="small">${icon("chats", 14)}按会话筛选</button>
+                    <button
+                        data-action="toggle-attention"
+                        class="${S.attention ? "primary" : ""} small"
+                        aria-pressed="${S.attention}"
+                    >
+                        ${icon("alert", 14)}仅看抓取异常
+                    </button>
+                </div>
+                <div class="toolbar-secondary">
+                    ${d.items.some((i) => i.feed_id)
+                        ? html`<a
+                              class="button-link"
+                              href="${filteredExportURL()}"
+                              download
+                              title="${tr("导出当前筛选的全部页，相同 RSS 地址合并；不含接收会话与推送设置。")}"
+                              >导出筛选订阅源（OPML）</a
+                          >`
+                        : S.target
+                          ? html`<a
+                                class="button-link"
+                                href="/api/targets/${encodeURIComponent(S.target)}/opml"
+                                download
+                                >导出订阅源（OPML）</a
+                            >`
+                          : ""}${S.target
+                        ? tr('<button class="quiet small" data-action="clear-target">清除会话筛选 ×</button>')
+                        : ""}<span class="count">${count(d.total, "subscription")}</span>
+                </div>
             </div>
             ${S.selected.size
                 ? html`<div class="bulkbar">
@@ -890,7 +1007,7 @@ function subscriptions(d) {
                   </div>`
                 : ""}${d.items.length
                 ? html`<div class="table-wrap">
-                      <table>
+                      <table class="subscription-table">
                           <thead>
                               <tr>
                                   <th class="selection">
@@ -905,7 +1022,7 @@ function subscriptions(d) {
                                   <th>接收会话</th>
                                   <th>状态</th>
                                   <th>检查间隔</th>
-                                  <th></th>
+                                  <th class="row-actions-heading" scope="col">操作</th>
                               </tr>
                           </thead>
                           <tbody>
@@ -944,9 +1061,10 @@ function subscriptions(d) {
                                                   )}
                                               </td>
                                               <td class="muted">${n(item.effective_interval)} 分钟</td>
-                                              <td>
+                                              <td class="row-actions-cell">
                                                   <div class="table-actions">
                                                       <button
+                                                          class="action-toggle"
                                                           data-sub-toggle="${item.id}"
                                                           title="${item.state ? tr("暂停订阅") : tr("恢复订阅")}"
                                                           aria-label="${item.state
@@ -954,14 +1072,16 @@ function subscriptions(d) {
                                                               : tr("恢复订阅")} ${esc(item.title)}"
                                                       >
                                                           ${icon(item.state ? "pause" : "play", 15)}${item.state
-                                                              ? tr("暂停订阅")
-                                                              : tr("恢复订阅")}</button
+                                                              ? tr("暂停")
+                                                              : tr("恢复")}</button
                                                       ><button
+                                                          class="action-edit"
                                                           data-sub-edit="${item.id}"
                                                           aria-label="编辑 ${esc(item.title)}"
                                                       >
                                                           ${icon("edit", 15)}编辑</button
                                                       ><button
+                                                          class="action-unsubscribe"
                                                           data-sub-delete="${item.id}"
                                                           aria-label="取消订阅 ${esc(item.title)}"
                                                       >
@@ -987,6 +1107,32 @@ function subscriptions(d) {
 
 function settings(d, tokens, security, feature) {
     const o = d.options;
+    const groups = [
+        {
+            label: tr("订阅与推送"),
+            items: [
+                ["general", "rss", tr("更新与订阅"), tr("检查间隔与订阅限制")],
+                ...(S.features.notifications ? [["notifications", "alert", tr("通知"), tr("故障与新会话提醒")]] : []),
+            ],
+        },
+        {
+            label: tr("实例与数据"),
+            items: [
+                ...(S.features.runtime ? [["runtime", "settings", tr("运行配置"), tr("连接、网络与系统参数")]] : []),
+                ...(S.features.backups ? [["backups", "down", tr("备份与恢复"), tr("导出数据与恢复备份")]] : []),
+                ["instance", "chats", tr("实例信息"), tr("连接状态与实例信息")],
+            ],
+        },
+        {
+            label: tr("访问与安全"),
+            items: [
+                ["tokens", "key", tr("API 访问令牌"), tr("Agent 与外部应用授权")],
+                ...(["console_admin", "preview_admin"].includes(S.session.account_type)
+                    ? [["security", "user", tr("账户安全"), tr("密码与登录会话")]]
+                    : []),
+            ],
+        },
+    ];
     const settingRow = (key, label, hint, min = 1, max = 32767, value = o[key]) =>
         html`<div class="form-row">
             <label for="setting-${key}"
@@ -1172,7 +1318,7 @@ ${esc(o.sub_limit_reached_message)}</textarea
                 <p class="error" role="alert"></p>
                 <div><button type="submit" class="primary">修改密码并退出</button></div>
             </form>
-            <div class="form-body">
+            <div class="form-body session-list">
                 <h2>网页登录会话</h2>
                 <p>${n(sessions.items.length)} ${tr("个有效的网页登录会话")}</p>
                 <button class="danger" data-action="revoke-sessions">退出所有网页登录会话</button>
@@ -1180,29 +1326,30 @@ ${esc(o.sub_limit_reached_message)}</textarea
         </section>`;
     }
     return (
-        header(tr("设置"), tr("熟悉的管理方式，按需调整。")) +
+        header(tr("设置"), tr("管理订阅默认值、通知、运行配置和访问安全。")) +
         html`<div class="settings">
             <nav class="settings-nav" aria-label="设置栏目">
-                ${[
-                    ["general", "settings", tr("更新与订阅")],
-                    ["tokens", "key", tr("API 访问令牌")],
-                    ...["runtime", "notifications", "backups"]
-                        .filter((key) => S.features[key])
-                        .map((key) => [
-                            key,
-                            { runtime: "settings", notifications: "alert", backups: "down" }[key],
-                            tr({ runtime: "运行配置", notifications: "通知", backups: "备份与恢复" }[key]),
-                        ]),
-                    ["instance", "rss", tr("实例信息")],
-                    ...(["console_admin", "preview_admin"].includes(S.session.account_type)
-                        ? [["security", "key", tr("账户安全")]]
-                        : []),
-                ]
+                ${groups
                     .map(
-                        ([key, i, label]) =>
-                            html`<button data-settings="${key}" class="${S.settings === key ? "active" : ""}">
-                                ${icon(i, 16)}${label}
-                            </button>`,
+                        (group) =>
+                            html`<div class="settings-group">
+                                <p class="settings-group-label">${group.label}</p>
+                                ${group.items
+                                    .map(
+                                        ([key, i, label, hint]) =>
+                                            html`<button
+                                                data-settings="${key}"
+                                                class="${S.settings === key ? "active" : ""}"
+                                                aria-label="${esc(label)}"
+                                                ${S.settings === key ? 'aria-current="page"' : ""}
+                                            >
+                                                ${icon(i, 17)}<span class="settings-nav-copy"
+                                                    ><strong>${label}</strong><small>${hint}</small></span
+                                                >${icon("chevron", 12)}
+                                            </button>`,
+                                    )
+                                    .join("")}
+                            </div>`,
                     )
                     .join("")}
             </nav>
@@ -1212,10 +1359,11 @@ ${esc(o.sub_limit_reached_message)}</textarea
 }
 
 function modal(title, body, footer = tr('<button type="button" data-action="close">关闭</button>')) {
+    if (document.body.classList.contains("menu-open")) setMenu(false, { restoreFocus: false });
     const d = $("#dialog");
-    d.innerHTML = html`<form id="modal-form">
+    d.innerHTML = html`<form id="modal-form" class="modal-form">
         <div class="dialog-head">
-            <h2 id="dialog-title">${esc(title)}</h2>
+            <div class="dialog-heading"><h2 id="dialog-title">${esc(title)}</h2></div>
             <button type="button" class="quiet" data-action="close" aria-label="关闭">${icon("close", 19)}</button>
         </div>
         <div class="dialog-body">
@@ -1228,7 +1376,8 @@ function modal(title, body, footer = tr('<button type="button" data-action="clos
     syncTableHints();
 }
 const saveFooter = (text) =>
-    html`<button type="button" data-action="close">取消</button><button class="primary" type="submit">${text}</button>`;
+    html`<button type="button" class="quiet" data-action="close">取消</button
+        ><button class="primary" type="submit">${text}</button>`;
 const formatLabels = {
     notify: [
         tr("Telegram 推送声音"),
@@ -1671,6 +1820,7 @@ function chatActivityContent(data) {
             : empty(
                   tr(data.degraded ? "当前没有可显示的会话记录" : "尚无此会话的操作记录"),
                   tr("记录从本版本启用后开始；升级前的交互和设置变更无法从旧日志补回。"),
+                  "clock",
               )}
         <div class="pager">
             <span
@@ -1901,6 +2051,10 @@ function resultModal(result) {
 }
 
 document.addEventListener("click", async (event) => {
+    if (event.target.closest('.sidebar a[href^="#"]') && document.body.classList.contains("menu-open")) {
+        setMenu(false, { restoreFocus: false });
+        $("#main")?.focus({ preventScroll: true });
+    }
     const b = event.target.closest("button,[data-target-subs]");
     if (!b || b.disabled) return;
     const d = b.dataset;
@@ -1910,12 +2064,7 @@ document.addEventListener("click", async (event) => {
             return;
         }
         if (d.action === "menu") {
-            b.setAttribute("aria-expanded", String(!document.body.classList.contains("menu-open")));
-            document.body.classList.toggle("menu-open");
-            $$(".mobile-menu").forEach((el) =>
-                el.setAttribute("aria-expanded", String(document.body.classList.contains("menu-open"))),
-            );
-            if (document.body.classList.contains("menu-open")) $(".sidebar .nav a")?.focus();
+            setMenu(!document.body.classList.contains("menu-open"));
             return;
         }
         if (d.action === "logout") {
@@ -2630,25 +2779,62 @@ function route() {
         ? params.get("section")
         : "general";
     S.selected.clear();
-    document.body.classList.remove("menu-open");
-    $$(".mobile-menu").forEach((el) => el.setAttribute("aria-expanded", "false"));
+    setMenu(false, { restoreFocus: false });
     if (S.session) render();
 }
 window.addEventListener("hashchange", route);
 function login() {
+    setMenu(false, { restoreFocus: false });
     $("#app").innerHTML = html`<div class="login">
-        <form id="login-form" class="login-card">
-            <img src="/assets/mark.svg" alt="RSStT" />${preferences()}
-            <h1>欢迎回来。</h1>
-            ${S.demo
-                ? html`<div class="notice">${S.snapshot ? tr("真实数据副本 · 修改仅在本地") : tr("离线预览实例")}</div>`
-                : ""}
-            <p>登录 RSStT 管理台，照看你的订阅。</p>
-            <label for="password">管理台密码</label
-            ><input id="password" name="password" type="password" autocomplete="current-password" required autofocus />
-            <p class="error" role="alert"></p>
-            <button type="submit" class="primary">进入管理台 ${icon("arrow", 15)}</button>
-        </form>
+        <section class="login-brand" aria-label="RSStT Web">
+            <div class="brand">
+                <img src="/assets/mark.svg" alt="" /><span class="brand-wordmark"
+                    ><strong>RSStT Web</strong><small class="brand-caption">RSS 到 Telegram</small></span
+                >
+            </div>
+            <div class="login-brand-copy">
+                <p class="login-brand-label">订阅、会话与推送</p>
+                <h2>信息流，<br />尽在掌握。</h2>
+                <p>${tr("从订阅源到 Telegram，在同一个工作空间管理每一次抵达。")}</p>
+            </div>
+            <div class="login-graphic" aria-hidden="true">
+                <div class="relay-node relay-source">${icon("rss", 26)}<span>RSS</span></div>
+                <span class="relay-line"></span>
+                <div class="relay-node relay-hub"><img src="/assets/mark.svg" alt="" /><span>RSStT</span></div>
+                <span class="relay-line"></span>
+                <div class="relay-node relay-receiver">${icon("send", 26)}<span>Telegram</span></div>
+            </div>
+            <p class="login-brand-footer">RSS-to-Telegram-Bot · AGPL-3.0</p>
+        </section>
+        <section class="login-main">
+            <div class="login-preferences">${preferences()}</div>
+            <form id="login-form" class="login-card">
+                <div class="login-form-heading">
+                    <span class="login-form-label">管理台登录</span>
+                    <h1>欢迎回来</h1>
+                    <p>输入密码，管理此实例的订阅和会话。</p>
+                </div>
+                ${S.demo
+                    ? html`<div class="notice">
+                          ${S.snapshot ? tr("真实数据副本 · 修改仅在本地") : tr("离线预览实例")}
+                      </div>`
+                    : ""}
+                <div class="login-field">
+                    <label for="password">管理台密码</label
+                    ><input
+                        id="password"
+                        name="password"
+                        type="password"
+                        autocomplete="current-password"
+                        required
+                        autofocus
+                    />
+                </div>
+                <p class="error" role="alert"></p>
+                <button type="submit" class="primary">进入管理台 ${icon("arrow", 16)}</button>
+            </form>
+            <p class="login-footnote">管理台访问需要此实例的管理员密码。</p>
+        </section>
     </div>`;
 }
 async function boot() {
@@ -2711,17 +2897,47 @@ function preferences() {
 }
 
 document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && document.body.classList.contains("menu-open")) {
-        document.body.classList.remove("menu-open");
-        const trigger = document.querySelector(".topbar .mobile-menu");
-        trigger?.setAttribute("aria-expanded", "false");
-        trigger?.focus();
+    if (!mobileNavigation.matches || !document.body.classList.contains("menu-open") || $("#dialog")?.open) return;
+    if (event.key === "Escape") {
+        event.preventDefault();
+        setMenu(false);
+        return;
     }
+    if (event.key === "Tab") {
+        const sidebar = $(".sidebar");
+        const controls = $$(
+            'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+            sidebar,
+        ).filter(
+            (element) =>
+                !element.closest("[inert]") &&
+                element.getClientRects().length &&
+                getComputedStyle(element).visibility !== "hidden",
+        );
+        const first = controls[0],
+            last = controls.at(-1),
+            current = document.activeElement;
+        if (!controls.length) return;
+        if (!sidebar.contains(current) || (event.shiftKey ? current === first : current === last)) {
+            event.preventDefault();
+            (event.shiftKey ? last : first).focus({ preventScroll: true });
+        }
+    }
+});
+mobileNavigation.addEventListener("change", () => {
+    const current = document.activeElement,
+        focusWasInSidebar = $(".sidebar")?.contains(current);
+    setMenu(false, { restoreFocus: false });
+    if ($("#dialog")?.open) return;
+    if (mobileNavigation.matches && focusWasInSidebar) $(".topbar .mobile-menu")?.focus({ preventScroll: true });
+    else if (!mobileNavigation.matches && current?.matches(".mobile-menu"))
+        $(".sidebar .nav a.active")?.focus({ preventScroll: true });
 });
 let resizeTimer;
 window.addEventListener("resize", () => {
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => {
+        syncSettingsNavigation();
         if (S.session && S.route === "dashboard" && !$("#dialog").open) render(true);
     }, 200);
 });
@@ -2731,6 +2947,15 @@ document.querySelector(".skip").addEventListener("click", (event) => {
     const main = $("#main") || $("#password");
     main?.focus();
 });
+
+function syncSettingsNavigation() {
+    const nav = $(".settings-nav"),
+        active = nav?.querySelector('[aria-current="page"]');
+    if (!active || nav.scrollWidth <= nav.clientWidth) return;
+    const navBox = nav.getBoundingClientRect(),
+        activeBox = active.getBoundingClientRect();
+    nav.scrollLeft += activeBox.left - navBox.left - (navBox.width - activeBox.width) / 2;
+}
 
 function filteredExportURL(ids) {
     const params = new URLSearchParams({
@@ -2790,8 +3015,8 @@ function trendChart(data) {
             <line x1="36" x2="${width - 22}" y1="130" y2="130" />
             <text x="30" y="26" text-anchor="end">${n(max)}</text>
             <text x="30" y="134" text-anchor="end">0</text>
-            <path class="delivered" d="${line("delivered")}" fill="none" stroke="#37795b" stroke-width="2" />
-            <path d="${line("fetched")}" fill="none" stroke="var(--orange)" stroke-width="2" />
+            <path class="delivered" d="${line("delivered")}" fill="none" stroke="var(--accent)" stroke-width="2" />
+            <path class="fetched" d="${line("fetched")}" fill="none" stroke="var(--chart-secondary)" stroke-width="2" />
             ${rows
                 .map(
                     (r, i) =>
@@ -2801,8 +3026,8 @@ function trendChart(data) {
                                   cx="${x(i)}"
                                   cy="${y(r.delivered)}"
                                   r="${r.availability === "partial" ? 4 : 2}"
-                                  fill="${r.availability === "partial" ? "var(--panel)" : "var(--green)"}"
-                                  stroke="var(--green)"
+                                  fill="${r.availability === "partial" ? "var(--panel)" : "var(--accent)"}"
+                                  stroke="var(--accent)"
                                   ><title>
                                       ${esc(
                                           message("deliveryPoint", {
@@ -2925,7 +3150,7 @@ async function rawAPI(path, raw, headers = {}) {
 }
 function featureSettings(key, data) {
     if (key === "runtime")
-        return html`<section class="panel">
+        return html`<section class="panel runtime-panel">
             <div class="panel-head">
                 <div>
                     <h2>运行配置</h2>
@@ -2934,7 +3159,7 @@ function featureSettings(key, data) {
                 ${data.pending_restart ? pill(tr("待重启"), "warn") : ""}
             </div>
             <div class="table-wrap">
-                <table>
+                <table class="runtime-table">
                     <thead>
                         <tr>
                             <th>配置项</th>
@@ -2989,7 +3214,7 @@ function featureSettings(key, data) {
             </details>
         </section>`;
     if (key === "notifications")
-        return html`<section class="panel">
+        return html`<section class="panel notifications-panel">
             <div class="panel-head">
                 <div>
                     <h2>通知</h2>
@@ -2998,7 +3223,7 @@ function featureSettings(key, data) {
                 </div>
                 ${data.offline ? pill(tr("离线模式仅模拟，不会外连。"), "gray") : ""}
             </div>
-            <form id="notification-form" class="form-body stack">
+            <form id="notification-form" class="form-body stack notification-policy">
                 <label class="inline-label"
                     ><input type="checkbox" name="enabled" ${data.policy.enabled ? "checked" : ""} />启用自动通知</label
                 ><label class="inline-label"
@@ -3040,16 +3265,24 @@ function featureSettings(key, data) {
                 <p class="error" role="alert"></p>
                 <div><button type="submit" class="primary">保存通知策略</button></div>
             </form>
-            <div class="form-body stack">
+            <div class="form-body notification-channels">
+                <div class="section-heading">
+                    <h3>通知渠道</h3>
+                    <p>${tr("配置接收通知的服务，再发送测试通知确认连接。")}</p>
+                </div>
                 ${["bark", "telegram", "webhook", "ntfy"]
                     .map(
                         (channel) =>
-                            html`<div class="spread">
-                                <div>
-                                    <strong>${esc(channel)}</strong> ${pill(
-                                        tr(data.channels[channel]?.enabled ? "已启用" : "未启用"),
-                                        "gray",
-                                    )}
+                            html`<article class="notification-channel">
+                                <div class="notification-channel-title">
+                                    <strong
+                                        >${esc(
+                                            { bark: "Bark", telegram: "Telegram", webhook: "Webhook", ntfy: "ntfy" }[
+                                                channel
+                                            ],
+                                        )}</strong
+                                    >
+                                    ${pill(tr(data.channels[channel]?.enabled ? "已启用" : "未启用"), "gray")}
                                 </div>
                                 <div class="inline">
                                     <button data-notify-channel="${channel}">配置</button>${data.channels[channel]
@@ -3061,7 +3294,7 @@ function featureSettings(key, data) {
                                           </button>`
                                         : ""}
                                 </div>
-                            </div>`,
+                            </article>`,
                     )
                     .join("")}
             </div>
@@ -3126,7 +3359,7 @@ function featureSettings(key, data) {
                 : ""}
         </section>`;
     if (key === "backups")
-        return html`<section class="panel">
+        return html`<section class="panel backups-panel">
             <div class="panel-head">
                 <div>
                     <h2>备份与恢复</h2>
@@ -3153,43 +3386,45 @@ function featureSettings(key, data) {
                                     </button>
                                 </div>`
                               : ""}
-                          <form id="backup-export-form" class="stack">
-                              <h2>导出备份</h2>
-                              <p class="hint">
-                                  默认不导出凭据。备份始终不包含机器人 Token、Telegram 登录会话和部署环境配置。
-                              </p>
-                              ${backupOptions(data.components)}
-                              <p class="error" role="alert"></p>
-                              <div><button type="submit">下载备份</button></div>
-                          </form>
-                          <hr />
-                          <form id="backup-restore-form" class="stack">
-                              <h2>恢复备份</h2>
-                              ${data.restore_supported === false
-                                  ? html`<p class="notice">
-                                        当前平台可导出备份；网页检查与自动恢复需在受支持的 POSIX 环境执行。
-                                    </p>`
-                                  : ""}
-                              <label
-                                  >JSON 备份文件<input
-                                      type="file"
-                                      name="backup"
-                                      accept=".json,application/json"
-                                      required /></label
-                              >${backupOptions(data.components, true)}
-                              <p class="error" role="alert"></p>
-                              <div>
-                                  <button
-                                      type="submit"
-                                      class="primary"
-                                      ${data.restore_supported === false || data.restore?.status === "pending_restart"
-                                          ? "disabled"
-                                          : ""}
-                                  >
-                                      检查备份
-                                  </button>
-                              </div>
-                          </form>`}
+                          <div class="backup-forms">
+                              <form id="backup-export-form" class="stack backup-form">
+                                  <h2>导出备份</h2>
+                                  <p class="hint">
+                                      默认不导出凭据。备份始终不包含机器人 Token、Telegram 登录会话和部署环境配置。
+                                  </p>
+                                  ${backupOptions(data.components)}
+                                  <p class="error" role="alert"></p>
+                                  <div><button type="submit">下载备份</button></div>
+                              </form>
+                              <form id="backup-restore-form" class="stack backup-form">
+                                  <h2>恢复备份</h2>
+                                  ${data.restore_supported === false
+                                      ? html`<p class="notice">
+                                            当前平台可导出备份；网页检查与自动恢复需在受支持的 POSIX 环境执行。
+                                        </p>`
+                                      : ""}
+                                  <label
+                                      >JSON 备份文件<input
+                                          type="file"
+                                          name="backup"
+                                          accept=".json,application/json"
+                                          required /></label
+                                  >${backupOptions(data.components, true)}
+                                  <p class="error" role="alert"></p>
+                                  <div>
+                                      <button
+                                          type="submit"
+                                          class="primary"
+                                          ${data.restore_supported === false ||
+                                          data.restore?.status === "pending_restart"
+                                              ? "disabled"
+                                              : ""}
+                                      >
+                                          检查备份
+                                      </button>
+                                  </div>
+                              </form>
+                          </div>`}
             </div>
         </section>`;
     return "";

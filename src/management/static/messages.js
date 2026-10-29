@@ -1133,3 +1133,41 @@ Object.assign(english, {
 Object.assign(english, {
     "已在本地预览中模拟退出，订阅已暂停。": "Leaving was simulated in this local preview; subscriptions are paused.",
 });
+
+Object.assign(english, {
+    "RSS 到 Telegram": "RSS to Telegram",
+    工作空间: "Workspace",
+    实例模式: "Instance mode",
+    管理实例: "Managed instance",
+    管理台已登录: "Console signed in",
+    "订阅、会话与推送": "Feeds, chats, and deliveries",
+    "信息流，": "Your feeds,",
+    "尽在掌握。": "under control.",
+    "从订阅源到 Telegram，在同一个工作空间管理每一次抵达。": "Manage feeds and Telegram deliveries in one workspace.",
+    管理台登录: "Console sign-in",
+    欢迎回来: "Welcome back",
+    "输入密码，管理此实例的订阅和会话。": "Enter your password to manage this instance’s subscriptions and chats.",
+    "管理台访问需要此实例的管理员密码。": "Use this instance’s administrator password to access the console.",
+    订阅与推送: "Subscriptions & delivery",
+    检查间隔与订阅限制: "Check intervals and subscription limits",
+    故障与新会话提醒: "Feed failures and new chat alerts",
+    实例与数据: "Instance & data",
+    "连接、网络与系统参数": "Connections, network, and system settings",
+    导出数据与恢复备份: "Export data and restore backups",
+    连接状态与实例信息: "Connection status and instance details",
+    访问与安全: "Access & security",
+    "Agent 与外部应用授权": "Agent and application access",
+    密码与登录会话: "Password and browser sessions",
+    "管理订阅默认值、通知、运行配置和访问安全。":
+        "Manage subscription defaults, notifications, runtime settings, and access security.",
+    "每天发现的新文章，以及成功送达的篇次": "Daily new entries and successful deliveries",
+    页面可见时每分钟刷新: "Refreshes each minute while visible",
+    "所选时段 · 已记录合计": "Recorded totals · Selected period",
+    含未记录或不完整时段: "Includes missing or partial periods",
+    连续失败达到阈值的订阅: "Subscriptions at the consecutive-failure threshold",
+    "偶发失败会自动重试，连续失败达到阈值后显示。":
+        "Occasional failures retry automatically. Subscriptions appear here when consecutive failures reach the threshold.",
+    操作: "Actions",
+    "配置接收通知的服务，再发送测试通知确认连接。":
+        "Configure a notification service, then send a test to check its connection.",
+});

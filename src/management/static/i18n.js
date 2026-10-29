@@ -80,7 +80,15 @@ export function errorText(data, status) {
 }
 document.querySelector(".initial").textContent = locale === "en" ? "Connecting to console…" : "正在连接管理台…";
 document.documentElement.lang = locale;
-document.title = locale === "en" ? "RSStT · Subscription console" : "RSStT · 订阅管理台";
+document.title = locale === "en" ? "RSStT Web · Subscription console" : "RSStT Web · 订阅管理台";
+document
+    .querySelector('meta[name="description"]')
+    ?.setAttribute(
+        "content",
+        locale === "en"
+            ? "RSStT Web: manage RSS subscriptions, Telegram chats, and deliveries in one workspace."
+            : "RSStT Web：集中管理 RSS 订阅、Telegram 会话与推送。",
+    );
 document.querySelector(".skip").textContent = locale === "en" ? "Skip to main content" : "跳到主要内容";
 setTheme(read("rsstt.theme"));
 // Controls are re-created when signing in or changing routes.
@@ -110,8 +118,8 @@ const messages = {
     ],
     fetchFailures: ["连续抓取失败 {count} 次", "{count} consecutive fetch failures"],
     recordedChats: [
-        "已记录 {total} 个会话，其中 {unknown} 个类型待核验",
-        "{total} recorded chats; {unknown} have unverified types",
+        "已记录 {total} 个会话，其中 {unknown} 个类型未知",
+        "{total} recorded chats; {unknown} have unknown types",
     ],
     discoveredTotal: ["累计新发现文章 {count} 篇", "{count} new entries discovered in total"],
     deliveryPoint: ["{time} · 成功推送 {count} 篇次", "{time} · {count} successful deliveries"],

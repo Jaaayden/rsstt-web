@@ -1,1 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><rect width="40" height="40" rx="12" fill="#184c40"/><circle cx="13" cy="27" r="3" fill="#c6f0c2"/><path d="M11 18a11 11 0 0 1 11 11M11 10a19 19 0 0 1 19 19" fill="none" stroke="#c6f0c2" stroke-width="3.5" stroke-linecap="round"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+    <title>RSStT Web — RSS relay</title>
+    <rect width="64" height="64" rx="14" fill="#BD472A" />
+    <circle cx="18" cy="46" r="4" fill="#FFF7E4" />
+    <path
+        d="M18 32c7.7 0 14 6.3 14 14M18 18c15.5 0 28 12.5 28 28m-7-7 7 7 7-7"
+        stroke="#FFF7E4"
+        stroke-width="6"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+    />
+</svg>
