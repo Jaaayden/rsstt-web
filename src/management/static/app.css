@@ -2179,7 +2179,7 @@ details .field-grid {
     body.menu-open .nav-scrim {
         display: block;
         position: fixed;
-        inset: 0;
+        inset: 0 0 0 262px;
         background: #10201866;
         z-index: 19;
         border: 0;

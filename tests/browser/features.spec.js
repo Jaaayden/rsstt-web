@@ -256,6 +256,10 @@ test("role protection and Bot language remain separate from console language", a
     await page.locator("select[name=role]").selectOption("banned");
     await page.getByRole("button", { name: "保存角色" }).click();
     expect(rolePatch).toEqual({ role: "banned" });
+    await expect(page.getByRole("dialog")).not.toBeVisible();
+    // Saving refreshes the list; let any intercepted request finish before
+    // Playwright disposes the context and its APIResponse objects.
+    await page.unrouteAll({ behavior: "wait" });
 });
 
 test("backup capability disables unsupported restore while preserving export and legacy behavior", async ({ page }) => {
