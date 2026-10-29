@@ -51,6 +51,29 @@ async def offline_feed(url, **kwargs):
                            calc_next_check_as_per_server_side_cache=lambda: None)
 
 
+async def seed_article_examples(store):
+    """Illustrative content belongs only to the synthetic demo, never a snapshot."""
+    if (await store.settings()).get('article_demo_seed_v1'):
+        return
+    now = datetime.now(timezone.utc)
+    titles = ['让信息流更容易查看', '把阅读留给值得关注的内容', '检查一次推送的完整过程', '尚未记录推送的文章']
+    for feed in await db.Feed.all().order_by('id').limit(3):
+        entries = [FeedParserDict(
+            guid=f'demo-article-{feed.id}-{index}', title=f'{title} · 示例',
+            link=f'https://articles.example.invalid/{feed.id}/{index}',
+            summary='<p>这是离线生成的示例摘要，用于检查文章列表、展开阅读和不同会话的推送状态。</p>'
+                    '<p>这里的内容与发送结果均为演示数据，没有请求真实 RSS，也没有发送 Telegram 消息。</p>',
+            published_parsed=(now - timedelta(hours=index + 1)).utctimetuple(),
+        ) for index, title in enumerate(titles)]
+        await store.articles.capture(feed.id, entries)
+        for sub in await db.Sub.filter(feed_id=feed.id):
+            for index, status in enumerate(('sent', 'failed', 'unconfirmed')):
+                await store.articles.mark(feed.id, entries[index], sub.user_id, status,
+                                          detail='离线示例状态；未发送真实 Telegram 消息。', source='demo')
+    await store.articles.flush()
+    await store.set_setting('article_demo_seed_v1', '1')
+
+
 async def main():
     env.loop = asyncio.get_running_loop()
     aio_helper.init()
@@ -109,6 +132,7 @@ async def main():
                              feed_id=demo_feeds[5].id,
                              context={'http_status': 200, 'duration_ms': 326, 'failures': 0})
         await journal.flush()
+    await seed_article_examples(store)
     gateway = DemoGateway()
     gateway.store = store
     upstream_web.feed_get = offline_feed

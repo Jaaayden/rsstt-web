@@ -125,6 +125,9 @@ const S = {
     serial: 0,
 };
 let modalState = {},
+    modalFrame = null,
+    modalHistory = [],
+    modalReturnFocus = null,
     toastTimer,
     searchTimer,
     pickerSerial = 0,
@@ -1061,6 +1064,15 @@ function subscriptions(d) {
                                                       <div class="feed-info">
                                                           <strong>${esc(item.title)}</strong
                                                           ><small title="${esc(item.url)}">${esc(item.url)}</small>
+                                                          ${S.features.articles
+                                                              ? html`<button
+                                                                    type="button"
+                                                                    class="text-link small feed-articles-link"
+                                                                    data-sub-articles="${item.id}"
+                                                                >
+                                                                    最近文章
+                                                                </button>`
+                                                              : ""}
                                                       </div>
                                                   </div>
                                               </td>
@@ -1155,6 +1167,7 @@ const diagnosticEvents = {
     "delivery.deactivated": "多次无法发送，已停止向此会话提供服务。",
     "delivery.timeout": "Telegram 推送任务超时。",
     "delivery.exception": "Telegram 推送任务发生异常。",
+    "delivery.stopped": "推送已停止。",
     "delivery.rate_limited": "Telegram 限流，等待后重试。",
     "delivery.rate_limit_exhausted": "Telegram 限流重试已达上限，本条消息未完成发送。",
     "delivery.transport_retry": "Telegram 服务异常，正在按重试规则处理。",
@@ -1191,6 +1204,12 @@ const diagnosticEvents = {
     "backup.restore_failed": "备份恢复失败；请检查维护日志与回退副本。",
     "backup.restored": "备份已在启动前恢复。",
     "backup.restore_result_unavailable": "无法读取上次备份恢复结果。",
+    "manual.requested": "已提交手动抓取任务。",
+    "manual.completed": "手动抓取检查已完成。",
+    "manual.cancelled": "实例停止，手动抓取任务已中断。",
+    "manual.failed": "手动抓取或测试推送未完成。",
+    "manual.test_fetched": "测试抓取已完成。",
+    "manual.test_delivered": "测试文章已确认推送。",
 };
 const diagnosticFields = {
     http_status: "HTTP 状态",
@@ -1214,6 +1233,7 @@ const diagnosticValues = {
     parse: "解析内容",
     process: "处理抓取结果",
     persist: "保存订阅状态",
+    manual: "手动抓取",
     send: "发送消息",
     queue: "处理通知队列",
     cached: "缓存未变化",
@@ -1242,6 +1262,10 @@ function diagnosticReason(item) {
         status = Number(context.http_status),
         type = String(context.exception_type || "");
     if (item.level === "info") return "";
+    if (item.code === "delivery.stopped") {
+        if (context.status === "unconfirmed") return tr("发送被停止，可能已有部分消息送达。");
+        if (context.status === "failed") return tr("发送已停止，本篇未发送。");
+    }
     const httpReasons = {
         401: "来源要求身份认证，请检查订阅地址的授权是否有效。",
         403: "来源拒绝访问，可能需要调整来源授权、User-Agent 或访问网络。",
@@ -1266,8 +1290,7 @@ function diagnosticDetails(item) {
     const rows = Object.entries(item.context || {}).filter(
         ([key, value]) => Object.hasOwn(diagnosticFields, key) && value !== null && value !== "",
     );
-    return html`<details class="diagnostic-details">
-        <summary>查看技术详情</summary>
+    return html`<div class="diagnostic-details">
         <dl class="diagnostic-context">
             <div>
                 <dt>事件代码</dt>
@@ -1297,7 +1320,23 @@ function diagnosticDetails(item) {
                 .join("")}
         </dl>
         ${item.detail ? html`<pre class="diagnostic-technical">${esc(item.detail)}</pre>` : ""}
-    </details>`;
+    </div>`;
+}
+function diagnosticTime(value) {
+    const date = new Date(value);
+    if (!value || Number.isNaN(date.getTime())) return esc(tr("未记录"));
+    return html`<time title="${esc(diagnosticDate(value))}"
+        ><strong
+            >${esc(
+                new Intl.DateTimeFormat(locale, {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    second: "2-digit",
+                    hour12: false,
+                }).format(date),
+            )}</strong
+        ><small>${esc(new Intl.DateTimeFormat(locale, { month: "short", day: "numeric" }).format(date))}</small></time
+    >`;
 }
 function diagnosticEntries(data, feedLinks = true) {
     if (!data.items?.length)
@@ -1307,79 +1346,102 @@ function diagnosticEntries(data, feedLinks = true) {
             "diagnostics",
         );
     return html`<div class="diagnostic-list">
+        <div class="diagnostic-list-head" aria-hidden="true">
+            <span>时间</span><span>订阅源 / 会话</span><span>事件与原因</span><span>级别</span><span></span>
+        </div>
         ${data.items
             .map((item) => {
-                const reason = diagnosticReason(item),
-                    context = item.context || {};
+                const context = item.context || {},
+                    reason = diagnosticReason(item);
+                const category = tr(diagnosticCategories[item.category] || "系统运行");
+                const heading = Object.hasOwn(diagnosticEvents, item.code)
+                    ? tr(diagnosticEvents[item.code])
+                    : item.message || item.code;
+                const sourceTitle =
+                    item.feed_title ||
+                    item.target_title ||
+                    (item.feed_id
+                        ? tr("订阅源 #") + item.feed_id
+                        : item.target_id
+                          ? tr("会话 #") + item.target_id
+                          : category);
                 return html`<article
                     class="diagnostic-entry diagnostic-${["info", "warning", "error"].includes(item.level)
                         ? item.level
                         : "info"}"
                 >
-                    <div class="diagnostic-entry-head">
-                        <div class="inline">
-                            ${pill(
-                                tr(diagnosticLevels[item.level] || "信息"),
-                                item.level === "error" ? "danger" : item.level === "warning" ? "warn" : "gray",
-                            )}<span class="small muted"
-                                >${esc(tr(diagnosticCategories[item.category] || "系统运行"))}</span
+                    <details>
+                        <summary class="diagnostic-summary" aria-label="${tr("查看日志详情")} · ${esc(heading)}">
+                            <span class="diagnostic-time">${diagnosticTime(item.at)}</span>
+                            <span class="diagnostic-source"
+                                ><strong title="${esc(sourceTitle)}">${esc(sourceTitle)}</strong
+                                ><small
+                                    >${esc(category)}${item.feed_id
+                                        ? html` · #${esc(item.feed_id)}`
+                                        : item.target_id
+                                          ? html` · ${esc(item.target_id)}`
+                                          : ""}</small
+                                ></span
                             >
+                            <span class="diagnostic-event"
+                                ><strong>${esc(heading)}</strong
+                                ><small
+                                    >${Number(context.http_status) > 0
+                                        ? html`<b class="diagnostic-http">HTTP ${esc(context.http_status)}</b>`
+                                        : ""}${esc(reason || context.exception_type || item.detail || "")}</small
+                                ></span
+                            >
+                            <span class="diagnostic-severity"
+                                >${pill(
+                                    tr(diagnosticLevels[item.level] || "信息"),
+                                    item.level === "error" ? "danger" : item.level === "warning" ? "warn" : "gray",
+                                )}</span
+                            ><span class="diagnostic-expand">${icon("chevron", 14)}</span>
+                        </summary>
+                        <div class="diagnostic-expanded">
+                            ${reason ? html`<p class="diagnostic-reason">${esc(reason)}</p>` : ""}
+                            <div class="diagnostic-facts">
+                                ${item.feed_id
+                                    ? html`<span
+                                          >订阅源 <strong>${esc(item.feed_title || item.feed_id)}</strong> · ID
+                                          ${esc(item.feed_id)}</span
+                                      >`
+                                    : ""}
+                                ${item.target_id
+                                    ? html`<span
+                                          >会话 <strong>${esc(item.target_title || item.target_id)}</strong> · ID
+                                          ${esc(item.target_id)}</span
+                                      >`
+                                    : ""}
+                                ${context.duration_ms !== undefined
+                                    ? html`<span>${n(context.duration_ms)} ms</span>`
+                                    : ""}
+                                ${context.failures !== undefined
+                                    ? html`<span>${message("fetchFailures", { count: n(context.failures) })}</span>`
+                                    : ""}
+                            </div>
+                            ${context.next_retry_at
+                                ? html`<p class="hint">
+                                      已安排的下次重试：${esc(diagnosticDate(context.next_retry_at))}
+                                  </p>`
+                                : ""}
+                            ${context.next_check_at
+                                ? html`<p class="hint">下次检查：${esc(diagnosticDate(context.next_check_at))}</p>`
+                                : ""}
+                            ${diagnosticDetails(item)}
+                            ${feedLinks && item.feed_id
+                                ? html`<div>
+                                      <button
+                                          class="text-link small"
+                                          data-feed-logs="${esc(item.feed_id)}"
+                                          aria-label="查看抓取日志 ${esc(item.feed_title || item.feed_id)}"
+                                      >
+                                          查看抓取日志 ${icon("arrow", 13)}
+                                      </button>
+                                  </div>`
+                                : ""}
                         </div>
-                        <time>${esc(diagnosticDate(item.at))}</time>
-                    </div>
-                    <h3>
-                        ${esc(
-                            Object.hasOwn(diagnosticEvents, item.code)
-                                ? tr(diagnosticEvents[item.code])
-                                : item.message || item.code,
-                        )}
-                    </h3>
-                    ${reason ? html`<p class="diagnostic-reason">${esc(reason)}</p>` : ""}
-                    <div class="diagnostic-facts">
-                        ${Number(context.http_status) > 0
-                            ? html`<span>HTTP <strong>${esc(context.http_status)}</strong></span>`
-                            : ""}
-                        ${context.exception_type ? html`<span class="mono">${esc(context.exception_type)}</span>` : ""}
-                        ${context.duration_ms !== undefined ? html`<span>${n(context.duration_ms)} ms</span>` : ""}
-                        ${context.failures !== undefined
-                            ? html`<span>${message("fetchFailures", { count: n(context.failures) })}</span>`
-                            : ""}
-                        ${item.feed_id
-                            ? html`<span
-                                  >订阅源 <strong>${esc(item.feed_title || item.feed_id)}</strong>${item.feed_title
-                                      ? html` · ID ${esc(item.feed_id)}`
-                                      : ""}</span
-                              >`
-                            : ""}
-                        ${item.target_id
-                            ? html`<span
-                                  >会话 <strong>${esc(item.target_title || item.target_id)}</strong>${item.target_title
-                                      ? html` · ID ${esc(item.target_id)}`
-                                      : ""}</span
-                              >`
-                            : ""}
-                    </div>
-                    ${context.next_retry_at
-                        ? html`<p class="hint">已安排的下次重试：${esc(diagnosticDate(context.next_retry_at))}</p>`
-                        : ""}
-                    ${context.next_check_at
-                        ? html`<p class="hint">下次检查：${esc(diagnosticDate(context.next_check_at))}</p>`
-                        : ""}
-                    ${!reason && item.detail && item.level !== "info"
-                        ? html`<p class="diagnostic-reason">${esc(item.detail)}</p>`
-                        : ""}
-                    ${diagnosticDetails(item)}
-                    ${feedLinks && item.feed_id
-                        ? html`<div>
-                              <button
-                                  class="text-link small"
-                                  data-feed-logs="${esc(item.feed_id)}"
-                                  aria-label="查看抓取日志 ${esc(item.feed_title || item.feed_id)}"
-                              >
-                                  查看抓取日志 ${icon("arrow", 13)}
-                              </button>
-                          </div>`
-                        : ""}
+                    </details>
                 </article>`;
             })
             .join("")}
@@ -1396,15 +1458,18 @@ function diagnosticNotice(data) {
 }
 function diagnosticRetention(data) {
     const retention = data.retention || {};
-    return html`<p class="diagnostic-retention hint">
-        ${message("logRetention", {
-            days: n(retention.days || 30),
-            total: n(retention.max_entries || 5000),
-            feed: n(retention.per_feed || 100),
-        })}${data.started_at
-            ? html`<br />开始记录：${esc(diagnosticDate(data.started_at))}`
-            : ""}<br />日志按需刷新；不记录普通聊天正文、请求正文或凭证。
-    </p>`;
+    return html`<details class="diagnostic-policy">
+        <summary>记录范围与保留策略</summary>
+        <p class="diagnostic-retention hint">
+            ${message("logRetention", {
+                days: n(retention.days || 30),
+                total: n(retention.max_entries || 5000),
+                feed: n(retention.per_feed || 100),
+            })}${data.started_at
+                ? html`<br />开始记录：${esc(diagnosticDate(data.started_at))}`
+                : ""}<br />日志按需刷新；不记录普通聊天正文、请求正文或凭证。
+        </p>
+    </details>`;
 }
 function diagnosticPager(data, modalView = false) {
     const page = data.page || 1,
@@ -1421,13 +1486,21 @@ function diagnosticPager(data, modalView = false) {
         <div class="inline">
             <button
                 type="button"
-                ${modalView ? "data-feed-log-page" : "data-page"}="${page - 1}"
+                ${modalView === "related"
+                    ? "data-related-log-page"
+                    : modalView
+                      ? "data-feed-log-page"
+                      : "data-page"}="${page - 1}"
                 ${page <= 1 ? "disabled" : ""}
             >
                 上一页</button
             ><button
                 type="button"
-                ${modalView ? "data-feed-log-page" : "data-page"}="${page + 1}"
+                ${modalView === "related"
+                    ? "data-related-log-page"
+                    : modalView
+                      ? "data-feed-log-page"
+                      : "data-page"}="${page + 1}"
                 ${page * size >= total ? "disabled" : ""}
             >
                 下一页
@@ -1555,6 +1628,495 @@ async function showFeedLogs(feedId, page = 1) {
             tr("订阅源抓取日志"),
             html`<p class="notice warning" role="alert">${esc(error.message)}</p>
                 <button type="button" data-action="feed-logs-retry">重新加载抓取日志</button>`,
+        );
+    }
+}
+async function showRelatedLogs(scope, page = 1) {
+    const context = { action: "related-logs", ...scope, id: scope.targetId, page };
+    modalState = context;
+    modal(tr("相关运行日志"), html`<p role="status">正在加载运行日志…</p>`);
+    try {
+        const query = new URLSearchParams({ page, size: 20 });
+        if (scope.feedId) query.set("feed_id", scope.feedId);
+        if (scope.targetId) query.set("target_id", scope.targetId);
+        const data = await api("/diagnostics?" + query);
+        if (modalState !== context || !$("#dialog").open) return;
+        modal(
+            tr("相关运行日志"),
+            html`${diagnosticNotice(data)}${diagnosticEntries(data, false)}${diagnosticPager(
+                data,
+                "related",
+            )}${diagnosticRetention(data)}`,
+            html`<button type="button" data-related-log-page="${page}">${icon("refresh", 15)}刷新日志</button
+                ><button type="button" data-action="close">关闭</button>`,
+        );
+    } catch (error) {
+        if (modalState !== context || !$("#dialog").open) return;
+        modal(
+            tr("相关运行日志"),
+            html`<p class="notice warning" role="alert">${esc(error.message)}</p>
+                <button type="button" data-related-log-page="${page}">重新加载</button>`,
+        );
+    }
+}
+async function showTargetSubscriptions(id, page = 1) {
+    const context = { action: "target-subscriptions", id: String(id), page };
+    context.onResume = () => {
+        if (context.refreshNeeded) showTargetSubscriptions(id, page);
+    };
+    modalState = context;
+    modal(tr("此会话的订阅"), html`<p role="status">正在加载订阅…</p>`);
+    try {
+        const data = await api("/subscriptions?" + new URLSearchParams({ target: id, page, size: 20 }));
+        if (modalState !== context || !$("#dialog").open) return;
+        context.items = data.items;
+        modal(
+            tr("此会话的订阅"),
+            html`<p class="hint">${esc(data.items[0]?.target_title || id)}</p>
+                ${data.items.length
+                    ? html`<div class="target-subscription-list">
+                          ${data.items
+                              .map(
+                                  (item) =>
+                                      html`<div class="target-subscription-row">
+                                          <div>
+                                              <strong>${esc(item.title)}</strong>
+                                              <p class="hint">
+                                                  ${item.state ? tr("已启用") : tr("已暂停")}${item.errors
+                                                      ? " · " + message("fetchFailures", { count: n(item.errors) })
+                                                      : ""}
+                                              </p>
+                                          </div>
+                                          <button type="button" data-sub-edit="${item.id}">编辑</button>
+                                      </div>`,
+                              )
+                              .join("")}
+                      </div>`
+                    : empty(tr("暂无订阅"), tr("可以导入 OPML，为此会话添加订阅。"))}${targetSubscriptionsPager(data)}`,
+            html`<button type="button" data-import-target="${esc(id)}">导入 OPML</button
+                ><button type="button" data-action="close">关闭</button>`,
+        );
+    } catch (error) {
+        if (modalState !== context || !$("#dialog").open) return;
+        modal(
+            tr("此会话的订阅"),
+            html`<p class="notice warning" role="alert">${esc(error.message)}</p>
+                <button type="button" data-target-sub-page="${page}">重新加载</button>`,
+        );
+    }
+}
+function targetSubscriptionsPager(data) {
+    const page = data.page || 1,
+        size = data.size || 20;
+    return html`<div class="pager">
+        <span
+            >${message("pager", {
+                total: n(data.total),
+                page: n(page),
+                pages: n(Math.max(1, Math.ceil(data.total / size))),
+            })}</span
+        >
+        <div class="inline">
+            <button type="button" data-target-sub-page="${page - 1}" ${page <= 1 ? "disabled" : ""}>上一页</button
+            ><button type="button" data-target-sub-page="${page + 1}" ${page * size >= data.total ? "disabled" : ""}>
+                下一页
+            </button>
+        </div>
+    </div>`;
+}
+const manualErrors = {
+    MANUAL_FETCH_CONFIRM_REQUIRED: "请先确认本次操作的接收范围。",
+    MANUAL_FETCH_BANNED: "此会话已被封禁，无法抓取或推送。请先解除封禁。",
+    MANUAL_FETCH_DEPARTED: "机器人已退出此会话，无法向其推送。",
+    MANUAL_FETCH_PAUSED: "此订阅已暂停，请先恢复订阅。",
+    MANUAL_FETCH_INACTIVE: "此订阅源已停用，请先恢复相关订阅。",
+    MANUAL_FETCH_OFFLINE:
+        "真实数据离线预览不会访问订阅源或发送 Telegram 消息。请在运行中的管理实例或独立测试机器人上使用此功能。",
+    MANUAL_FETCH_STOPPING: "实例正在停止，暂时无法执行抓取。",
+    MANUAL_FETCH_BUSY: "此订阅源正在抓取，请等待当前任务完成。",
+    MANUAL_FETCH_LIMIT: "手动任务已达到并发上限，请等待已有任务完成。",
+    MANUAL_FETCH_JOB_NOT_FOUND: "任务记录已过期或不存在，请重新检查。",
+    MANUAL_FETCH_FAILED: "抓取或推送未完成，请查看相关日志中的具体原因。",
+    MANUAL_FETCH_TIMEOUT: "本次任务超时，请查看相关日志后重试。",
+    MANUAL_FETCH_CANCELLED: "本次任务已取消。",
+    MANUAL_FETCH_EMPTY: "订阅源没有可用于测试推送的文章。",
+    MANUAL_FETCH_RATE_LIMITED: "接收会话正在等待 Telegram 限流恢复，本次没有进行抓取。",
+    MANUAL_FETCH_NO_RECIPIENTS: "此来源当前没有启用的接收会话，无法提交推送。",
+    MANUAL_PUSH_UNCONFIRMED: "Telegram 未确认测试文章完整送达，请查看相关日志。",
+    MANUAL_PUSH_STOPPED: "发送已停止，请查看最近文章和运行日志中的实际推送状态。",
+};
+const manualError = (data) => {
+    if (
+        data.code === "MANUAL_PUSH_STOPPED" &&
+        ["发送已停止，本篇未发送。", "发送被停止，可能已有部分消息送达。"].includes(data.error)
+    )
+        return tr(data.error);
+    return tr(manualErrors[data.code] || "") || data.error || data.reason || tr("操作未完成，请稍后重试。");
+};
+function activeManual(context) {
+    return modalState === context && $("#dialog").open;
+}
+async function showManualFetch(item) {
+    const context = {
+        action: "manual-fetch",
+        item,
+        mode: "updates",
+        confirmed: false,
+        job: null,
+        workSerial: 0,
+        pollCount: 0,
+    };
+    context.onHide = () => {
+        clearTimeout(context.pollTimer);
+        context.workSerial++;
+        context.polling = false;
+    };
+    context.onResume = () => {
+        if (context.needsRender) {
+            context.needsRender = false;
+            renderManualFetch(context);
+        }
+        if (!context.capabilities) loadManualCapabilities(context);
+        else if (["queued", "running"].includes(context.job?.status)) pollManualFetch(context);
+    };
+    modalState = context;
+    renderManualFetch(context);
+    await loadManualCapabilities(context);
+}
+async function loadManualCapabilities(context) {
+    const serial = context.workSerial;
+    try {
+        const data = await api(`/subscriptions/${context.item.id}/fetch-now`);
+        if (!activeManual(context) || serial !== context.workSerial) return;
+        context.capabilities = data;
+        context.loadError = null;
+        renderManualFetch(context);
+    } catch (error) {
+        if (!activeManual(context) || serial !== context.workSerial) return;
+        context.loadError = manualError({ code: error.code, error: error.message });
+        renderManualFetch(context);
+    }
+}
+function manualJobContent(context) {
+    const job = context.job,
+        result = job.result || {};
+    const statusLabels = {
+        queued: "任务已排队",
+        running: "正在抓取与处理",
+        completed: "任务已完成",
+        failed: "任务未完成",
+    };
+    let explanation = "";
+    if (job.simulated) explanation = "这是离线模拟结果，没有访问订阅源，也没有发送 Telegram 消息。";
+    else if (job.status === "completed" && job.mode === "test_latest" && result.push_status === "confirmed")
+        explanation = "Telegram 已确认完整发送，请到当前接收会话查看。";
+    else if (result.push_status === "submitted")
+        explanation = "新文章已提交给现有推送流程。这不代表已经送达，请到接收会话或运行日志确认。";
+    else if (["not_modified", "empty", "unchanged"].includes(result.outcome))
+        explanation = "本次检查没有发现可推送的新文章。";
+    else if (["queued", "running"].includes(job.status))
+        explanation = "任务由服务器继续执行。返回或关闭窗口只会停止页面查询，不会取消已提交的任务。";
+    return html`<section class="manual-job" aria-live="polite">
+        <div class="spread">
+            <strong>${tr(statusLabels[job.status] || "任务状态未知")}</strong>${pill(
+                job.simulated
+                    ? tr("离线模拟")
+                    : job.status === "failed"
+                      ? tr("未完成")
+                      : ["queued", "running"].includes(job.status)
+                        ? tr("处理中")
+                        : tr("已处理"),
+                job.status === "failed" ? "warn" : "gray",
+            )}
+        </div>
+        ${explanation ? html`<p>${tr(explanation)}</p>` : ""}${job.error || job.status === "failed"
+            ? html`<p class="notice warning" role="alert">${esc(manualError(job))}</p>`
+            : ""}${job.status === "completed"
+            ? html`<dl class="manual-result">
+                  <div>
+                      <dt>发现新文章</dt>
+                      <dd>${n(result.new_entries ?? null)}</dd>
+                  </div>
+                  <div>
+                      <dt>涉及接收会话</dt>
+                      <dd>${n(result.affected_recipients ?? job.affected_recipients ?? null)}</dd>
+                  </div>
+              </dl>`
+            : ""}${context.pollError
+            ? html`<p class="notice warning" role="alert">${esc(context.pollError)}</p>`
+            : ""}${context.pollCount >= 90 && ["queued", "running"].includes(job.status)
+            ? html`<p class="hint">任务仍在执行，已暂停自动查询。可刷新状态继续查看。</p>`
+            : ""}
+    </section>`;
+}
+function renderManualFetch(context) {
+    if (modalState !== context) return;
+    const caps = context.capabilities,
+        mode = context.mode,
+        locked = Boolean(context.job || context.submitting),
+        ready = caps?.available && !locked;
+    const recipients = caps?.affected_recipients ?? null;
+    if (["completed", "failed"].includes(context.job?.status))
+        for (const frame of modalHistory)
+            if (frame.state.action === "recent-articles") frame.state.refreshNeeded = true;
+    const confirmLabel =
+        mode === "test_latest"
+            ? message("manualTestConfirm", { name: context.item.target_title })
+            : message("manualUpdatesConfirm", { count: n(recipients) });
+    const body = html`<div class="manual-source">
+            <strong>${esc(context.item.title)}</strong>
+            <p class="hint">接收会话：${esc(context.item.target_title)}</p>
+        </div>
+        ${caps?.simulated ? html`<p class="notice">离线演示仅模拟抓取与推送，不会连接订阅源或 Telegram。</p>` : ""}
+        ${!caps && !context.loadError ? html`<p role="status">正在检查可执行操作和接收范围…</p>` : ""}
+        ${context.loadError
+            ? html`<p class="notice warning" role="alert">${esc(context.loadError)}</p>
+                  <button type="button" data-manual-retry>重新检查可用性</button>`
+            : ""}
+        ${caps && !caps.available ? html`<p class="notice warning" role="alert">${esc(manualError(caps))}</p>` : ""}
+        ${context.job
+            ? manualJobContent(context)
+            : html`<div class="manual-modes">
+                      <label class="manual-mode ${mode === "updates" ? "selected" : ""}"
+                          ><input
+                              type="radio"
+                              name="mode"
+                              value="updates"
+                              ${mode === "updates" ? "checked" : ""}
+                              ${!ready ? "disabled" : ""}
+                          /><span
+                              ><strong>检查更新并推送</strong
+                              ><small
+                                  >遵循正常去重规则，只推送新发现的文章。此来源由多个会话共享时，影响所有启用的接收会话。</small
+                              >${caps
+                                  ? html`<b>${message("manualRecipientCount", { count: n(recipients) })}</b>`
+                                  : ""}</span
+                          ></label
+                      >
+                      <label class="manual-mode ${mode === "test_latest" ? "selected" : ""}"
+                          ><input
+                              type="radio"
+                              name="mode"
+                              value="test_latest"
+                              ${mode === "test_latest" ? "checked" : ""}
+                              ${!ready ? "disabled" : ""}
+                          /><span
+                              ><strong>测试推送最新一篇</strong
+                              ><small
+                                  >仅推送到当前接收会话。即使这篇文章已经推送过，也会再次发送；不改变正常检查的去重记录。</small
+                              ></span
+                          ></label
+                      >
+                  </div>
+                  ${caps?.available
+                      ? html`<label class="inline-label manual-confirm"
+                            ><input
+                                type="checkbox"
+                                name="confirm_manual"
+                                required
+                                ${context.confirmed ? "checked" : ""}
+                                ${locked ? "disabled" : ""}
+                            /><span>${esc(confirmLabel)}</span></label
+                        >`
+                      : ""}`}`;
+    const footer = context.job
+        ? html`${context.job.feed_id && S.features.diagnostics
+                  ? html`<button type="button" data-feed-logs="${esc(context.job.feed_id)}">查看相关抓取日志</button>`
+                  : ""}<button type="button" data-manual-refresh ${context.polling ? "disabled" : ""}>刷新状态</button
+              >${["completed", "failed"].includes(context.job.status)
+                  ? html`<button type="button" data-manual-reset>重新选择操作</button>`
+                  : ""}<button type="button" data-action="back">
+                  ${modalHistory.length ? modalParentLabel(modalHistory.at(-1)) : tr("关闭")}
+              </button>`
+        : html`<button type="button" data-action="close">取消</button
+              ><button class="primary" type="submit" ${!ready || !context.confirmed ? "disabled" : ""}>
+                  ${context.submitting ? tr("正在提交…") : tr("开始执行")}
+              </button>`;
+    modal(tr("立即抓取"), body, footer);
+}
+async function submitManualFetch(context, formData) {
+    if (!context.capabilities?.available || context.submitting || context.job) return;
+    if (!formData.has("confirm_manual")) throw new Error(tr("请先确认本次操作的接收范围。"));
+    context.submitting = true;
+    context.pollError = null;
+    renderManualFetch(context);
+    const serial = context.workSerial;
+    try {
+        const job = await api(`/subscriptions/${context.item.id}/fetch-now`, {
+            method: "POST",
+            body: { mode: context.mode, confirm: true },
+        });
+        context.job = job;
+        context.submitting = false;
+        if (!activeManual(context)) {
+            context.needsRender = true;
+            return;
+        }
+        renderManualFetch(context);
+        if (["queued", "running"].includes(job.status))
+            context.pollTimer = setTimeout(() => pollManualFetch(context), 1000);
+    } catch (error) {
+        context.submitting = false;
+        context.loadError = manualError({ code: error.code, error: error.message });
+        if (!activeManual(context)) {
+            context.needsRender = true;
+            return;
+        }
+        renderManualFetch(context);
+    }
+}
+async function pollManualFetch(context) {
+    if (!activeManual(context) || !context.job || context.polling) return;
+    const serial = context.workSerial;
+    context.currentPoll = serial;
+    context.polling = true;
+    context.pollCount++;
+    try {
+        const job = await api(`/fetch-jobs/${encodeURIComponent(context.job.id)}`);
+        if (!activeManual(context) || serial !== context.workSerial) return;
+        context.job = job;
+        context.pollError = null;
+        context.polling = false;
+        renderManualFetch(context);
+        if (["queued", "running"].includes(job.status) && context.pollCount < 90)
+            context.pollTimer = setTimeout(() => pollManualFetch(context), 2000);
+    } catch (error) {
+        if (!activeManual(context) || serial !== context.workSerial) return;
+        context.pollError = error.message;
+        context.polling = false;
+        renderManualFetch(context);
+    } finally {
+        if (context.currentPoll === serial) context.polling = false;
+    }
+}
+
+function safeArticleLink(value) {
+    if (typeof value !== "string" || value.length > 4096 || /[\s\\]/.test(value)) return "";
+    try {
+        const url = new URL(value);
+        return ["http:", "https:"].includes(url.protocol) && !url.username && !url.password ? url.href : "";
+    } catch {
+        return "";
+    }
+}
+const articleStatuses = {
+    queued: "等待发送",
+    sent: "已推送",
+    failed: "推送失败",
+    unconfirmed: "结果未确认",
+    not_recorded: "暂无推送记录",
+};
+const knownArticleReasons = new Set([
+    "文章解析失败，未能生成推送内容。",
+    "发送已停止，本篇未发送。",
+    "发送被停止，可能已有部分消息送达。",
+    "实例重启中断了上次推送，无法确认是否送达。",
+]);
+function articleContent(item) {
+    const link = safeArticleLink(item.link),
+        retry = item.status === "sent" && item.last_attempt_status && item.last_attempt_status !== "sent";
+    const retryLabels = { queued: "正在重新发送", failed: "最近一次尝试失败", unconfirmed: "最近一次结果未确认" };
+    const sources = { scheduled: "正常检查", manual: "手动检查", test: "测试推送", demo: "离线演示" };
+    return html`<article class="recent-article">
+        <details>
+            <summary class="recent-article-heading">
+                <div>
+                    <strong>${esc(item.title || tr("无标题文章"))}</strong
+                    ><small>抓取时间：${esc(diagnosticDate(item.fetched_at))}</small>
+                </div>
+                <span class="article-badges"
+                    >${pill(
+                        tr(articleStatuses[item.status] || "暂无推送记录"),
+                        item.status === "sent"
+                            ? "success"
+                            : ["failed", "unconfirmed"].includes(item.status)
+                              ? "warn"
+                              : "gray",
+                    )}${retry
+                        ? pill(tr(retryLabels[item.last_attempt_status] || "最近一次结果未确认"), "warn")
+                        : ""}</span
+                >${icon("chevron", 14)}
+            </summary>
+            <div class="recent-article-body">
+                <p class="article-summary">${esc(item.summary || tr("没有可显示的文本摘要。"))}</p>
+                <dl class="diagnostic-context">
+                    ${item.published_at
+                        ? html`<div>
+                              <dt>发布时间</dt>
+                              <dd>${esc(diagnosticDate(item.published_at))}</dd>
+                          </div>`
+                        : ""}${item.last_sent_at
+                        ? html`<div>
+                              <dt>最近成功推送</dt>
+                              <dd>${esc(diagnosticDate(item.last_sent_at))}</dd>
+                          </div>`
+                        : ""}${item.last_attempt_at
+                        ? html`<div>
+                              <dt>最近发送尝试</dt>
+                              <dd>${esc(diagnosticDate(item.last_attempt_at))}</dd>
+                          </div>`
+                        : ""}${item.source && Object.hasOwn(sources, item.source)
+                        ? html`<div>
+                              <dt>触发方式</dt>
+                              <dd>${tr(sources[item.source])}</dd>
+                          </div>`
+                        : ""}
+                </dl>
+                ${item.detail
+                    ? html`<p class="hint">
+                          ${esc(knownArticleReasons.has(item.detail) ? tr(item.detail) : item.detail)}
+                      </p>`
+                    : ""}${link
+                    ? html`<a class="text-link" href="${esc(link)}" target="_blank" rel="noopener noreferrer"
+                          >打开原文 ${icon("arrow", 13)}</a
+                      >`
+                    : ""}
+            </div>
+        </details>
+    </article>`;
+}
+async function showRecentArticles(item) {
+    const context = { action: "recent-articles", item, id: String(item.id) };
+    context.onResume = () => {
+        if (context.refreshNeeded) showRecentArticles(item);
+    };
+    modalState = context;
+    modal(tr("最近文章"), html`<p role="status">正在加载最近文章…</p>`);
+    try {
+        const data = await api(`/subscriptions/${item.id}/articles`);
+        if (modalState !== context || !$("#dialog").open) return;
+        modal(
+            tr("最近文章"),
+            html`<div class="article-scope">
+                    <strong>${esc(data.feed?.title || item.title)}</strong>
+                    <p>
+                        接收会话：<strong>${esc(data.target?.title || item.target_title)}</strong> · ID
+                        ${esc(data.target?.id || item.target)}
+                    </p>
+                    <p class="hint">以下状态仅对应此接收会话；“暂无推送记录”不代表从未推送。</p>
+                </div>
+                ${data.degraded || data.dropped
+                    ? html`<p class="notice warning" role="alert">
+                          文章记录暂时不完整，请稍后刷新并检查磁盘和服务进程日志。
+                      </p>`
+                    : ""}${data.items?.length
+                    ? html`<div class="recent-article-list">${data.items.map(articleContent).join("")}</div>`
+                    : empty(tr("尚无最近文章记录"), tr("从启用后成功抓取开始记录；历史推送状态无法补回。"))}
+                <p class="hint article-retention">
+                    ${message("articleRetention", { count: n(data.retention?.per_feed || 20) })}
+                    ${tr("从启用后成功抓取开始记录；历史推送状态无法补回。")}
+                </p>`,
+            html`${S.features.manual_fetch
+                    ? html`<button type="button" data-manual-fetch="${item.id}">立即抓取</button>`
+                    : ""}<button type="button" data-article-refresh>刷新文章</button
+                ><button type="button" data-action="close">关闭</button>`,
+        );
+    } catch (error) {
+        if (modalState !== context || !$("#dialog").open) return;
+        modal(
+            tr("最近文章"),
+            html`<p class="notice warning" role="alert">${esc(error.message)}</p>
+                <button type="button" data-article-refresh>重新加载</button>`,
         );
     }
 }
@@ -1812,13 +2374,157 @@ ${esc(o.sub_limit_reached_message)}</textarea
     );
 }
 
-function modal(title, body, footer = tr('<button type="button" data-action="close">关闭</button>')) {
+function modalKey(state) {
+    return [state.action, state.item?.id ?? state.feedId ?? state.id ?? state.channel ?? ""].join(":");
+}
+function modalParentLabel(frame) {
+    const labels = {
+        "edit-sub": "返回订阅设置",
+        "edit-target": "返回会话设置",
+        "target-subscriptions": "返回会话订阅",
+        "feed-logs": "返回抓取日志",
+        "related-logs": "返回运行日志",
+        "manual-fetch": "返回手动抓取",
+        "recent-articles": "返回最近文章",
+        recipients: "返回接收会话设置",
+        import: "返回导入订阅",
+        "new-sub": "返回添加订阅",
+    };
+    return tr(labels[frame.state.action] || "返回上一页");
+}
+function pauseModal(frame) {
+    if (!frame) return;
+    frame.scrollTop = $(".dialog-body", frame.node)?.scrollTop || 0;
+    frame.focus = frame.node.contains(document.activeElement) ? document.activeElement : frame.focus;
+    if (frame.focus?.dataset) {
+        const entry = Object.entries(frame.focus.dataset)[0];
+        if (entry)
+            frame.focusSelector = `[data-${entry[0].replace(/[A-Z]/g, (c) => "-" + c.toLowerCase())}="${CSS.escape(entry[1])}"]`;
+    }
+    if (!frame.focusSelector && frame.focus?.name)
+        frame.focusSelector = `[name="${CSS.escape(frame.focus.name)}"]${["radio", "checkbox"].includes(frame.focus.type) ? `[value="${CSS.escape(frame.focus.value)}"]` : ""}`;
+    if ($("#target-picker", frame.node)) clearTimeout(searchTimer);
+    frame.state.onHide?.();
+}
+function backModal() {
+    if (!modalHistory.length) return closeModal();
+    pauseModal(modalFrame);
+    modalFrame = modalHistory.pop();
+    modalState = modalFrame.state;
+    $("#dialog").replaceChildren(modalFrame.node);
+    $(".dialog-body", modalFrame.node).scrollTop = modalFrame.scrollTop || 0;
+    const focus = modalFrame.focus?.isConnected
+        ? modalFrame.focus
+        : modalFrame.focusSelector
+          ? $(modalFrame.focusSelector, modalFrame.node) || $("#dialog [data-action=close]")
+          : $("#dialog [data-action=close]");
+    focus?.focus({ preventScroll: true });
+    modalState.onResume?.();
+    if ($("#target-picker") && !$("#target-picker").children.length)
+        targetPicker(modalState.multiple).catch((e) => toast(e.message));
+}
+function closeModal() {
+    pauseModal(modalFrame);
+    for (const frame of modalHistory) frame.state.onHide?.();
+    modalFrame = null;
+    modalHistory = [];
+    modalState = {};
+    $("#dialog").close();
+    if (modalReturnFocus?.isConnected) modalReturnFocus.focus({ preventScroll: true });
+    else $("#main")?.focus({ preventScroll: true });
+    modalReturnFocus = null;
+}
+function finishModal() {
+    if (modalHistory.length) backModal();
+    else closeModal();
+}
+function modalItem(id, type) {
+    const states = [modalState, ...modalHistory.map((frame) => frame.state)];
+    const direct = states.find((state) => state.action === type && String(state.item?.id) === String(id));
+    if (direct) return direct.item;
+    if (type === "edit-sub") {
+        const article = states.find(
+            (state) =>
+                ["recent-articles", "manual-fetch"].includes(state.action) && String(state.item?.id) === String(id),
+        );
+        if (article) return article.item;
+    }
+    for (const state of states) {
+        const item = state.items?.find((entry) => String(entry.id) === String(id));
+        if (item) return item;
+    }
+    return S.items.find((entry) => String(entry.id) === String(id));
+}
+function syncTargetFrames(item) {
+    if (!item?.id) return;
+    for (const frame of [...modalHistory, modalFrame].filter(Boolean)) {
+        if (frame.state.action !== "edit-target" || String(frame.state.item.id) !== String(item.id)) continue;
+        frame.state.item = item;
+        const controls = $(".service-controls", frame.node);
+        if (controls) {
+            const template = document.createElement("template");
+            template.innerHTML = chatServiceControls(item);
+            controls.replaceWith(template.content);
+        }
+        $("#dialog-title", frame.node).textContent = item.title;
+    }
+}
+function invalidateRemovedSubscriptions(result) {
+    if (!Array.isArray(result.items) || result.items.some((item) => item.id === undefined)) return;
+    const ids = new Set(result.items.map((item) => String(item.id)));
+    for (const frame of modalHistory) {
+        const state = frame.state;
+        if (
+            state.action !== "edit-sub" ||
+            String(state.item.feed_id) !== String(result.feed_id) ||
+            ids.has(String(state.item.id))
+        )
+            continue;
+        state.invalid = true;
+        const note = document.createElement("p");
+        note.className = "notice warning";
+        note.setAttribute("role", "alert");
+        note.textContent = tr(
+            "当前接收会话已取消此订阅，原订阅已不存在，无法继续保存。表单草稿仍保留供复制；请返回会话订阅选择其他订阅。",
+        );
+        $(".dialog-body", frame.node).prepend(note);
+        $$("button[type=submit],[data-manual-fetch],[data-sub-articles]", frame.node).forEach(
+            (button) => (button.disabled = true),
+        );
+    }
+}
+function modal(
+    title,
+    body,
+    footer = tr('<button type="button" data-action="close">关闭</button>'),
+    { replace = false } = {},
+) {
     if (document.body.classList.contains("menu-open")) setMenu(false, { restoreFocus: false });
     const d = $("#dialog");
+    const previous = modalFrame,
+        samePage = d.open && previous && modalKey(previous.state) === modalKey(modalState);
+    if (d.open && modalFrame) {
+        pauseModal(modalFrame);
+        if (!replace && modalKey(modalFrame.state) !== modalKey(modalState)) modalHistory.push(modalFrame);
+    } else {
+        modalHistory = [];
+        modalReturnFocus = document.activeElement;
+    }
+    const parent = modalHistory.at(-1),
+        backLabel = parent ? modalParentLabel(parent) : "";
     d.innerHTML = html`<form id="modal-form" class="modal-form">
         <div class="dialog-head">
-            <div class="dialog-heading"><h2 id="dialog-title">${esc(title)}</h2></div>
-            <button type="button" class="quiet" data-action="close" aria-label="关闭">${icon("close", 19)}</button>
+            <div class="dialog-heading">
+                ${parent
+                    ? html`<button type="button" class="dialog-back" data-action="back" aria-keyshortcuts="Escape">
+                          ${icon("chevron", 13)}${esc(backLabel)}<kbd>Esc</kbd>
+                      </button>`
+                    : ""}
+                <h2 id="dialog-title">${esc(title)}</h2>
+            </div>
+            <button type="button" class="quiet" data-action="close" aria-label="关闭窗口" title="关闭整个窗口">
+                ${icon("close", 19)}
+            </button>
         </div>
         <div class="dialog-body">
             ${body}
@@ -1826,8 +2532,23 @@ function modal(title, body, footer = tr('<button type="button" data-action="clos
         </div>
         <div class="dialog-footer">${footer}</div>
     </form>`;
+    if (parent)
+        $$(".dialog-footer [data-action=close]", d).forEach((button) => {
+            if (button.textContent.trim() === tr("取消")) {
+                button.dataset.action = "back";
+                button.textContent = backLabel;
+            } else if (button.textContent.trim() === tr("关闭")) button.textContent = tr("关闭窗口");
+        });
+    modalFrame = { state: modalState, title, node: d.firstElementChild };
     if (!d.open) d.showModal();
     syncTableHints();
+    if (!d.contains(document.activeElement)) {
+        const previousControl = samePage && previous.focusSelector ? $(previous.focusSelector, d) : null;
+        (previousControl || $(".dialog-head .dialog-back", d) || $(".dialog-head [data-action=close]", d))?.focus({
+            preventScroll: true,
+        });
+    }
+    if (samePage) $(".dialog-body", d).scrollTop = previous.scrollTop || 0;
 }
 const saveFooter = (text) =>
     html`<button type="button" class="quiet" data-action="close">取消</button
@@ -2046,12 +2767,26 @@ function editSub(item) {
         tr("订阅设置"),
         html`<div class="notice">${esc(item.url)}<br />接收会话：${esc(item.target_title)}</div>
             ${item.feed_id
-                ? html`<div class="inline">
-                      <button type="button" data-feed-recipients="${item.feed_id}">管理接收会话</button
-                      ><button type="button" data-feed-fetch="${item.feed_id}">订阅源请求设置</button>
-                      ${S.features.diagnostics
-                          ? html`<button type="button" data-feed-logs="${item.feed_id}">查看抓取日志</button>`
-                          : ""}
+                ? html`<div class="sub-editor-tools">
+                      <div class="sub-editor-tool-group">
+                          <span>内容与推送</span>
+                          ${S.features.articles
+                              ? html`<button type="button" data-sub-articles="${item.id}">最近文章</button>`
+                              : ""}
+                          ${S.features.manual_fetch
+                              ? html`<button type="button" data-manual-fetch="${item.id}">
+                                    ${icon("refresh", 14)}立即抓取
+                                </button>`
+                              : ""}
+                          ${S.features.diagnostics
+                              ? html`<button type="button" data-feed-logs="${item.feed_id}">查看抓取日志</button>`
+                              : ""}
+                      </div>
+                      <div class="sub-editor-tool-group">
+                          <span>订阅源设置</span
+                          ><button type="button" data-feed-recipients="${item.feed_id}">管理接收会话</button
+                          ><button type="button" data-feed-fetch="${item.feed_id}">订阅源请求设置</button>
+                      </div>
                   </div>`
                 : ""}<label
                 >此订阅的显示名称<input
@@ -2361,6 +3096,7 @@ function chatServiceControls(item) {
                         )}
                     </p>`}
         <div class="inline">
+            <button type="button" data-modal-target-subs="${item.id}">管理此会话订阅</button>
             ${S.features.chat_activity
                 ? html`<button type="button" data-target-activity="${item.id}">查看会话记录</button>`
                 : ""}${S.features.diagnostics
@@ -2506,6 +3242,8 @@ function resultModal(result) {
                     )
                     .join("")}
             </div>`,
+        undefined,
+        { replace: true },
     );
 }
 
@@ -2519,9 +3257,10 @@ document.addEventListener("click", async (event) => {
     const d = b.dataset;
     try {
         if (d.action === "close") {
-            $("#dialog").close();
+            closeModal();
             return;
         }
+        if (d.action === "back") return backModal();
         if (d.action === "menu") {
             setMenu(!document.body.classList.contains("menu-open"));
             return;
@@ -2540,8 +3279,31 @@ document.addEventListener("click", async (event) => {
             );
         }
         if (d.action === "retry") return render();
+        if (d.subArticles) return showRecentArticles(modalItem(d.subArticles, "edit-sub"));
+        if (Object.hasOwn(d, "articleRefresh")) return showRecentArticles(modalState.item);
+        if (d.manualFetch) return showManualFetch(modalItem(d.manualFetch, "edit-sub"));
+        if (Object.hasOwn(d, "manualRetry")) return loadManualCapabilities(modalState);
+        if (Object.hasOwn(d, "manualRefresh")) {
+            modalState.pollCount = 0;
+            return pollManualFetch(modalState);
+        }
+        if (Object.hasOwn(d, "manualReset")) {
+            modalState.job = null;
+            modalState.confirmed = false;
+            modalState.capabilities = null;
+            modalState.pollCount = 0;
+            renderManualFetch(modalState);
+            return loadManualCapabilities(modalState);
+        }
         if (d.feedLogs) return showFeedLogs(d.feedLogs);
         if (d.feedLogPage) return showFeedLogs(modalState.feedId, Number(d.feedLogPage));
+        if (d.relatedLogPage)
+            return showRelatedLogs(
+                { feedId: modalState.feedId, targetId: modalState.targetId },
+                Number(d.relatedLogPage),
+            );
+        if (d.modalTargetSubs) return showTargetSubscriptions(d.modalTargetSubs);
+        if (d.targetSubPage) return showTargetSubscriptions(modalState.id, Number(d.targetSubPage));
         if (d.action === "feed-logs-retry") return showFeedLogs(modalState.feedId, modalState.page);
         if (d.action === "logs-refresh") return render(true);
         if (d.action === "logs-clear") {
@@ -2553,7 +3315,8 @@ document.addEventListener("click", async (event) => {
             const params = new URLSearchParams(
                 d.targetLogs ? { target_id: d.targetLogs } : { feed_id: d.relatedFeedLogs },
             );
-            $("#dialog").close();
+            if ($("#dialog").open)
+                return showRelatedLogs(d.relatedFeedLogs ? { feedId: d.relatedFeedLogs } : { targetId: d.targetLogs });
             location.hash = "diagnostics?" + params;
             return;
         }
@@ -2572,7 +3335,7 @@ document.addEventListener("click", async (event) => {
             return render(true);
         }
         if (d.stopService) {
-            const item = S.items.find((item) => item.id === d.stopService);
+            const item = modalItem(d.stopService, "edit-target");
             if (!item || item.role_protected) return;
             return confirmation(
                 tr("停止服务并封禁此会话"),
@@ -2584,14 +3347,14 @@ document.addEventListener("click", async (event) => {
         if (d.targetActivity) {
             return showChatActivity(
                 d.targetActivity,
-                S.items.find((item) => item.id === d.targetActivity)?.title || d.targetActivity,
+                modalItem(d.targetActivity, "edit-target")?.title || d.targetActivity,
             );
         }
         if (d.activityPage) {
             return showChatActivity(modalState.id, modalState.title, Number(d.activityPage));
         }
         if (d.roleTarget) {
-            const item = S.items.find((i) => i.id === d.roleTarget);
+            const item = modalItem(d.roleTarget, "edit-target");
             modalState = { action: "role", id: item.id };
             modal(
                 tr("修改角色"),
@@ -2711,7 +3474,11 @@ document.addEventListener("click", async (event) => {
                 "cancel-restore",
             );
         if (d.feedRecipients) {
+            const parent = modalState;
+            b.disabled = true;
             const result = await api(`/feeds/${d.feedRecipients}/recipients`);
+            b.disabled = false;
+            if (parent !== modalState || !$("#dialog").open) return;
             modalState = {
                 action: "recipients",
                 feedId: d.feedRecipients,
@@ -2738,13 +3505,15 @@ document.addEventListener("click", async (event) => {
             return;
         }
         if (d.feedFetch) {
+            const parent = modalState;
+            b.disabled = true;
             const result = await api(`/feeds/${d.feedFetch}/fetch-options`);
+            b.disabled = false;
+            if (parent !== modalState || !$("#dialog").open) return;
             modalState = { action: "feed-fetch", feedId: d.feedFetch };
             modal(
                 tr("订阅源请求设置"),
-                html`<p class="mono small">
-                        ${esc(S.items.find((item) => item.feed_id === Number(d.feedFetch))?.url || "")}
-                    </p>
+                html`<p class="mono small">${esc(modalHistory.at(-1)?.state.item?.url || parent.item?.url || "")}</p>
                     <p class="notice">此设置按 RSS 地址共享，影响所有订阅此地址的会话，下次抓取生效。</p>
                     <label
                         >请求标识（User-Agent）<input
@@ -2812,8 +3581,8 @@ document.addEventListener("click", async (event) => {
                 "subscriptions?" + new URLSearchParams({ target: S.target, attention: S.attention ? "1" : "0" });
             return;
         }
-        if (d.subEdit) return editSub(S.items.find((i) => i.id === Number(d.subEdit)));
-        if (d.targetEdit) return editTarget(S.items.find((i) => i.id === d.targetEdit));
+        if (d.subEdit) return editSub(modalItem(d.subEdit, "edit-sub"));
+        if (d.targetEdit) return editTarget(modalItem(d.targetEdit, "edit-target"));
         if (d.subToggle) {
             const item = S.items.find((i) => i.id === Number(d.subToggle));
             b.disabled = true;
@@ -2839,10 +3608,12 @@ document.addEventListener("click", async (event) => {
                 { batchAction: d.batch, ids: [...S.selected] },
             );
         if (d.refreshTarget) {
+            const parent = modalState;
             b.disabled = true;
             const item = await api(html`/targets/${d.refreshTarget}/refresh`, { method: "POST", body: {} });
+            b.disabled = false;
             toast(tr("会话名称与机器人访问权限已更新"));
-            editTarget(item);
+            if (parent === modalState) syncTargetFrames(item);
             return render(true);
         }
         if (d.leaveTarget)
@@ -2926,6 +3697,18 @@ document.addEventListener("input", (e) => {
 });
 document.addEventListener("change", (e) => {
     const t = e.target;
+    if (modalState.action === "manual-fetch" && t.name === "mode") {
+        modalState.mode = t.value;
+        modalState.confirmed = false;
+        renderManualFetch(modalState);
+        $(`#dialog [name=mode][value="${CSS.escape(t.value)}"]`)?.focus({ preventScroll: true });
+        return;
+    }
+    if (modalState.action === "manual-fetch" && t.name === "confirm_manual") {
+        modalState.confirmed = t.checked;
+        $("#dialog button[type=submit]").disabled = !t.checked;
+        return;
+    }
     if (t.id === "language") {
         setLocale(t.value);
         return;
@@ -3086,13 +3869,16 @@ document.addEventListener("submit", async (event) => {
         }
         let result;
         const m = modalState;
+        if (m.action === "manual-fetch") return await submitManualFetch(m, f);
         if (m.action === "stop-service") {
-            await api(`/targets/${m.id}/role`, { method: "PATCH", body: { role: "banned" } });
+            const updated = await api(`/targets/${m.id}/role`, { method: "PATCH", body: { role: "banned" } });
+            syncTargetFrames(updated);
             toast(tr("服务已停止并封禁，订阅已暂停。可切换到“已封禁”查看；解除封禁后需手动恢复订阅。"));
         }
         if (m.action === "role") {
-            await api(`/targets/${m.id}/role`, { method: "PATCH", body: { role: f.get("role") } });
-            const wasBanned = S.items.find((item) => item.id === m.id)?.role === "banned";
+            const wasBanned = modalItem(m.id, "edit-target")?.role === "banned";
+            const updated = await api(`/targets/${m.id}/role`, { method: "PATCH", body: { role: f.get("role") } });
+            syncTargetFrames(updated);
             toast(
                 tr(
                     f.get("role") === "banned"
@@ -3105,7 +3891,7 @@ document.addEventListener("submit", async (event) => {
         }
         if (m.action === "runtime") {
             if (!f.has("reset") && m.item.sensitive && !f.get("value")) {
-                $("#dialog").close();
+                finishModal();
                 return;
             }
             const value = f.has("reset")
@@ -3137,10 +3923,11 @@ document.addEventListener("submit", async (event) => {
             toast(tr("恢复已安排，当前数据尚未替换。请按部署方式正常重启服务以执行恢复。"));
         }
         if (m.action === "recipients") {
-            await api(`/feeds/${m.feedId}/recipients`, {
+            const recipients = await api(`/feeds/${m.feedId}/recipients`, {
                 method: "PUT",
                 body: { mode: f.get("mode"), targets: [...m.chosen] },
             });
+            invalidateRemovedSubscriptions(recipients);
             S.selected.clear();
             toast(tr("接收会话已保存"));
         }
@@ -3176,6 +3963,7 @@ document.addEventListener("submit", async (event) => {
             toast(tr("会话已登记"));
         }
         if (m.action === "edit-sub" || m.action === "edit-target") {
+            if (m.invalid) throw new Error(tr("此订阅已取消，无法保存。请返回上一级选择其他订阅。"));
             const v = Object.fromEntries(f);
             for (const k of Object.keys(v))
                 if (!["title", "tags", "lang"].includes(k)) v[k] = v[k] === "" ? null : Number(v[k]);
@@ -3196,6 +3984,8 @@ document.addEventListener("submit", async (event) => {
         }
         if (m.action === "leave") {
             await api(html`/targets/${m.id}/leave`, { method: "POST", body: { confirm: f.get("confirm") } });
+            const target = modalItem(m.id, "edit-target");
+            if (target) syncTargetFrames({ ...target, membership: "left", active_subscriptions: 0 });
             toast(tr(S.demo ? "已在本地预览中模拟退出，订阅已暂停。" : "机器人已退出，订阅已暂停"));
         }
         if (m.action === "import") {
@@ -3221,6 +4011,7 @@ document.addEventListener("submit", async (event) => {
                     <div class="secret" id="token-secret">${esc(r.token)}</div>`,
                 html`<button type="button" data-action="copy-token">复制令牌</button
                     ><button type="button" class="primary" data-action="close">我已妥善保存</button>`,
+                { replace: true },
             );
             render(true);
             return;
@@ -3229,8 +4020,11 @@ document.addEventListener("submit", async (event) => {
             await api(html`/tokens/${m.id}`, { method: "DELETE" });
             toast(tr("令牌已撤销"));
         }
+        if (modalState !== m) return render(true);
+        for (const frame of modalHistory)
+            if (frame.state.action === "target-subscriptions") frame.state.refreshNeeded = true;
         if (result) resultModal(result);
-        else $("#dialog").close();
+        else finishModal();
         render(true);
     } catch (e) {
         const error = $(".dialog-error", form) || $(".error", form);
@@ -3242,6 +4036,7 @@ document.addEventListener("submit", async (event) => {
 });
 
 function route() {
+    if ($("#dialog").open) closeModal();
     const next = location.hash.slice(1).split("?")[0] || "dashboard";
     S.route = labels[next] ? next : "dashboard";
     if (S.route === "diagnostics" && !S.features.diagnostics) S.route = "dashboard";
@@ -3272,6 +4067,7 @@ function route() {
 }
 window.addEventListener("hashchange", route);
 function login() {
+    if ($("#dialog").open) closeModal();
     setMenu(false, { restoreFocus: false });
     $("#app").innerHTML = html`<div class="login">
         <section class="login-brand" aria-label="RSStT Web">
@@ -3921,8 +4717,25 @@ function featureSettings(key, data) {
         </section>`;
     return "";
 }
+$("#dialog").addEventListener("cancel", (event) => {
+    event.preventDefault();
+    if (modalHistory.length) backModal();
+    else closeModal();
+});
+document.addEventListener(
+    "keydown",
+    (event) => {
+        if (event.key !== "Escape" || !$("#dialog").open) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (event.repeat) return;
+        if (modalHistory.length) backModal();
+        else closeModal();
+    },
+    true,
+);
 $("#dialog").addEventListener("close", () => {
-    if (!$("#dialog").open && modalState.action === "restore") modalState = {};
+    if (!$("#dialog").open && modalFrame) closeModal();
 });
 
 // Translate only exact, documented audit codes. Free-form details remain opaque.

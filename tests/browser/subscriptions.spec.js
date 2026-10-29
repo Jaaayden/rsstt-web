@@ -15,20 +15,19 @@ test("live API: target URL, recipients, 请求标识（User-Agent） and filtere
         .getByRole("checkbox", { name: /每日设计灵感/ })
         .check();
     await page.getByRole("button", { name: "保存接收会话", exact: true }).click();
-    await expect(page.getByRole("dialog")).not.toBeVisible();
-    await page.locator("[data-sub-edit]").click();
+    await expect(page.getByRole("dialog").getByRole("heading")).toHaveText("订阅设置");
     await page.getByRole("button", { name: "订阅源请求设置", exact: true }).click();
     await page.getByRole("textbox", { name: "请求标识（User-Agent）", exact: true }).fill("OfflineBrowser/3");
     await page.getByRole("dialog").getByRole("button", { name: "保存设置", exact: true }).click();
-    await expect(page.getByRole("dialog")).not.toBeVisible();
-    await page.locator("[data-sub-edit]").click();
+    await expect(page.getByRole("dialog").getByRole("heading")).toHaveText("订阅设置");
     await page.getByRole("button", { name: "订阅源请求设置", exact: true }).click();
     await expect(page.getByRole("textbox", { name: "请求标识（User-Agent）", exact: true })).toHaveValue(
         "OfflineBrowser/3",
     );
     await page.getByRole("textbox", { name: "请求标识（User-Agent）", exact: true }).fill("");
     await page.getByRole("dialog").getByRole("button", { name: "保存设置", exact: true }).click();
-    await expect(page.getByRole("dialog")).not.toBeVisible();
+    await expect(page.getByRole("dialog").getByRole("heading")).toHaveText("订阅设置");
+    await page.locator("#dialog .dialog-head [data-action=close]").click();
     await page.locator("tbody input[type=checkbox]").check();
     await expect(page.getByRole("link", { name: "导出所选订阅源（OPML）" })).toHaveAttribute("href", /ids=\d+/);
     const exported = page.getByRole("link", { name: "导出筛选订阅源（OPML）" });

@@ -15,7 +15,7 @@ def main():
         (context / 'Dockerfile').write_text('FROM scratch\nCOPY . /context/\n')
         private = ('.preview/source/metadata.json', '.preview/snapshot.tar.gz',
                    '.demo/console.sqlite3', '.test-data/private.txt', '.env',
-                   '.env.local', 'config/bot.session', 'node_modules/private.txt')
+                   '.env.local', '.env.testing', 'config/bot.session', 'node_modules/private.txt')
         for filename in (*private, 'src/management/public.txt'):
             file = context / filename
             file.parent.mkdir(parents=True, exist_ok=True)

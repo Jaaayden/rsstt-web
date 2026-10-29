@@ -37,6 +37,8 @@ from ..helpers.timeout import BatchTimeout
 from ..i18n import i18n
 from ..parsing.post import get_post_from_entry, Post
 from ..management import diagnostics
+from ..management import articles as article_history
+from ..management import send_guard
 
 null_ctx_obj: Final[nullcontext] = nullcontext()
 
@@ -55,6 +57,10 @@ class Notifier:
             entries: Optional[Sequence[MutableMapping]] = None,
             reason: Optional[Union[web.WebError, str]] = None,
             on_blocked_cb: Callable[[hints.EntityLike], Awaitable[None]] = default_leave_chat_helper,
+            article_journal=None,
+            article_source='scheduled',
+            article_keys=None,
+            resolve_subscription=None,
     ):
         if entries is not None and reason is not None:
             raise ValueError('entries and reason cannot be set at the same time')
@@ -63,6 +69,10 @@ class Notifier:
         self._entries: Final[Optional[Sequence[MutableMapping]]] = entries
         self._reason: Final[Optional[Union[web.WebError, str]]] = reason
         self._on_blocked_cb: Callable[[hints.EntityLike], Awaitable[None]] = on_blocked_cb
+        self._articles = article_journal if article_journal is not None else article_history.current()
+        self._article_source = article_source
+        self._article_keys = article_keys
+        self._resolve_subscription = resolve_subscription
 
         self._entry_count: Final[int] = len(entries) if entries is not None else 0
         self._sub_count: Final[int] = len(subs)
@@ -188,10 +198,35 @@ class Notifier:
             return post
 
     async def _notify_sub_with_entry_idx(self, idx: int, sub: db.Sub) -> None:
-        async with self._get_post_lock[idx]:
-            post = await self._get_post(idx)
-        if post:
-            await self._do_send(sub, post)
+        if not self._articles or (self._article_keys is not None
+                                 and article_history.article_key(self._entries[idx]) not in self._article_keys):
+            async with self._get_post_lock[idx]:
+                post = await self._get_post(idx)
+            if post:
+                await self._do_send(sub, post)
+            return
+        entry = self._entries[idx]
+        await self._articles.mark(self._feed.id, entry, sub.user_id, 'queued', source=self._article_source)
+        outcome = {'status': 'failed', 'detail': '文章格式化未完成。'}
+        try:
+            async with self._get_post_lock[idx]:
+                post = await self._get_post(idx)
+            if post:
+                outcome.update(status='unconfirmed', detail='Telegram 未确认完整发送。')
+                await self._do_send(sub, post, article_result=outcome)
+            else:
+                outcome['detail'] = '文章解析失败，未能生成推送内容。'
+        except asyncio.CancelledError:
+            if outcome['status'] != 'sent':
+                outcome['detail'] = '推送任务已中断；如已开始发送，请到目标会话确认送达情况。'
+            raise
+        except BaseException as error:
+            if outcome['status'] not in ('sent', 'failed') or outcome['detail'] == '文章格式化未完成。':
+                outcome.update(status='failed', detail=type(error).__name__)
+            raise
+        finally:
+            await self._articles.mark(self._feed.id, entry, sub.user_id, outcome['status'],
+                                      detail=outcome['detail'], source=self._article_source)
 
     async def _notify_sub(self, sub: db.Sub) -> None:
         async with SameFuncPipelineContextManager[[int, db.Sub], None](
@@ -287,19 +322,24 @@ class Notifier:
 
         logger.debug(f'Deactivated {sub_count} subs: {feed_description}')
 
-    async def _do_send(self, sub: db.Sub, post: Union[str, Post]) -> None:
+    async def _do_send(self, sub: db.Sub, post: Union[str, Post], *, article_result=None) -> None:
         self._stat.start()
         try:
-            await self._send(sub, post)
+            if article_result is None:
+                await self._send(sub, post)
+            else:
+                await self._send(sub, post, article_result=article_result)
         finally:
             self._stat.finish()
 
-    async def _send(self, sub: db.Sub, post: Union[str, Post]) -> None:
+    async def _send(self, sub: db.Sub, post: Union[str, Post], *, article_result=None) -> None:
         user_id = sub.user_id
         try:
             try:
                 await env.bot.get_input_entity(user_id)  # verify that the input entity can be gotten first
             except ValueError:  # cannot get the input entity, the user may have banned the bot
+                if article_result is not None:
+                    article_result.update(status='failed', detail='机器人无法访问此接收会话。')
                 self._diagnose('delivery.blocked', '机器人无法向此会话发送消息。', sub,
                                EntityNotFoundError(user_id))
                 return await self._on_blocked(
@@ -307,10 +347,24 @@ class Notifier:
                     err_msg=type(EntityNotFoundError).__name__,
                 )
             try:
+                if self._resolve_subscription is not None:
+                    try:
+                        sub = await self._resolve_subscription(sub)
+                        if sub is None:
+                            raise ValueError('Subscription is no longer eligible')
+                    except Exception as error:
+                        raise send_guard.SendStopped() from error
                 if isinstance(post, str):
                     await env.bot.send_message(user_id, post, parse_mode='html', silent=not sub.notify)
                     return None
-                delivered = await post.send_formatted_post_according_to_sub(sub)
+                if self._resolve_subscription is None:
+                    delivered = await post.send_formatted_post_according_to_sub(sub)
+                else:
+                    with send_guard.enforce(lambda: self._resolve_subscription(sub), sub.user_id):
+                        delivered = await post.send_formatted_post_according_to_sub(sub)
+                if article_result is not None:
+                    article_result.update(status='sent' if delivered is True else 'unconfirmed',
+                                          detail='' if delivered is True else 'Telegram 未确认完整发送。')
                 from ..management.metrics import record
                 if delivered:
                     await record(delivered=1)
@@ -320,14 +374,25 @@ class Notifier:
                 if self._user_blocked_counter[user_id]:  # reset the counter if success
                     del self._user_blocked_counter[user_id]
             except UserBlockedErrors as e:
+                if article_result is not None:
+                    article_result.update(status='failed', detail=type(e).__name__)
                 self._diagnose('delivery.blocked', '机器人无法向此会话发送消息。', sub, e)
                 return await self._on_blocked(user_id=user_id, err_msg=type(e).__name__)
             except BadRequestError as e:
+                if article_result is not None:
+                    article_result.update(status='failed', detail=type(e).__name__)
                 if e.message == 'TOPIC_CLOSED':
                     self._diagnose('delivery.blocked', '机器人无法向此会话发送消息。', sub, e)
                     return await self._on_blocked(user_id=user_id, err_msg=e.message)
                 self._diagnose('delivery.failed', 'Telegram 推送失败。', sub, e)
+        except send_guard.SendStopped as error:
+            if article_result is not None:
+                article_result.update(status=error.status, detail=error.detail)
+            self._diagnose('delivery.stopped', error.detail, sub, stage='send',
+                           status=error.status, level='warning')
         except Exception as e:
+            if article_result is not None:
+                article_result.update(status='failed', detail=type(e).__name__)
             self._diagnose('delivery.failed', 'Telegram 推送失败。', sub, e)
             logger.error(f'Failed to send {post.link} (feed: {post.feed_link}, user: {sub.user_id}):', exc_info=e)
             try:
