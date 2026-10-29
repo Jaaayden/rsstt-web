@@ -11,6 +11,15 @@ from .service import Problem
 def install(routes, service, database_url, admin, body):
     lock = asyncio.Lock()
 
+    async def record(code, message, *, error=None, detail='', stage=None):
+        journal = getattr(service.store, 'diagnostics', None)
+        if journal is not None:
+            context = {'stage': stage or 'backup'}
+            if error is not None:
+                context['exception_type'] = type(error).__name__
+            await journal.record('system', 'error' if error is not None else 'info', code, message,
+                                 detail=detail, context=context)
+
     def authorize(request):
         admin(request)
         if request['principal']['kind'] != 'session':
@@ -39,7 +48,14 @@ def install(routes, service, database_url, admin, body):
     async def run(function, *args):
         try:
             return await asyncio.to_thread(function, *args)
-        except (backups.BackupError, sqlite3.Error, ValueError):
+        except FileExistsError:
+            raise
+        except (backups.BackupError, sqlite3.Error, ValueError, OSError) as error:
+            # BackupError contains our own validation messages, never file data.
+            # SQLite and OS messages can contain paths or imported values.
+            await record('backup.failed', '备份或恢复准备失败。', error=error,
+                         detail=str(error) if isinstance(error, backups.BackupError) else '',
+                         stage=function.__name__)
             # Never expose SQL data, schema details or private paths to the client.
             raise Problem('备份操作失败：请检查文件完整性、版本、选项、数据库结构或是否已有待恢复文件。', 400) from None
 
@@ -78,6 +94,7 @@ def install(routes, service, database_url, admin, body):
             raise Problem(str(error), 400) from None
         async with lock, service.mutation:
             raw = await run(backups.export, main, console, selected)
+        await record('backup.exported', '备份文件已生成。', stage='export')
         return web.Response(body=raw, content_type='application/json', headers={
             'Content-Disposition': 'attachment; filename="rsstt-backup.json"'})
 
@@ -103,6 +120,10 @@ def install(routes, service, database_url, admin, body):
                     raise Problem('已有待恢复文件，请先应用或取消。', 409) from None
                 summary.update(status='pending_restart', applied=False,
                                instructions='任务已暂存，尚未恢复。请正常重启实例；启动前将自动恢复并重新初始化 ORM、配置和调度。')
+        if summary['status'] == 'pending_restart':
+            await record('backup.staged', '恢复任务已暂存，等待重启后应用。', stage='restore')
+        else:
+            await record('backup.validated', '备份预检通过。', stage='preflight')
         return web.json_response(summary, status=202 if summary['status'] == 'pending_restart' else 200)
 
     @routes.delete('/api/backups/pending')
@@ -114,4 +135,5 @@ def install(routes, service, database_url, admin, body):
             except backups.BackupError as error:
                 raise Problem(str(error), 400) from None
             path.unlink(missing_ok=True)
+        await record('backup.cancelled', '已取消待恢复任务。', stage='restore')
         return web.json_response({'ok': True})

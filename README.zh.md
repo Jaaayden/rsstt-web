@@ -35,6 +35,8 @@ RSStT Web 是带有网页管理台的自托管 Telegram RSS 机器人，可以�
 
 统计从启用本版本并开始记录时采集，无法补回旧版未保存的推送历史。操作记录每个会话最多保留 100 条，全实例最多 2000 条。状态定义和留存边界见[会话服务控制与操作记录](docs/chat-service-control.md)。
 
+**运行日志**可以按来源或会话排查 RSS 抓取、Telegram 推送、通知投递及后台运行异常，查看实际取得的错误原因、HTTP 状态、耗时和重试安排。最多保留 30 天、5000 条，每个来源最多 100 条；旧版未保存的失败原因无法补回。详见[运行日志](docs/web-console.md#运行日志)。
+
 ## 使用 Docker Compose 快速部署
 
 需要 Docker 及 Compose 插件、从 [BotFather](https://t.me/BotFather) 获取的 Telegram Bot Token，以及用作 `MANAGER` 的个人 Telegram 数字 ID。

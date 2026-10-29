@@ -27,6 +27,7 @@ from collections import defaultdict
 
 from .. import log, env, locks
 from ..errors_collection import MediaSendFailErrors
+from ..management import diagnostics
 from .medium import Media, TypeMessage, TypeMessageMedia, VIDEO, ANIMATION, MEDIA_GROUP
 from .splitter import html_to_telegram_split
 
@@ -193,6 +194,14 @@ class Message:
             except (FloodWaitError, SlowModeWaitError) as e:
                 # telethon internally catches these errors and retries for us
                 self.tries += 2
+                exhausted = self.tries >= self.max_tries
+                diagnostics.emit('delivery', 'error' if exhausted else 'warning',
+                                 'delivery.rate_limit_exhausted' if exhausted else 'delivery.rate_limited',
+                                 'Telegram 限流重试已达上限，本条消息未完成发送。' if exhausted else 'Telegram 限流，等待后重试。',
+                                 target_id=self.user_id,
+                                 context={'exception_type': type(e).__name__, 'retry_after_seconds': e.seconds,
+                                          'attempt': self.tries, 'stage': 'send',
+                                          'status': 'failed' if exhausted else 'pending'})
                 if self.tries >= self.max_tries:
                     logger.error(f'Msg dropped due to too many flood control retries ({self.user_id})')
                     return None
@@ -200,10 +209,24 @@ class Message:
             except ServerError as e:
                 # telethon internally catches this error and retries for us
                 self.tries += 2
+                exhausted = self.tries >= self.max_tries
+                diagnostics.emit('delivery', 'error' if exhausted else 'warning',
+                                 'delivery.transport_failed' if exhausted else 'delivery.transport_retry',
+                                 'Telegram 发送重试已达上限，本条消息未完成发送。' if exhausted else 'Telegram 服务异常，正在按重试规则处理。',
+                                 target_id=self.user_id,
+                                 context={'exception_type': type(e).__name__, 'attempt': self.tries,
+                                          'stage': 'send', 'status': 'failed' if exhausted else 'pending'})
                 if self.tries >= self.max_tries:
                     raise e
             except TimedOutError as e:
                 # telethon does not catch this error or retry for us, so we do it ourselves
                 self.tries += 1
+                exhausted = self.tries >= self.max_tries
+                diagnostics.emit('delivery', 'error' if exhausted else 'warning',
+                                 'delivery.transport_failed' if exhausted else 'delivery.transport_retry',
+                                 'Telegram 发送重试已达上限，本条消息未完成发送。' if exhausted else 'Telegram 服务异常，正在按重试规则处理。',
+                                 target_id=self.user_id,
+                                 context={'exception_type': type(e).__name__, 'attempt': self.tries,
+                                          'stage': 'send', 'status': 'failed' if exhausted else 'pending'})
                 if self.tries >= self.max_tries:
                     raise e
