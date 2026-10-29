@@ -80,7 +80,15 @@ export function errorText(data, status) {
 }
 document.querySelector(".initial").textContent = locale === "en" ? "Connecting to console…" : "正在连接管理台…";
 document.documentElement.lang = locale;
-document.title = locale === "en" ? "RSStT · Subscription console" : "RSStT · 订阅管理台";
+document.title = locale === "en" ? "RSStT Web · Subscription console" : "RSStT Web · 订阅管理台";
+document
+    .querySelector('meta[name="description"]')
+    ?.setAttribute(
+        "content",
+        locale === "en"
+            ? "RSStT Web: manage RSS subscriptions, Telegram chats, and deliveries in one workspace."
+            : "RSStT Web：集中管理 RSS 订阅、Telegram 会话与推送。",
+    );
 document.querySelector(".skip").textContent = locale === "en" ? "Skip to main content" : "跳到主要内容";
 setTheme(read("rsstt.theme"));
 // Controls are re-created when signing in or changing routes.
@@ -110,8 +118,8 @@ const messages = {
     ],
     fetchFailures: ["连续抓取失败 {count} 次", "{count} consecutive fetch failures"],
     recordedChats: [
-        "已记录 {total} 个会话，其中 {unknown} 个类型待核验",
-        "{total} recorded chats; {unknown} have unverified types",
+        "已记录 {total} 个会话，其中 {unknown} 个类型未知",
+        "{total} recorded chats; {unknown} have unknown types",
     ],
     discoveredTotal: ["累计新发现文章 {count} 篇", "{count} new entries discovered in total"],
     deliveryPoint: ["{time} · 成功推送 {count} 篇次", "{time} · {count} successful deliveries"],
@@ -120,6 +128,15 @@ const messages = {
         "操作完成 {completed} 条，已订阅跳过 {skipped} 条，失败 {failed} 条。请按失败原因处理后重试。",
         "{completed} completed, {skipped} already subscribed and skipped, {failed} failed. Resolve the reported causes before retrying.",
     ],
+    lastVerified: ["状态更新时间：{time}", "State updated: {time}"],
+    chatEnabledCount: ["共 {total} 条订阅，启用 {enabled} 条", "Subscriptions: {total}; enabled: {enabled}"],
+    stopServiceConfirm: [
+        "停止为“{name}”提供服务：暂停全部订阅并拒绝常规命令，保留订阅和设置。解除封禁后需手动恢复订阅；不会自动让机器人退出群组或频道。",
+        "Stop service for “{name}”: pause all subscriptions and reject regular commands while preserving subscriptions and settings. Unblocking still requires subscriptions to be resumed manually. This does not remove the bot from a group or channel.",
+    ],
+    chatActivityTitle: ["会话记录 · {name}", "Chat activity · {name}"],
+    activityActor: ["发起人：{actor}", "Actor: {actor}"],
+    activityChanges: ["查看 {count} 项设置变更", "View setting changes ({count})"],
     pickerSummary: ["找到 {total} 个会话", "{total} chats found"],
     pickerSelected: ["已选择 {count} 个", "{count} selected"],
     loading: ["正在加载{page}…", "Loading {page}…"],

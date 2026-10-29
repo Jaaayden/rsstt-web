@@ -131,6 +131,10 @@ class Store:
         placeholders = ','.join('?' for _ in ids)
         return {r['id']: r for r in await self.rows(f'SELECT * FROM targets WHERE id IN ({placeholders})', list(map(str, ids)))}
 
+    async def departed_ids(self):
+        return [int(row['id']) for row in await self.rows(
+            "SELECT id FROM targets WHERE membership IN ('left','banned','disabled')")]
+
     async def audit(self, actor, action, detail):
         async with self.lock:
             await self.db.execute('INSERT INTO activity (at,actor,action,detail) VALUES (?,?,?,?)',

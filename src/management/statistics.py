@@ -157,7 +157,7 @@ async def usage(store=None):
         after = ''
         while True:
             metadata = await store.rows("""SELECT id,kind FROM targets
-                WHERE id>? AND membership IN ('known','available')
+                WHERE id>? AND membership IN ('known','available','joined')
                 AND kind IN ('private','channel','group') ORDER BY id LIMIT 400""", (after,))
             if not metadata:
                 break
@@ -184,6 +184,31 @@ async def usage(store=None):
                         result[previous] -= row['count']
                         result[verified_kind] += row['count']
     count = await db.Sub.filter(state=1, feed__state=1).exclude(user__state=-1).count()
+    if store is not None:
+        after = ''
+        while True:
+            departed = await store.rows("""SELECT id FROM targets WHERE id>?
+                AND membership IN ('left','banned','disabled') ORDER BY id LIMIT 400""", (after,))
+            if not departed:
+                break
+            after = departed[-1]['id']
+            ids = []
+            for row in departed:
+                try:
+                    ids.append(int(row['id']))
+                except ValueError:
+                    continue
+            if not ids:
+                continue
+            eligible = db.User.filter(id__in=ids, subs__state=1, subs__feed__state=1).exclude(state=-1)
+            for positive in (True, False):
+                rows = await eligible.filter(**{'id__gt' if positive else 'id__lte': 0}).annotate(
+                    count=Count('id', distinct=True)).group_by('state').values('state', 'count')
+                for row in rows:
+                    previous = 'private' if positive else {50: 'channel', 51: 'group'}.get(row['state'], 'unknown')
+                    active[previous] -= row['count']
+                    active['total'] -= row['count']
+            count -= await db.Sub.filter(user_id__in=ids, state=1, feed__state=1).exclude(user__state=-1).count()
     return {'known': known, 'active': active, 'active_subscriptions': count,
-            'definition': 'subscription.state=1 AND feed.state=1 AND user.state!=-1',
+            'definition': 'subscription.state=1 AND feed.state=1 AND user.state!=-1 AND bot_not_departed',
             'unknown_type': '未核验类型的群组/频道；不按 ID 推测具体类型'}

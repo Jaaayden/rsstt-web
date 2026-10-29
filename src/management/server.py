@@ -52,6 +52,8 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
     # Cookies are shared across ports; keep parallel local previews independent.
     cookie_name = f'rsstt_session_{parsed.port}' if demo else 'rsstt_session'
     service = Service(store, gateway, demo)
+    from . import chat_audit
+    await chat_audit.initialize(store)
     from ..runtime_config import RuntimeConfig, ConfigError
     runtime = RuntimeConfig(store.path.parent,
                             applied=getattr(env, 'RUNTIME_CONFIG_OVERRIDES', {}),
@@ -80,7 +82,9 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
                             raise Problem('请求来源不匹配，请通过配置的管理台地址访问。', 403)
                 elif request.path == '/api/login' and request.headers.get('Origin') != origin:
                     raise Problem('登录来源与 WEB_ORIGIN 不匹配。', 403)
-            response = await handler(request)
+            from .web_audit import trace
+            async with trace(request, service, store):
+                response = await handler(request)
         except Problem as error:
             response = web.json_response({'error': error.message, 'code': getattr(error, 'code', None) or {400: 'INVALID_REQUEST', 401: 'UNAUTHENTICATED', 403: 'FORBIDDEN', 404: 'NOT_FOUND', 409: 'CONFLICT', 415: 'UNSUPPORTED_MEDIA_TYPE', 429: 'RATE_LIMITED'}.get(error.status, 'REQUEST_FAILED')}, status=error.status)
         except web.HTTPException as error:
@@ -108,6 +112,7 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
             'security': '/api/auth/account', 'runtime': '/api/runtime-config',
             'notifications': '/api/notifications', 'backups': '/api/backups',
             'recipients': '/api/feeds/{id}/recipients', 'statistics': '/api/statistics',
+            'chat_activity': '/api/targets/{id}/activity',
         }.items()}
         return web.json_response({'demo': demo, 'snapshot': snapshot, 'features': features})
 
@@ -212,6 +217,13 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
     @routes.get('/api/targets')
     async def targets(request):
         return web.json_response(await service.targets(request['principal'], request.query))
+
+    @routes.get('/api/targets/{id}/activity')
+    async def chat_activity(request):
+        admin(request)
+        user = await service.user(request.match_info['id'], request['principal'])
+        page, size = service.pagination(request.query)
+        return web.json_response(await chat_audit.events(store, user.id, page=page, size=size))
 
     @routes.post('/api/targets')
     async def register(request):
@@ -514,6 +526,9 @@ async def start():
         notifier = app[NOTIFICATIONS_KEY]
         await notifier.baseline()
         notifications.active = notifier
+        from . import chat_audit, chat_lifecycle
+        chat_audit.install(_store)
+        await chat_lifecycle.start(_store)
         from . import feed_options
         feed_options.store = _store
     except BaseException:
@@ -524,6 +539,9 @@ async def start():
 
 async def stop():
     global _runner, _store
+    from . import chat_audit, chat_lifecycle
+    await chat_lifecycle.stop()
+    chat_audit.uninstall(_store)
     notifications.active = None
     metrics.store = None
     from . import feed_options
