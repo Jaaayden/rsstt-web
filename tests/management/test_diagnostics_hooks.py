@@ -332,6 +332,8 @@ async def test_message_timeout_retries_and_normal_cancellation(monkeypatch, even
         await message.send()
     assert bot.send_message.await_count == 4
     assert events[-1]['context']['status'] == 'failed'
+    assert events[-1]['code'] == 'delivery.transport_failed'
+    assert all(item['code'] == 'delivery.transport_retry' for item in events[:-1])
     events.clear()
     bot.send_message.side_effect = asyncio.CancelledError
     with pytest.raises(asyncio.CancelledError):

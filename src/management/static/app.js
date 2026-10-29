@@ -1158,6 +1158,7 @@ const diagnosticEvents = {
     "delivery.rate_limited": "Telegram 限流，等待后重试。",
     "delivery.rate_limit_exhausted": "Telegram 限流重试已达上限，本条消息未完成发送。",
     "delivery.transport_retry": "Telegram 服务异常，正在按重试规则处理。",
+    "delivery.transport_failed": "Telegram 发送重试已达上限，本条消息未完成发送。",
     "notification.retry": "通知投递失败，已安排重试。",
     "notification.failed": "通知投递连续失败，已停止重试。",
     "notification.sent": "通知已发送。",

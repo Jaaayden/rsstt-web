@@ -1,5 +1,7 @@
 // UI copy only. Never translate server-supplied titles, URLs or user input.
 export const english = {
+    "Telegram 发送重试已达上限，本条消息未完成发送。":
+        "Telegram delivery retries are exhausted. This message was not fully sent.",
     "Telegram 推送": "Telegram delivery",
     "连续抓取失败达到上限，已触发停用处理。":
         "Consecutive fetch failures reached the limit; deactivation processing was requested.",

@@ -211,7 +211,8 @@ class Message:
                 self.tries += 2
                 exhausted = self.tries >= self.max_tries
                 diagnostics.emit('delivery', 'error' if exhausted else 'warning',
-                                 'delivery.transport_retry', 'Telegram 服务异常，正在按重试规则处理。',
+                                 'delivery.transport_failed' if exhausted else 'delivery.transport_retry',
+                                 'Telegram 发送重试已达上限，本条消息未完成发送。' if exhausted else 'Telegram 服务异常，正在按重试规则处理。',
                                  target_id=self.user_id,
                                  context={'exception_type': type(e).__name__, 'attempt': self.tries,
                                           'stage': 'send', 'status': 'failed' if exhausted else 'pending'})
@@ -222,7 +223,8 @@ class Message:
                 self.tries += 1
                 exhausted = self.tries >= self.max_tries
                 diagnostics.emit('delivery', 'error' if exhausted else 'warning',
-                                 'delivery.transport_retry', 'Telegram 服务异常，正在按重试规则处理。',
+                                 'delivery.transport_failed' if exhausted else 'delivery.transport_retry',
+                                 'Telegram 发送重试已达上限，本条消息未完成发送。' if exhausted else 'Telegram 服务异常，正在按重试规则处理。',
                                  target_id=self.user_id,
                                  context={'exception_type': type(e).__name__, 'attempt': self.tries,
                                           'stage': 'send', 'status': 'failed' if exhausted else 'pending'})
