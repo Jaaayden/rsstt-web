@@ -1940,7 +1940,6 @@ async function submitManualFetch(context, formData) {
     context.submitting = true;
     context.pollError = null;
     renderManualFetch(context);
-    const serial = context.workSerial;
     try {
         const job = await api(`/subscriptions/${context.item.id}/fetch-now`, {
             method: "POST",

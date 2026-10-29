@@ -318,7 +318,6 @@ export const english = {
         "For example zh-Hans or en; null uses automatic detection. Independent of the console language.",
     "封禁会暂停订阅，解封不会自动恢复。管理员角色不授予网页登录或管理者专属命令权限。":
         "Blocking pauses subscriptions; unblocking does not resume them. The administrator role grants neither web login nor manager-only commands.",
-    等待发送: "Pending",
     已发送: "Sent",
     已模拟: "Simulated",
     已取消: "Cancelled",
