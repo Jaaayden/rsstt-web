@@ -14,6 +14,7 @@ const paths = {
     settings:
         "M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z M9.5 2h5l.5 3 2 .8 2.5-1.5 2.5 4.4-2.3 1.9v2.8l2.3 1.9-2.5 4.4-2.5-1.5-2 .8-.5 3h-5l-.5-3-2-.8-2.5 1.5L2 15.3l2.3-1.9v-2.8L2 8.7l2.5-4.4L7 5.8 9 5Z",
     plus: "M12 5v14 M5 12h14",
+    diagnostics: "M7 3h10l4 4v14H3V3h4Z M17 3v5h4 M7 12h10 M7 16h6 M7 7h4",
     search: "M21 21l-5-5 M10 3a7 7 0 1 0 0 14 7 7 0 0 0 0-14Z",
     chevron: "m9 5 7 7-7 7",
     check: "m5 12 4 4L19 6",
@@ -53,6 +54,7 @@ const labels = {
     dashboard: tr("仪表盘"),
     targets: tr("会话与频道"),
     subscriptions: tr("全部订阅"),
+    diagnostics: tr("运行日志"),
     settings: tr("设置"),
 };
 const kindName = { private: tr("私聊"), channel: tr("频道"), group: tr("群组") };
@@ -114,6 +116,10 @@ const S = {
     target: "",
     status: "",
     attention: false,
+    logCategory: "",
+    logLevel: "",
+    logFeed: "",
+    logTarget: "",
     selected: new Set(),
     items: [],
     serial: 0,
@@ -214,6 +220,7 @@ function shell() {
                 <div class="nav-label">工作空间</div>
                 <nav class="nav">
                     ${Object.entries(labels)
+                        .filter(([key]) => key !== "diagnostics" || S.features.diagnostics)
                         .map(
                             ([key, label]) =>
                                 html`<a href="#${key}" data-nav="${key}"
@@ -323,6 +330,7 @@ async function render(quiet = false) {
             "subDelete",
             "targetSubs",
             "targetEdit",
+            "feedLogs",
             "page",
             "settings",
         ].find((key) => focus?.dataset?.[key]),
@@ -388,6 +396,10 @@ async function render(quiet = false) {
             $("#breadcrumb").textContent =
                 labels.subscriptions + (S.target ? " / " + (data.items[0]?.target_title || S.target) : "");
             html = subscriptions(data);
+        }
+        if (S.route === "diagnostics") {
+            const data = await api("/diagnostics?" + diagnosticsQuery());
+            html = diagnosticsPage(data);
         }
         if (S.route === "settings") {
             const [data, tokens, security, feature] = await Promise.all([
@@ -645,6 +657,11 @@ function dashboard(d) {
                                               ><small>${esc(item.target_title)}</small>
                                           </div>
                                           ${pill(message("fetchFailures", { count: n(item.errors) }), "warn")}
+                                          ${S.features.diagnostics && item.feed_id
+                                              ? html`<button class="text-link small" data-feed-logs="${item.feed_id}">
+                                                    抓取日志
+                                                </button>`
+                                              : ""}
                                       </div>`,
                               )
                               .join("")}
@@ -1080,7 +1097,14 @@ function subscriptions(d) {
                                                           aria-label="编辑 ${esc(item.title)}"
                                                       >
                                                           ${icon("edit", 15)}编辑</button
-                                                      ><button
+                                                      >${S.features.diagnostics && item.feed_id
+                                                          ? html`<button
+                                                                data-feed-logs="${item.feed_id}"
+                                                                aria-label="抓取日志 ${esc(item.title)}"
+                                                            >
+                                                                ${icon("diagnostics", 15)}抓取日志
+                                                            </button>`
+                                                          : ""}<button
                                                           class="action-unsubscribe"
                                                           data-sub-delete="${item.id}"
                                                           aria-label="取消订阅 ${esc(item.title)}"
@@ -1103,6 +1127,435 @@ function subscriptions(d) {
                   )}${pager(d)}
         </section>`
     );
+}
+
+const diagnosticCategories = {
+    fetch: "订阅源抓取",
+    delivery: "Telegram 推送",
+    notification: "管理员通知",
+    system: "系统运行",
+};
+const diagnosticLevels = { info: "信息", warning: "警告", error: "错误" };
+const diagnosticEvents = {
+    "fetch.failed": "订阅源抓取失败。",
+    "fetch.recovered": "订阅源抓取已恢复。",
+    "fetch.not_modified": "订阅源未发生变化，使用缓存。",
+    "fetch.empty": "抓取成功，订阅源暂时没有文章。",
+    "fetch.unchanged": "抓取成功，没有新文章。",
+    "fetch.updated": "抓取成功，发现新文章。",
+    "fetch.deactivation_requested": "连续抓取失败达到上限，已触发停用处理。",
+    "fetch.deactivated": "订阅源已停用，相关订阅已暂停。",
+    "fetch.state_save_failed": "抓取结果已返回，但订阅状态保存失败。",
+    "fetch.exception": "抓取任务发生异常，未完成本次检查。",
+    "fetch.timeout": "抓取任务超时，未完成本次检查。",
+    "delivery.parse_failed": "文章解析失败，未能生成推送内容。",
+    "delivery.failed": "Telegram 推送失败。",
+    "delivery.unconfirmed": "Telegram 未确认完整发送，不能计为成功推送。",
+    "delivery.blocked": "机器人无法向此会话发送消息。",
+    "delivery.deactivated": "多次无法发送，已停止向此会话提供服务。",
+    "delivery.timeout": "Telegram 推送任务超时。",
+    "delivery.exception": "Telegram 推送任务发生异常。",
+    "delivery.rate_limited": "Telegram 限流，等待后重试。",
+    "delivery.rate_limit_exhausted": "Telegram 限流重试已达上限，本条消息未完成发送。",
+    "delivery.transport_retry": "Telegram 服务异常，正在按重试规则处理。",
+    "notification.retry": "通知投递失败，已安排重试。",
+    "notification.failed": "通知投递连续失败，已停止重试。",
+    "notification.sent": "通知已发送。",
+    "notification.simulated": "离线模式：已模拟通知投递。",
+    "notification.cancelled": "通知渠道已停用，取消本次投递。",
+    "notification.queue_failed": "通知任务处理失败。",
+    "metrics.failed": "统计记录写入失败。",
+    "metrics.recovered": "统计记录已恢复。",
+    "membership.rate_limited": "Telegram 限流，会话状态核验已暂停。",
+    "membership.failed": "无法核验会话状态，已保留上次已知状态。",
+    "membership.scan_failed": "启动时的会话状态核验未完成。",
+    "membership.observe_failed": "处理会话状态变更时发生错误。",
+    "backup.failed": "备份或恢复准备失败。",
+    "backup.exported": "备份文件已生成。",
+    "backup.staged": "恢复任务已暂存，等待重启后应用。",
+    "backup.validated": "备份预检通过。",
+    "backup.cancelled": "已取消待恢复任务。",
+    "console.request_failed": "网页管理操作发生后台异常。",
+    "console.started": "网页管理台已启动。",
+    "console.stopped": "网页管理台正在正常停止。",
+    "runtime_config.saved": "运行配置已保存，等待重启生效。",
+    "runtime_config.read_failed": "无法读取运行配置，请检查配置文件。",
+    "runtime_config.rejected": "运行配置未保存，请检查配置项。",
+    "auth.sign_in_failed": "管理台登录失败，请检查密码或稍后重试。",
+    "auth.signed_in": "管理员已登录网页管理台。",
+    "auth.password_change_rejected": "管理台密码未修改：当前密码不正确。",
+    "auth.password_changed": "管理台密码已修改，原有网页登录已失效。",
+    "auth.token_issued": "API 访问令牌已创建。",
+    "auth.token_revoked": "API 访问令牌已撤销。",
+    "backup.restore_failed": "备份恢复失败；请检查维护日志与回退副本。",
+    "backup.restored": "备份已在启动前恢复。",
+    "backup.restore_result_unavailable": "无法读取上次备份恢复结果。",
+};
+const diagnosticFields = {
+    http_status: "HTTP 状态",
+    duration_ms: "请求耗时",
+    failures: "连续失败次数",
+    next_retry_at: "已安排的下次重试",
+    next_check_at: "下次检查",
+    source_host: "来源主机",
+    exception_type: "异常类型",
+    attempt: "本次投递尝试",
+    channel: "通知渠道",
+    new_entries: "新发现文章数",
+    stage: "发生环节",
+    status: "处理结果",
+    method: "请求方法",
+    route: "接口路径",
+    retry_after_seconds: "需等待",
+};
+const diagnosticValues = {
+    request: "请求订阅源",
+    parse: "解析内容",
+    process: "处理抓取结果",
+    persist: "保存订阅状态",
+    send: "发送消息",
+    queue: "处理通知队列",
+    cached: "缓存未变化",
+    empty: "暂无文章",
+    unchanged: "没有新文章",
+    updated: "发现新文章",
+    failed: "失败",
+    recovered: "已恢复",
+    deactivated: "已停用",
+    pending: "等待重试",
+    sent: "已发送",
+    simulated: "离线模拟",
+    cancelled: "已取消",
+    unconfirmed: "未确认完整送达",
+    metrics: "记录统计",
+    membership: "核验会话状态",
+    export: "导出备份",
+    validate: "校验备份",
+    write_private: "保存恢复任务",
+    preflight: "预检备份",
+    restore: "恢复备份",
+};
+const diagnosticDate = (value) => (value && !Number.isNaN(new Date(value).getTime()) ? dateText(value) : tr("未记录"));
+function diagnosticReason(item) {
+    const context = item.context || {},
+        status = Number(context.http_status),
+        type = String(context.exception_type || "");
+    if (item.level === "info") return "";
+    const httpReasons = {
+        401: "来源要求身份认证，请检查订阅地址的授权是否有效。",
+        403: "来源拒绝访问，可能需要调整来源授权、User-Agent 或访问网络。",
+        404: "来源地址不存在，请检查订阅地址是否已迁移或删除。",
+        410: "来源已删除此地址，请更换有效的订阅地址。",
+        429: "来源限制请求频率，请等待重试并检查抓取间隔。",
+    };
+    if (item.category === "fetch" && httpReasons[status]) return tr(httpReasons[status]);
+    if (status >= 500) return tr("远端服务器返回错误，请稍后重试或检查对应服务。");
+    if (/DNS|NameResolution|gaierror/i.test(type)) return tr("域名解析失败，请检查域名和 DNS 连接。");
+    if (/Certificate|SSL|TLS/i.test(type)) return tr("安全连接失败，请检查远端证书和系统时间。");
+    if (/Timeout/i.test(type) || item.code?.endsWith(".timeout"))
+        return tr("等待响应超时，请检查网络连接或远端响应速度。");
+    if (/Connector|Connect|Disconnect|Socket/i.test(type)) return tr("网络连接失败，请检查远端服务、代理和网络连接。");
+    if (/InvalidURL/i.test(type)) return tr("地址格式无效，请检查配置的地址。");
+    if (context.stage === "parse" || item.code === "delivery.parse_failed")
+        return tr("返回内容无法解析为有效订阅或文章，请检查来源格式。");
+    return "";
+}
+
+function diagnosticDetails(item) {
+    const rows = Object.entries(item.context || {}).filter(
+        ([key, value]) => Object.hasOwn(diagnosticFields, key) && value !== null && value !== "",
+    );
+    return html`<details class="diagnostic-details">
+        <summary>查看技术详情</summary>
+        <dl class="diagnostic-context">
+            <div>
+                <dt>事件代码</dt>
+                <dd class="mono">${esc(item.code)}</dd>
+            </div>
+            ${rows
+                .map(
+                    ([key, value]) =>
+                        html`<div>
+                            <dt>${tr(diagnosticFields[key])}</dt>
+                            <dd class="${["source_host", "exception_type", "route"].includes(key) ? "mono" : ""}">
+                                ${esc(
+                                    ["next_retry_at", "next_check_at"].includes(key)
+                                        ? diagnosticDate(value)
+                                        : key === "duration_ms"
+                                          ? n(value) + " ms"
+                                          : key === "retry_after_seconds"
+                                            ? n(value) + " s"
+                                            : ["stage", "status"].includes(key) &&
+                                                Object.hasOwn(diagnosticValues, value)
+                                              ? tr(diagnosticValues[value])
+                                              : value,
+                                )}
+                            </dd>
+                        </div>`,
+                )
+                .join("")}
+        </dl>
+        ${item.detail ? html`<pre class="diagnostic-technical">${esc(item.detail)}</pre>` : ""}
+    </details>`;
+}
+function diagnosticEntries(data, feedLinks = true) {
+    if (!data.items?.length)
+        return empty(
+            tr("暂无符合条件的运行日志"),
+            tr("日志从启用此版本后开始记录，旧的失败次数无法还原为历史日志。可调整筛选或等待下一次实际任务。"),
+            "diagnostics",
+        );
+    return html`<div class="diagnostic-list">
+        ${data.items
+            .map((item) => {
+                const reason = diagnosticReason(item),
+                    context = item.context || {};
+                return html`<article
+                    class="diagnostic-entry diagnostic-${["info", "warning", "error"].includes(item.level)
+                        ? item.level
+                        : "info"}"
+                >
+                    <div class="diagnostic-entry-head">
+                        <div class="inline">
+                            ${pill(
+                                tr(diagnosticLevels[item.level] || "信息"),
+                                item.level === "error" ? "danger" : item.level === "warning" ? "warn" : "gray",
+                            )}<span class="small muted"
+                                >${esc(tr(diagnosticCategories[item.category] || "系统运行"))}</span
+                            >
+                        </div>
+                        <time>${esc(diagnosticDate(item.at))}</time>
+                    </div>
+                    <h3>
+                        ${esc(
+                            Object.hasOwn(diagnosticEvents, item.code)
+                                ? tr(diagnosticEvents[item.code])
+                                : item.message || item.code,
+                        )}
+                    </h3>
+                    ${reason ? html`<p class="diagnostic-reason">${esc(reason)}</p>` : ""}
+                    <div class="diagnostic-facts">
+                        ${Number(context.http_status) > 0
+                            ? html`<span>HTTP <strong>${esc(context.http_status)}</strong></span>`
+                            : ""}
+                        ${context.exception_type ? html`<span class="mono">${esc(context.exception_type)}</span>` : ""}
+                        ${context.duration_ms !== undefined ? html`<span>${n(context.duration_ms)} ms</span>` : ""}
+                        ${context.failures !== undefined
+                            ? html`<span>${message("fetchFailures", { count: n(context.failures) })}</span>`
+                            : ""}
+                        ${item.feed_id
+                            ? html`<span
+                                  >订阅源 <strong>${esc(item.feed_title || item.feed_id)}</strong>${item.feed_title
+                                      ? html` · ID ${esc(item.feed_id)}`
+                                      : ""}</span
+                              >`
+                            : ""}
+                        ${item.target_id
+                            ? html`<span
+                                  >会话 <strong>${esc(item.target_title || item.target_id)}</strong>${item.target_title
+                                      ? html` · ID ${esc(item.target_id)}`
+                                      : ""}</span
+                              >`
+                            : ""}
+                    </div>
+                    ${context.next_retry_at
+                        ? html`<p class="hint">已安排的下次重试：${esc(diagnosticDate(context.next_retry_at))}</p>`
+                        : ""}
+                    ${context.next_check_at
+                        ? html`<p class="hint">下次检查：${esc(diagnosticDate(context.next_check_at))}</p>`
+                        : ""}
+                    ${!reason && item.detail && item.level !== "info"
+                        ? html`<p class="diagnostic-reason">${esc(item.detail)}</p>`
+                        : ""}
+                    ${diagnosticDetails(item)}
+                    ${feedLinks && item.feed_id
+                        ? html`<div>
+                              <button
+                                  class="text-link small"
+                                  data-feed-logs="${esc(item.feed_id)}"
+                                  aria-label="查看抓取日志 ${esc(item.feed_title || item.feed_id)}"
+                              >
+                                  查看抓取日志 ${icon("arrow", 13)}
+                              </button>
+                          </div>`
+                        : ""}
+                </article>`;
+            })
+            .join("")}
+    </div>`;
+}
+function diagnosticNotice(data) {
+    return html`${data.degraded
+        ? html`<p class="notice warning" role="alert">
+              运行日志存储暂时异常，当前记录可能不完整。请检查磁盘和服务进程日志。
+          </p>`
+        : ""}${data.dropped
+        ? html`<p class="notice warning">${message("logsDropped", { count: n(data.dropped) })}</p>`
+        : ""}`;
+}
+function diagnosticRetention(data) {
+    const retention = data.retention || {};
+    return html`<p class="diagnostic-retention hint">
+        ${message("logRetention", {
+            days: n(retention.days || 30),
+            total: n(retention.max_entries || 5000),
+            feed: n(retention.per_feed || 100),
+        })}${data.started_at
+            ? html`<br />开始记录：${esc(diagnosticDate(data.started_at))}`
+            : ""}<br />日志按需刷新；不记录普通聊天正文、请求正文或凭证。
+    </p>`;
+}
+function diagnosticPager(data, modalView = false) {
+    const page = data.page || 1,
+        size = data.size || 30,
+        total = data.total || 0;
+    return html`<div class="pager">
+        <span
+            >${message("pager", {
+                total: n(total),
+                page: n(page),
+                pages: n(Math.max(1, Math.ceil(total / size))),
+            })}</span
+        >
+        <div class="inline">
+            <button
+                type="button"
+                ${modalView ? "data-feed-log-page" : "data-page"}="${page - 1}"
+                ${page <= 1 ? "disabled" : ""}
+            >
+                上一页</button
+            ><button
+                type="button"
+                ${modalView ? "data-feed-log-page" : "data-page"}="${page + 1}"
+                ${page * size >= total ? "disabled" : ""}
+            >
+                下一页
+            </button>
+        </div>
+    </div>`;
+}
+function diagnosticsQuery() {
+    const params = new URLSearchParams({ page: S.page, size: 30 });
+    for (const [key, value] of Object.entries({
+        category: S.logCategory,
+        level: S.logLevel,
+        feed_id: S.logFeed,
+        target_id: S.logTarget,
+    }))
+        if (value) params.set(key, value);
+    return params;
+}
+
+function diagnosticsPage(data) {
+    return (
+        header(
+            tr("运行日志"),
+            tr("查看抓取、推送、管理员通知与系统运行的结果和异常原因。"),
+            html`<button data-action="logs-refresh">${icon("refresh", 15)}刷新日志</button>`,
+        ) +
+        html`<section class="panel diagnostics-panel">
+            <div class="toolbar diagnostics-toolbar">
+                <div class="toolbar-main">
+                    <label
+                        >日志类别<select id="log-category">
+                            <option value="">全部类别</option>
+                            ${Object.entries(diagnosticCategories)
+                                .map(
+                                    ([value, title]) =>
+                                        html`<option value="${value}" ${S.logCategory === value ? "selected" : ""}>
+                                            ${tr(title)}
+                                        </option>`,
+                                )
+                                .join("")}
+                        </select></label
+                    ><label
+                        >严重程度<select id="log-level">
+                            <option value="">全部级别</option>
+                            ${Object.entries(diagnosticLevels)
+                                .map(
+                                    ([value, title]) =>
+                                        html`<option value="${value}" ${S.logLevel === value ? "selected" : ""}>
+                                            ${tr(title)}
+                                        </option>`,
+                                )
+                                .join("")}
+                        </select></label
+                    >
+                </div>
+                <div class="toolbar-secondary">
+                    ${S.logFeed
+                        ? html`<span class="diagnostic-scope">订阅源 ID <strong>${esc(S.logFeed)}</strong></span>`
+                        : ""}${S.logTarget
+                        ? html`<span class="diagnostic-scope">会话 ID <strong>${esc(S.logTarget)}</strong></span>`
+                        : ""}${S.logFeed || S.logTarget || S.logCategory || S.logLevel
+                        ? html`<button class="quiet small" data-action="logs-clear">清除日志筛选</button>`
+                        : ""}
+                </div>
+            </div>
+            <div class="diagnostics-body">
+                ${diagnosticNotice(data)}${diagnosticEntries(data)}${diagnosticRetention(data)}
+            </div>
+            ${diagnosticPager(data)}
+        </section>`
+    );
+}
+async function showFeedLogs(feedId, page = 1) {
+    const context = { action: "feed-logs", feedId: String(feedId), page: Math.max(1, page || 1) };
+    modalState = context;
+    modal(tr("订阅源抓取日志"), html`<p role="status">正在加载抓取日志…</p>`);
+    try {
+        const data = await api(
+            `/feeds/${encodeURIComponent(context.feedId)}/diagnostics?` +
+                new URLSearchParams({ category: "fetch", page: context.page, size: 20 }),
+        );
+        if (modalState !== context || !$("#dialog").open) return;
+        const feed = data.feed || {};
+        modal(
+            tr("订阅源抓取日志"),
+            html`<div class="feed-log-summary">
+                    <strong>${esc(feed.title || context.feedId)}</strong
+                    ><span class="hint">订阅源 ID ${esc(feed.id || context.feedId)}</span>
+                    <div class="inline">
+                        ${feed.errors
+                            ? pill(message("fetchFailures", { count: n(feed.errors) }), "warn")
+                            : pill(tr("当前没有连续抓取失败"), "gray")}${feed.state === 0
+                            ? pill(tr("来源已停用"), "warn")
+                            : ""}
+                    </div>
+                    <p class="hint">
+                        ${feed.next_check_time
+                            ? tr(feed.errors ? "已安排的下次重试：" : "下次检查：") +
+                              esc(diagnosticDate(feed.next_check_time))
+                            : tr("未记录单独的延后重试时间；实际检查由当前调度决定。")}
+                    </p>
+                    ${feed.errors && !data.total && !data.items?.length
+                        ? html`<p class="notice warning">
+                              当前只有连续失败次数，没有保存当时的错误原因。下一次实际抓取后会开始显示诊断记录。
+                          </p>`
+                        : ""}
+                </div>
+                ${diagnosticNotice(data)}${diagnosticEntries(data, false)}${diagnosticPager(
+                    data,
+                    true,
+                )}${diagnosticRetention(data)}`,
+            html`<button type="button" data-related-feed-logs="${esc(context.feedId)}">全部相关运行日志</button
+                ><button type="button" data-action="feed-logs-retry">${icon("refresh", 15)}刷新日志</button
+                ><button type="button" data-action="close">关闭</button>`,
+        );
+        $("#dialog [data-action=close]").focus({ preventScroll: true });
+    } catch (error) {
+        if (modalState !== context || !$("#dialog").open) return;
+        if (error.status === 401) {
+            $("#dialog").close();
+            S.session = null;
+            return login();
+        }
+        modal(
+            tr("订阅源抓取日志"),
+            html`<p class="notice warning" role="alert">${esc(error.message)}</p>
+                <button type="button" data-action="feed-logs-retry">重新加载抓取日志</button>`,
+        );
+    }
 }
 
 function settings(d, tokens, security, feature) {
@@ -1595,6 +2048,9 @@ function editSub(item) {
                 ? html`<div class="inline">
                       <button type="button" data-feed-recipients="${item.feed_id}">管理接收会话</button
                       ><button type="button" data-feed-fetch="${item.feed_id}">订阅源请求设置</button>
+                      ${S.features.diagnostics
+                          ? html`<button type="button" data-feed-logs="${item.feed_id}">查看抓取日志</button>`
+                          : ""}
                   </div>`
                 : ""}<label
                 >此订阅的显示名称<input
@@ -1906,6 +2362,8 @@ function chatServiceControls(item) {
         <div class="inline">
             ${S.features.chat_activity
                 ? html`<button type="button" data-target-activity="${item.id}">查看会话记录</button>`
+                : ""}${S.features.diagnostics
+                ? html`<button type="button" data-target-logs="${item.id}">查看推送与运行日志</button>`
                 : ""}${item.id.startsWith("-")
                 ? html`<button type="button" class="danger small" data-leave-target="${item.id}">让机器人退出</button>`
                 : ""}
@@ -2081,6 +2539,23 @@ document.addEventListener("click", async (event) => {
             );
         }
         if (d.action === "retry") return render();
+        if (d.feedLogs) return showFeedLogs(d.feedLogs);
+        if (d.feedLogPage) return showFeedLogs(modalState.feedId, Number(d.feedLogPage));
+        if (d.action === "feed-logs-retry") return showFeedLogs(modalState.feedId, modalState.page);
+        if (d.action === "logs-refresh") return render(true);
+        if (d.action === "logs-clear") {
+            S.logCategory = S.logLevel = S.logFeed = S.logTarget = "";
+            S.page = 1;
+            return render(true);
+        }
+        if (d.targetLogs || d.relatedFeedLogs) {
+            const params = new URLSearchParams(
+                d.targetLogs ? { target_id: d.targetLogs } : { feed_id: d.relatedFeedLogs },
+            );
+            $("#dialog").close();
+            location.hash = "diagnostics?" + params;
+            return;
+        }
         if (d.period) {
             S.period = Number(d.period);
             S.granularity = S.period === 24 ? "hour" : "day";
@@ -2475,6 +2950,11 @@ document.addEventListener("change", (e) => {
         S.selected.clear();
         render(true);
     }
+    if (t.id === "log-category" || t.id === "log-level") {
+        S[t.id === "log-category" ? "logCategory" : "logLevel"] = t.value;
+        S.page = 1;
+        render(true);
+    }
     if (t.dataset.select) {
         t.checked ? S.selected.add(Number(t.dataset.select)) : S.selected.delete(Number(t.dataset.select));
         render(true);
@@ -2763,6 +3243,7 @@ document.addEventListener("submit", async (event) => {
 function route() {
     const next = location.hash.slice(1).split("?")[0] || "dashboard";
     S.route = labels[next] ? next : "dashboard";
+    if (S.route === "diagnostics" && !S.features.diagnostics) S.route = "dashboard";
     const params = new URLSearchParams(location.hash.split("?")[1] || "");
     S.page = Math.max(1, Number(params.get("page")) || 1);
     S.q = params.get("q") || "";
@@ -2773,6 +3254,12 @@ function route() {
     S.target = params.get("target") || "";
     S.status = params.get("state") || "";
     S.attention = params.get("attention") === "1";
+    S.logCategory = ["fetch", "delivery", "notification", "system"].includes(params.get("category"))
+        ? params.get("category")
+        : "";
+    S.logLevel = ["info", "warning", "error"].includes(params.get("level")) ? params.get("level") : "";
+    S.logFeed = /^\d+$/.test(params.get("feed_id") || "") ? params.get("feed_id") : "";
+    S.logTarget = /^-?\d+$/.test(params.get("target_id") || "") ? params.get("target_id") : "";
     S.settings = ["general", "tokens", "instance", "security", "runtime", "notifications", "backups"].includes(
         params.get("section"),
     )
@@ -2875,6 +3362,10 @@ function syncURL() {
         state: S.status,
         attention: S.attention ? "1" : "",
         section: S.route === "settings" ? S.settings : "",
+        category: S.route === "diagnostics" ? S.logCategory : "",
+        level: S.route === "diagnostics" ? S.logLevel : "",
+        feed_id: S.route === "diagnostics" ? S.logFeed : "",
+        target_id: S.route === "diagnostics" ? S.logTarget : "",
     }))
         if (v) p.set(k, v);
     history.replaceState(null, "", html`#${S.route}${p.size ? "?" + p : ""}`);

@@ -18,6 +18,7 @@ from __future__ import annotations
 from typing import Sequence, MutableMapping, Union, Final, ClassVar, Optional, Any, Callable, Awaitable
 
 import asyncio
+import re
 from collections import defaultdict, Counter
 from telethon import hints
 from telethon.errors import BadRequestError
@@ -35,6 +36,7 @@ from ..helpers.pipeline import SameFuncPipelineContextManager, StopPipeline
 from ..helpers.timeout import BatchTimeout
 from ..i18n import i18n
 from ..parsing.post import get_post_from_entry, Post
+from ..management import diagnostics
 
 null_ctx_obj: Final[nullcontext] = nullcontext()
 
@@ -79,6 +81,21 @@ class Notifier:
     def _describe_subtask(self, sub: db.Sub, *_, **__) -> str:
         return f'{sub.id} (feed: {sub.feed_id}, user: {sub.user_id}): {self._feed.link}'
 
+    def _diagnose(self, code, message, sub=None, error=None, *, stage='send', status='failed', level='error'):
+        context = {'stage': stage, 'status': status}
+        detail = ''
+        if error is not None:
+            context['exception_type'] = type(error).__name__
+            detail = type(error).__name__
+            rpc_code = getattr(error, 'message', None)
+            # Fixed Telegram RPC identifiers are safe; arbitrary exception text
+            # may contain posts, URLs or request objects and is excluded.
+            if isinstance(rpc_code, str) and re.fullmatch(r'[A-Z][A-Z0-9_]{0,79}', rpc_code):
+                detail += '; ' + rpc_code
+        diagnostics.emit('delivery', level, code, message,
+                         feed_id=self._feed.id, target_id=sub.user_id if sub is not None else None,
+                         detail=detail, context=context)
+
     def _on_subtask_notified(self, *_, **__):
         self._stat.notified()
 
@@ -94,6 +111,7 @@ class Notifier:
 
     def _on_subtask_unknown_error(self, err: BaseException, sub: db.Sub, *_, **__):
         self._stat.unknown_error()
+        self._diagnose('delivery.exception', 'Telegram 推送任务发生异常。', sub, err)
         logger.error(
             f'Notifier subtask failed due to an unknown error: {self._describe_subtask(sub)}',
             exc_info=err,
@@ -101,6 +119,7 @@ class Notifier:
 
     def _on_subtask_timeout(self, err: BaseException, sub: db.Sub, *_, **__):
         self._stat.timeout()
+        self._diagnose('delivery.timeout', 'Telegram 推送任务超时。', sub, err)
         logger.error(
             f'Notifier subtask timed out after {TIMEOUT}s: {self._describe_subtask(sub)}',
             exc_info=err,
@@ -108,6 +127,7 @@ class Notifier:
 
     def _on_subtask_timeout_unknown_error(self, err: BaseException, sub: db.Sub, *_, **__):
         self._stat.timeout_unknown_error()
+        self._diagnose('delivery.timeout', 'Telegram 推送任务超时。', sub, err)
         logger.error(
             f'Notifier subtask timed out after {TIMEOUT}s and caused an unknown error: {self._describe_subtask(sub)}',
             exc_info=err,
@@ -120,6 +140,7 @@ class Notifier:
             self._cached_posts[idx] = None
 
     def _on_notify_sub_with_entry_idx_error(self, err: BaseException, idx: int, sub: db.Sub, *_, **__):
+        self._diagnose('delivery.exception', 'Telegram 推送任务发生异常。', sub, err)
         post = self._cached_posts.get(idx)
         link = post and post.link
         logger.error(
@@ -144,6 +165,7 @@ class Notifier:
         try:
             post = await get_post_from_entry(entry, feed.title, feed.link)
         except Exception as e:
+            self._diagnose('delivery.parse_failed', '文章解析失败，未能生成推送内容。', error=e, stage='parse')
             logger.error(f'Failed to parse the post {link} (feed: {feed.link}) from entry:', exc_info=e)
             try:
                 error_message = Post(
@@ -213,6 +235,8 @@ class Notifier:
         reason = self._reason
 
         await inner.utils.deactivate_feed(feed)
+        await diagnostics.record('fetch', 'warning', 'fetch.deactivated', '订阅源已停用，相关订阅已暂停。',
+                                 feed_id=feed.id, context={'stage': 'process', 'status': 'deactivated'})
 
         if not subs:  # nobody has subbed it or no active sub exists
             return
@@ -276,6 +300,8 @@ class Notifier:
             try:
                 await env.bot.get_input_entity(user_id)  # verify that the input entity can be gotten first
             except ValueError:  # cannot get the input entity, the user may have banned the bot
+                self._diagnose('delivery.blocked', '机器人无法向此会话发送消息。', sub,
+                               EntityNotFoundError(user_id))
                 return await self._on_blocked(
                     user_id=user_id,
                     err_msg=type(EntityNotFoundError).__name__,
@@ -288,14 +314,21 @@ class Notifier:
                 from ..management.metrics import record
                 if delivered:
                     await record(delivered=1)
+                else:
+                    self._diagnose('delivery.unconfirmed', 'Telegram 未确认完整发送，不能计为成功推送。',
+                                   sub, status='unconfirmed', level='warning')
                 if self._user_blocked_counter[user_id]:  # reset the counter if success
                     del self._user_blocked_counter[user_id]
             except UserBlockedErrors as e:
+                self._diagnose('delivery.blocked', '机器人无法向此会话发送消息。', sub, e)
                 return await self._on_blocked(user_id=user_id, err_msg=type(e).__name__)
             except BadRequestError as e:
                 if e.message == 'TOPIC_CLOSED':
+                    self._diagnose('delivery.blocked', '机器人无法向此会话发送消息。', sub, e)
                     return await self._on_blocked(user_id=user_id, err_msg=e.message)
+                self._diagnose('delivery.failed', 'Telegram 推送失败。', sub, e)
         except Exception as e:
+            self._diagnose('delivery.failed', 'Telegram 推送失败。', sub, e)
             logger.error(f'Failed to send {post.link} (feed: {post.feed_link}, user: {sub.user_id}):', exc_info=e)
             try:
                 error_message = Post(
@@ -332,6 +365,9 @@ class Notifier:
             del self._user_blocked_counter[user_id]
             logger.error(f'User blocked ({err_msg}): {user_id}')
             await self._on_blocked_cb(user_id)
+            diagnostics.emit('delivery', 'warning', 'delivery.deactivated', '多次无法发送，已停止向此会话提供服务。',
+                             feed_id=self._feed.id, target_id=user_id,
+                             context={'stage': 'send', 'status': 'deactivated'})
             if self._raise_stop_pipeline_after_leave_chat:
                 raise StopPipeline()
 

@@ -25,6 +25,8 @@ from datetime import datetime, timedelta, timezone
 from email.utils import format_datetime
 from collections import defaultdict
 from itertools import islice, chain, repeat
+from time import monotonic
+from urllib.parse import urlsplit
 
 from ._common import logger, TIMEOUT
 from ._notifier import Notifier
@@ -35,6 +37,46 @@ from ..helpers.bg import bg
 from ..helpers.singleton import Singleton
 from ..helpers.timeout import BatchTimeout
 from ..parsing.utils import ensure_plain
+from ..management import diagnostics
+
+
+def _technical_error(error):
+    """Describe a transport error without URLs, request data or response bodies."""
+    if error is None:
+        return ''
+    parts = [type(error).__name__]
+    errno = getattr(getattr(error, 'os_error', error), 'errno', None)
+    if isinstance(errno, int):
+        parts.append(f'errno={errno}')
+    return '; '.join(parts)
+
+
+def _mark_diagnosed(error, feed_id):
+    try:
+        error._rsstt_diagnostic_feed = feed_id
+    except Exception:
+        pass
+
+
+def _fetch_failure(wf):
+    error = getattr(wf, 'error', None)
+    name = getattr(error, 'error_name', '')
+    known = {'status code error', 'network error', 'feed invalid', 'URL invalid', 'internal error'}
+    detail = name if name in known else 'fetch failed'
+    base = getattr(error, 'base_error', None)
+    context = {'stage': 'parse' if name == 'feed invalid' else 'request'}
+    if base is not None:
+        detail += '; ' + _technical_error(base)
+        context['exception_type'] = type(base).__name__
+    parse = getattr(wf, 'parse_diagnostic', None)
+    if isinstance(parse, dict) and name == 'feed invalid':
+        if isinstance(parse.get('exception_type'), str):
+            context['exception_type'] = parse['exception_type']
+            detail += '; ' + parse['exception_type']
+        for key in ('line', 'column'):
+            if isinstance(parse.get(key), int):
+                detail += f'; {key}={parse[key]}'
+    return detail, context
 
 
 class TaskState(enum.IntFlag):
@@ -102,14 +144,24 @@ class Monitor(Singleton):
 
     def _on_subtask_unknown_error(self, err: BaseException, feed: db.Feed, *_):
         self._stat.unknown_error()
+        if getattr(err, '_rsstt_diagnostic_feed', None) != feed.id:
+            diagnostics.emit('fetch', 'error', 'fetch.exception', '抓取任务发生异常，未完成本次检查。',
+                             feed_id=feed.id, detail=_technical_error(err),
+                             context={'exception_type': type(err).__name__, 'stage': 'process'})
         logger.error(f'Monitoring subtask failed due to an unknown error: {feed.id}: {feed.link}', exc_info=err)
 
     def _on_subtask_timeout(self, err: BaseException, feed: db.Feed, *_):
         self._stat.timeout()
+        diagnostics.emit('fetch', 'error', 'fetch.timeout', '抓取任务超时，未完成本次检查。',
+                         feed_id=feed.id, context={'duration_ms': TIMEOUT * 1000, 'stage': 'process'})
         logger.error(f'Monitoring subtask timed out after {TIMEOUT}s: {feed.id}: {feed.link}', exc_info=err)
 
     def _on_subtask_timeout_unknown_error(self, err: BaseException, feed: db.Feed, *_):
         self._stat.timeout_unknown_error()
+        diagnostics.emit('fetch', 'error', 'fetch.timeout', '抓取任务超时，未完成本次检查。',
+                         feed_id=feed.id, detail=_technical_error(err),
+                         context={'exception_type': type(err).__name__, 'duration_ms': TIMEOUT * 1000,
+                                  'stage': 'process'})
         logger.error(
             f'Monitoring subtask timed out after {TIMEOUT}s and caused an unknown error: {feed.id}: {feed.link}',
             exc_info=err
@@ -276,23 +328,52 @@ class Monitor(Singleton):
 
         from ..management import feed_options
         headers.update(await feed_options.headers(feed.link))
-        wf = await web.feed_get(feed.link, headers=headers, verbose=False)
+        started = monotonic()
+        try:
+            wf = await web.feed_get(feed.link, headers=headers, verbose=False)
+        except Exception as error:
+            await diagnostics.record('fetch', 'error', 'fetch.exception', '抓取任务发生异常，未完成本次检查。',
+                                     feed_id=feed.id, detail=_technical_error(error),
+                                     context={'exception_type': type(error).__name__, 'stage': 'request',
+                                              'duration_ms': round((monotonic() - started) * 1000)})
+            # BatchTimeout also observes the exception; it must not record it twice.
+            _mark_diagnosed(error, feed.id)
+            raise
+        duration_ms = round((monotonic() - started) * 1000)
         rss_d = wf.rss_d
 
+        previous_errors = feed.error_count
+        diagnostic_id = feed.id
+        diagnostic_context = {'duration_ms': duration_ms, 'stage': 'request'}
+        if isinstance(wf.status, int) and 100 <= wf.status <= 599:
+            diagnostic_context['http_status'] = wf.status
+        try:
+            diagnostic_context['source_host'] = urlsplit(feed.link).hostname
+        except ValueError:
+            pass
+        outcome, outcome_message, outcome_level = 'fetch.unchanged', '抓取成功，没有新文章。', 'info'
+        outcome_detail = ''
         new_error_count = 0
         new_next_check_time: Optional[datetime] = None  # clear next_check_time by default
         feed_updated_fields: set[str] = set()
         try:
             if wf.status == 304:  # cached
+                outcome, outcome_message = 'fetch.not_modified', '订阅源未发生变化，使用缓存。'
+                diagnostic_context['status'] = 'cached'
                 logger.debug(f'Fetched (not updated, cached): {feed.link}')
                 stat.cached()
                 return
 
             if rss_d is None:  # error occurred
+                outcome, outcome_message, outcome_level = 'fetch.failed', '订阅源抓取失败。', 'error'
+                outcome_detail, failure_context = _fetch_failure(wf)
+                diagnostic_context.update(failure_context, status='failed')
                 from ..management.metrics import record
                 await record(failed=1)
                 new_error_count = feed.error_count + 1
                 if new_error_count >= 100:
+                    outcome, outcome_message = 'fetch.deactivation_requested', '连续抓取失败达到上限，已触发停用处理。'
+                    diagnostic_context['status'] = 'pending'
                     logger.error(
                         f'Deactivated due to too many ({new_error_count}) errors (current: {wf.error}): {feed.link}'
                     )
@@ -325,6 +406,8 @@ class Monitor(Singleton):
             new_next_check_time = wf.calc_next_check_as_per_server_side_cache()
 
             if not rss_d.entries:  # empty
+                outcome, outcome_message = 'fetch.empty', '抓取成功，订阅源暂时没有文章。'
+                diagnostic_context['status'] = 'empty'
                 logger.debug(f'Fetched (not updated, empty): {feed.link}')
                 stat.empty()
                 return
@@ -340,15 +423,35 @@ class Monitor(Singleton):
             updated_entries = list(updated_entries)
 
             if not updated_entries:  # not updated
+                diagnostic_context['status'] = 'unchanged'
                 logger.debug(f'Fetched (not updated): {feed.link}')
                 stat.not_updated()
                 return
 
             logger.debug(f'Updated: {feed.link}')
+            outcome, outcome_message = 'fetch.updated', '抓取成功，发现新文章。'
+            diagnostic_context.update(status='updated', new_entries=len(updated_entries))
             feed.last_modified = wr.last_modified
             feed.entry_hashes = list(islice(new_hashes, max(len(rss_d.entries) * 2, 100))) or None
             feed_updated_fields.update({'last_modified', 'entry_hashes'})
+        except asyncio.CancelledError:
+            outcome = None
+            raise
+        except Exception as error:
+            outcome, outcome_message, outcome_level = 'fetch.exception', '抓取任务发生异常，未完成本次检查。', 'error'
+            outcome_detail = _technical_error(error)
+            diagnostic_context.update(stage='process', status='failed', exception_type=type(error).__name__)
+            _mark_diagnosed(error, diagnostic_id)
+            raise
         finally:
+            if outcome and outcome != 'fetch.exception':
+                diagnostic_context['failures'] = new_error_count
+            if new_next_check_time:
+                diagnostic_context['next_retry_at' if new_error_count else 'next_check_at'] = new_next_check_time.isoformat()
+            if outcome:
+                # Preserve the source ID independently of later URL migration.
+                await diagnostics.record('fetch', outcome_level, outcome, outcome_message,
+                                         feed_id=diagnostic_id, detail=outcome_detail, context=diagnostic_context)
             if feed.error_count != new_error_count:
                 feed.error_count = new_error_count
                 feed_updated_fields.add('error_count')
@@ -357,17 +460,30 @@ class Monitor(Singleton):
                 feed.next_check_time = new_next_check_time
                 feed_updated_fields.add('next_check_time')
 
-            if new_error_count == 0 and wf.url != feed.link:
-                new_url_feed = await inner.sub.migrate_to_new_url(feed, wf.url)
-                if isinstance(new_url_feed, db.Feed):
-                    feed = new_url_feed
-                    # Update has been done during the migration, skip it.
-                    feed_updated_fields.clear()
+            try:
+                if new_error_count == 0 and wf.url != feed.link:
+                    new_url_feed = await inner.sub.migrate_to_new_url(feed, wf.url)
+                    if isinstance(new_url_feed, db.Feed):
+                        feed = new_url_feed
+                        # Update has been done during the migration, skip it.
+                        feed_updated_fields.clear()
 
-            if feed_updated_fields:
-                await feed.save(update_fields=feed_updated_fields)
-            from ..management.notifications import fetch_result
-            await fetch_result(feed.id, new_error_count)
+                if feed_updated_fields:
+                    await feed.save(update_fields=feed_updated_fields)
+                from ..management.notifications import fetch_result
+                await fetch_result(feed.id, new_error_count)
+            except Exception as error:
+                await diagnostics.record('fetch', 'error', 'fetch.state_save_failed', '抓取结果已返回，但订阅状态保存失败。',
+                                         feed_id=diagnostic_id, detail=_technical_error(error),
+                                         context={'stage': 'persist', 'status': 'failed',
+                                                  'exception_type': type(error).__name__})
+                _mark_diagnosed(error, diagnostic_id)
+                raise
+            if outcome and previous_errors and not new_error_count and outcome_level == 'info':
+                await diagnostics.record('fetch', 'info', 'fetch.recovered', '订阅源抓取已恢复。',
+                                         feed_id=diagnostic_id,
+                                         context={**diagnostic_context, 'status': 'recovered',
+                                                  'previous_failures': previous_errors})
 
         from ..management.metrics import record
         await record(fetched=len(updated_entries))

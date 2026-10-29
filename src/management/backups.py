@@ -29,8 +29,8 @@ COMPONENTS = {
     'runtime_config': (),
     'notification_secrets': ('notify_config',),
 }
-EXTENSION_DATA = ('metrics_hourly', 'notify_seen', 'feed_fetch_options', 'chat_events')
-META_KEYS = ('started_at', 'attention_threshold', 'hourly_started_at')
+EXTENSION_DATA = ('metrics_hourly', 'notify_seen', 'feed_fetch_options', 'chat_events', 'diagnostic_events')
+META_KEYS = ('started_at', 'attention_threshold', 'hourly_started_at', 'diagnostics_started_at')
 OPTION_KEYS = ('default_interval', 'minimal_interval', 'user_sub_limit',
                'channel_or_group_sub_limit', 'sub_limit_reached_message')
 SENSITIVE = ('agent_tokens', 'admin_credentials', 'runtime_config', 'notification_secrets')
@@ -251,6 +251,7 @@ def apply_rows(connection, package, options):
     if any(enabled and not included.get(name) for name, enabled in options.items()):
         raise BackupError('备份不含选定的覆盖组件。')
     selected = tables(options, package['manifest'].get('extensions', []))
+    diagnostic_rows = None
     # Validate EVERY component even when not selected for overwrite.
     for schema, table in tables(included, package['manifest'].get('extensions', [])):
         item = package['data'][f'{schema}.{table}']
@@ -259,6 +260,12 @@ def apply_rows(connection, package, options):
         if table == 'console_admin' and len(item['rows']) != 1:
             raise BackupError('管理员备份必须包含且仅包含一个账户。')
         cols = item['columns']
+        if table == 'diagnostic_events':
+            from .diagnostics import restored_rows
+            try:
+                diagnostic_rows = restored_rows(cols, item['rows'])
+            except (ValueError, KeyError, TypeError, OverflowError) as error:
+                raise BackupError('备份中的运行日志格式无效。') from error
         definitions = connection.execute(f'PRAGMA {schema}.table_info({ident(table)})').fetchall()
         for row in item['rows']:
             for definition, value in zip(definitions, row):
@@ -320,10 +327,15 @@ def apply_rows(connection, package, options):
         cols = ','.join(ident(c) for c in item['columns'])
         placeholders = ','.join('?' for _ in item['columns'])
         decoded = [[base64.b64decode(v['blob'], validate=True) if isinstance(v, dict) else v for v in row] for row in item['rows']]
+        if table == 'diagnostic_events':
+            decoded = diagnostic_rows
         connection.executemany(f'INSERT INTO {schema}.{ident(table)} ({cols}) VALUES ({placeholders})', decoded)
     if 'chat_events' not in package['manifest'].get('extensions', []) and connection.execute(
             "SELECT 1 FROM console.sqlite_master WHERE type='table' AND name='chat_events'").fetchone():
         connection.execute('DELETE FROM console.chat_events')
+    if 'diagnostic_events' not in package['manifest'].get('extensions', []) and connection.execute(
+            "SELECT 1 FROM console.sqlite_master WHERE type='table' AND name='diagnostic_events'").fetchone():
+        connection.execute('DELETE FROM console.diagnostic_events')
     if connection.execute("SELECT 1 FROM console.sqlite_master WHERE type='table' AND name='notify_jobs'").fetchone():
         connection.execute('DELETE FROM console.notify_jobs')
     # Restore invalidates target sessions too. Source sessions are never included.
@@ -525,7 +537,10 @@ def apply_pending(main, console):
         path.unlink()
     except Exception as error:
         result_file(console, {'status': 'failed', 'applied': applied,
-                              'error': '恢复或结果记录失败，启动已停止；请检查维护日志和回退副本后重试。'})
+                              'at': datetime.now(timezone.utc).isoformat(),
+                              'exception_type': type(error).__name__,
+                              'error': str(error) if isinstance(error, BackupError) else
+                              '恢复或结果记录失败，启动已停止；请检查维护日志和回退副本后重试。'})
         # Preserve failed input for operator diagnostics, but don't retry on every
         # restart. No failed task may prevent recovering access to the old data.
         failed = safe_path(path.with_name('.restore-failed.json'), exists=False)

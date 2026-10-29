@@ -5,6 +5,7 @@ import json
 import os
 import re
 import time
+from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
 import aiohttp
@@ -14,6 +15,29 @@ from .service import Problem
 active = None
 KINDS = ('bark', 'telegram', 'webhook', 'ntfy')
 DEFAULT_POLICY = dict(enabled=False, threshold=3, cooldown=3600, new_users=True)
+
+
+class NotificationDeliveryError(RuntimeError):
+    """Safe transport metadata, without endpoint, credentials or response body."""
+    def __init__(self, reason, status=None, provider_code=None):
+        super().__init__(reason)
+        self.reason, self.status, self.provider_code = reason, status, provider_code
+
+
+def _failure_detail(error):
+    context = {'exception_type': type(error).__name__}
+    detail = type(error).__name__
+    status = getattr(error, 'status', None)
+    if isinstance(status, int) and 100 <= status <= 599:
+        context['http_status'] = status
+    if isinstance(error, NotificationDeliveryError):
+        detail += '; ' + error.reason
+        if type(error.provider_code) is int:
+            detail += f'; provider_code={error.provider_code}'
+    errno = getattr(getattr(error, 'os_error', error), 'errno', None)
+    if type(errno) is int:
+        detail += f'; errno={errno}'
+    return detail, context
 
 
 async def fetch_result(feed_id, error_count):
@@ -33,6 +57,12 @@ class Notifications:
         self.task = None
         self.lock = asyncio.Lock()
         self.degraded = False
+
+    async def _diagnostic(self, *args, **kwargs):
+        journal = getattr(self.store, 'diagnostics', None)
+        if journal is not None:
+            return await journal.record(*args, **kwargs)
+        return False
 
     async def open(self):
         # Restrict newly created SQLite WAL/SHM files as well as the main database.
@@ -117,9 +147,14 @@ class Notifications:
         try:
             await self.event(kind, subject, count)
             self.degraded = False
-        except Exception:
+        except Exception as error:
             # Never log exceptions containing endpoint credentials or source URLs.
             self.degraded = True
+            detail, context = _failure_detail(error)
+            await self._diagnostic('notification', 'error', 'notification.queue_failed', '通知任务处理失败。',
+                                     detail=detail, feed_id=subject if kind == 'fetch' else None,
+                                     target_id=subject if kind == 'user' else None,
+                                     context={**context, 'stage': 'queue', 'status': 'failed'})
 
     async def event(self, kind, subject, count):
         async with self.lock:
@@ -173,6 +208,8 @@ class Notifications:
         channel = cfg['channels'].get(job['channel'])
         attempts = job['attempts'] + 1
         status = 'cancelled'
+        failure = None
+        started = time.monotonic()
         if channel and channel['enabled'] and (cfg['policy']['enabled'] or job['event'] == 'test'):
             try:
                 if self.offline:
@@ -180,9 +217,34 @@ class Notifications:
                 else:
                     await asyncio.wait_for(self.sender(job['channel'], channel, job), timeout=10)
                     status = 'sent'
-            except Exception:
+            except Exception as error:
+                failure = error
                 status = 'failed' if attempts >= 3 else 'pending'
-        await self.store.execute('UPDATE notify_jobs SET status=?,attempts=?,due=? WHERE id=?', (status, attempts, time.time() + 30 * attempts, job['id']))
+        due = time.time() + 30 * attempts
+        await self.store.execute('UPDATE notify_jobs SET status=?,attempts=?,due=? WHERE id=?', (status, attempts, due, job['id']))
+        context = {'channel': job['channel'], 'attempt': attempts, 'status': status, 'stage': 'send',
+                   'duration_ms': round((time.monotonic() - started) * 1000)}
+        if channel and channel.get('url'):
+            try:
+                context['source_host'] = urlsplit(channel['url']).hostname
+            except ValueError:
+                pass
+        detail = ''
+        if failure is not None:
+            detail, error_context = _failure_detail(failure)
+            context.update(error_context)
+        if status == 'pending':
+            context['next_retry_at'] = datetime.fromtimestamp(due, timezone.utc).isoformat()
+        code, message, level = {
+            'pending': ('notification.retry', '通知投递失败，已安排重试。', 'warning'),
+            'failed': ('notification.failed', '通知投递连续失败，已停止重试。', 'error'),
+            'sent': ('notification.sent', '通知已发送。', 'info'),
+            'simulated': ('notification.simulated', '离线模式：已模拟通知投递。', 'info'),
+            'cancelled': ('notification.cancelled', '通知渠道已停用，取消本次投递。', 'info'),
+        }[status]
+        await self._diagnostic('notification', level, code, message, detail=detail, context=context,
+                                 feed_id=job['subject'] if job['event'].startswith('fetch.') else None,
+                                 target_id=job['subject'] if job['event'].startswith('user.') else None)
         return True
 
     async def run(self):
@@ -192,8 +254,11 @@ class Notifications:
                     await asyncio.sleep(1)
             except asyncio.CancelledError:
                 raise
-            except Exception:
+            except Exception as error:
                 self.degraded = True
+                detail, context = _failure_detail(error)
+                await self._diagnostic('notification', 'error', 'notification.queue_failed', '通知任务处理失败。',
+                                         detail=detail, context={**context, 'stage': 'queue', 'status': 'failed'})
                 await asyncio.sleep(5)
 
     def start(self):
@@ -225,11 +290,12 @@ class Notifications:
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10), trust_env=False) as client:
             async with client.post(url, json=payload, headers=headers, allow_redirects=False) as response:
                 if not 200 <= response.status < 300:
-                    raise RuntimeError('Notification rejected')
+                    raise NotificationDeliveryError('HTTP response rejected', response.status)
                 if kind in ('telegram', 'bark'):
                     raw = await response.content.read(65537)
                     if len(raw) > 65536:
-                        raise RuntimeError('Response too large')
+                        raise NotificationDeliveryError('Response too large', response.status)
                     result = json.loads(raw)
                     if (kind == 'telegram' and result.get('ok') is not True) or (kind == 'bark' and result.get('code') != 200):
-                        raise RuntimeError('Notification rejected')
+                        provider_code = result.get('error_code' if kind == 'telegram' else 'code')
+                        raise NotificationDeliveryError('Provider response rejected', response.status, provider_code)
