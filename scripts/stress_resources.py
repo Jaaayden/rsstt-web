@@ -59,7 +59,7 @@ async def run(config, args):
     from src.monitor import Monitor
     from src.monitor._notifier import Notifier
     from src.parsing.message import MessageDispatcher
-    from src.management import diagnostics, metrics
+    from src.management import articles, diagnostics, metrics
     from src.management.service import Service
     from src.management.store import Store
 
@@ -73,6 +73,7 @@ async def run(config, args):
     store = await Store(config / 'console.sqlite3').open()
     metrics.store = store
     diagnostics.install(store)
+    articles.install(store)
     service = Service(store)
     monitor = Monitor.get_instance()
     # Exercise actual dispatch immediately; cooldown transitions are separately
@@ -183,6 +184,7 @@ async def run(config, args):
                 await asyncio.sleep(0)  # run done callbacks
             await asyncio.wait_for(drain(), args.round_timeout)
             await store.diagnostics.flush()
+            await store.articles.flush()
             elapsed = time.perf_counter() - started
             ticker.cancel()
             await asyncio.gather(ticker, return_exceptions=True)
@@ -195,6 +197,21 @@ async def run(config, args):
             assert not store.diagnostics.pending, 'Operational history retained pending events after flush'
             diagnostic_count = (await store.rows('SELECT COUNT(*) AS n FROM diagnostic_events'))[0]['n']
             assert 0 < diagnostic_count <= diagnostics.RETENTION['max_entries'], 'Missing or unbounded operational history'
+            article_history = await store.articles.history(ids[0], targets[0])
+            assert article_history['items'], 'Missing recent articles'
+            assert all(item['status'] == 'sent' for item in article_history['items']), 'Unconfirmed synthetic deliveries'
+            assert not article_history['degraded'] and not article_history['dropped'], 'Article history lost results'
+            recent_keys = [articles.article_key({'guid': f'probe-{feed}-{generation}-{entry}'})
+                           for feed in ids for entry in range(max(0, args.entries - 20), args.entries)]
+            marks = ','.join('?' for _ in recent_keys)
+            recorded = (await store.rows(
+                f"SELECT COUNT(*) AS total, SUM(status='sent' AND last_sent_at IS NOT NULL) AS sent "
+                f"FROM article_deliveries WHERE entry_key IN ({marks})", recent_keys))[0]
+            expected_recorded = args.sources * args.targets * min(args.entries, 20)
+            assert recorded['total'] == recorded['sent'] == expected_recorded, 'Missing per-recipient delivery evidence'
+            article_count = (await store.rows('SELECT COUNT(*) AS n FROM article_cache'))[0]['n']
+            delivery_count = (await store.rows('SELECT COUNT(*) AS n FROM article_deliveries'))[0]['n']
+            assert article_count <= articles.RETENTION['max_entries'] and delivery_count <= articles.MAX_DELIVERIES
             assert monitor._stat._in_progress_count == Notifier._stat._in_progress_count == 0
             assert not monitor._subtask_defer_map, 'Monitor retained completed states'
             if args.churn:
@@ -212,6 +229,10 @@ async def run(config, args):
                       'sent': args.sources * args.targets * args.entries,
                       'diagnostics': {'retained': diagnostic_count, 'dropped': store.diagnostics.dropped,
                                       'pending': len(store.diagnostics.pending)},
+                      'articles': {'retained_for_source': len(article_history['items']),
+                                   'retained_total': article_count, 'deliveries_total': delivery_count,
+                                   'confirmed_this_round': recorded['sent'],
+                                   'dropped': article_history['dropped'], 'pending': article_history['pending']},
                       'caches': {'monitor': len(monitor._subtask_defer_map), 'user_locks': len(locks._user_bucket),
                                  'host_locks': len(locks._hostname_semaphore_bucket),
                                  'dispatcher_user_locks': len(MessageDispatcher.user_sending_lock)},

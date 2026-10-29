@@ -158,9 +158,11 @@ test("fetch log loading can retry and opens the feed's related runtime logs", as
     await expect(dialog).toContainText("来源拒绝访问");
     await expect(dialog.locator(".diagnostic-entry")).toContainText("HTTP 403");
     await dialog.getByRole("button", { name: "全部相关运行日志", exact: true }).click();
-    await expect(dialog).not.toBeVisible();
-    await expect(page).toHaveURL(new RegExp(`#diagnostics\\?feed_id=${sourceId}$`));
-    await expect(page.locator("h1")).toHaveText("运行日志");
+    await expect(dialog.getByRole("heading")).toHaveText("相关运行日志");
+    await expect(page).toHaveURL(/#subscriptions$/);
+    await expect(dialog.locator(".dialog-back")).toContainText("返回抓取日志");
+    await page.keyboard.press("Escape");
+    await expect(dialog.getByRole("heading")).toHaveText("订阅源抓取日志");
     await page.unrouteAll({ behavior: "wait" });
 });
 
@@ -213,7 +215,7 @@ test("cache scheduling is labelled as a next check and chat logs retain their ch
     await page.goto("/#targets");
     await page.locator('[data-target-edit="10002"]').click();
     await dialog.locator('[data-target-logs="10002"]').click();
-    await expect(page.locator("h1")).toHaveText("Runtime logs");
+    await expect(dialog.getByRole("heading")).toHaveText("Related runtime logs");
     await expect.poll(() => chatFilter).toBe("10002");
     await expect(page.locator(".diagnostic-entry")).toContainText("Reader chat");
     await page.locator(".diagnostic-entry summary").click();

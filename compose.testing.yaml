@@ -1,0 +1,25 @@
+# Online acceptance with a separate bot and a new, project-scoped data volume.
+# Run with: docker compose -p rsstt-web-test --env-file .env.testing -f compose.testing.yaml up -d --build
+services:
+  rsstt-test:
+    build: .
+    image: rsstt-web:testing
+    restart: unless-stopped
+    environment:
+      TOKEN: ${TEST_BOT_TOKEN:?Set a separate Telegram test bot token}
+      MANAGER: ${TEST_MANAGER_ID:?Set your Telegram numeric user ID}
+      API_ID: ${TEST_API_ID:-}
+      API_HASH: ${TEST_API_HASH:-}
+      MULTIUSER: "0"
+      WEB_ENABLED: "1"
+      WEB_HOST: "0.0.0.0"
+      WEB_PORT: "8730"
+      WEB_ORIGIN: ${TEST_WEB_ORIGIN:-http://127.0.0.1:8735}
+      WEB_PASSWORD: ${TEST_WEB_PASSWORD:?Set a private test console password of at least 16 characters}
+    ports:
+      - "127.0.0.1:8735:8730"
+    volumes:
+      - testing-config:/app/config
+
+volumes:
+  testing-config:

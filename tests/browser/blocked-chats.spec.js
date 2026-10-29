@@ -146,6 +146,8 @@ test("live API: blocked and departed chats disappear from default subscriptions 
             await expect(page.locator(`#target-picker input[value="${id}"]`)).toHaveCount(0);
         await page.locator("select[name=mode]").selectOption("replace");
         await page.getByRole("button", { name: "Save receiving chats", exact: true }).click();
+        await expect(page.getByRole("dialog").getByRole("heading")).toHaveText("Subscription settings");
+        await page.locator("#dialog .dialog-head [data-action=close]").click();
         await expect(page.getByRole("dialog")).not.toBeVisible();
         for (const id of [blocked, departed])
             expect(

@@ -14,6 +14,8 @@ async function login(page, language = "zh-CN") {
 }
 
 async function openActivity(page, id = "10002") {
+    if (await page.getByRole("dialog").isVisible())
+        await page.locator("#dialog .dialog-head [data-action=close]").click();
     await page.locator(`[data-target-edit="${id}"]`).click();
     await page.locator(`[data-target-activity="${id}"]`).click();
 }
@@ -44,6 +46,8 @@ test("live API: service control blocks and pauses without leaving, preserves set
         await expect(page.getByRole("dialog")).toContainText("暂停全部订阅并拒绝常规命令");
         await expect(page.getByRole("dialog")).toContainText("不会自动让机器人退出群组或频道");
         await page.getByRole("button", { name: "确认停止服务并封禁", exact: true }).click();
+        await expect(page.getByRole("dialog").getByRole("heading", { name: "服务控制", exact: true })).toBeVisible();
+        await page.locator("#dialog .dialog-head [data-action=close]").click();
         await expect(page.getByRole("dialog")).not.toBeVisible();
         await expect(page.locator("#toast")).toContainText("可切换到“已封禁”查看");
         await expect(page.locator(`[data-target-edit="${id}"]`)).toHaveCount(0);
@@ -68,11 +72,13 @@ test("live API: service control blocks and pauses without leaving, preserves set
         await page.locator(".chat-activity-entry").first().locator("summary").click();
         await expect(page.locator(".chat-activity-entry").first().locator(".change-table")).toContainText("已封禁");
         await page.keyboard.press("Escape");
-        await page.locator(`[data-target-edit="${id}"]`).click();
+        await expect(page.getByRole("dialog")).toBeVisible();
         await expect(page.getByRole("dialog")).toContainText("解除封禁后不会自动恢复订阅");
         await page.locator(`[data-role-target="${id}"]`).click();
         await page.locator("select[name=role]").selectOption(original.role);
         await page.getByRole("button", { name: "保存角色", exact: true }).click();
+        await expect(page.getByRole("dialog").getByRole("heading", { name: "服务控制", exact: true })).toBeVisible();
+        await page.locator("#dialog .dialog-head [data-action=close]").click();
         await expect(page.getByRole("dialog")).not.toBeVisible();
         await expect(page.locator("#toast")).toContainText("订阅仍保持暂停");
         expect(
@@ -180,6 +186,8 @@ test("chat activity safely renders known labels, opaque codes, API sources, sett
     await dialog.getByRole("button", { name: "Previous", exact: true }).click();
     await expect(entries).toHaveCount(3);
     await page.keyboard.press("Escape");
+    await expect(dialog.locator("[data-target-activity]")).toBeVisible();
+    await dialog.locator(".dialog-head [data-action=close]").click();
     await expect(dialog).not.toBeVisible();
 });
 

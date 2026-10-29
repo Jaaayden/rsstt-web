@@ -37,6 +37,10 @@ Statistics begin when this version records them; old delivery history cannot be 
 
 **Runtime logs** help investigate feed fetching, Telegram delivery, notification transport, and console failures by feed or destination. Available details include the actual error, HTTP status, duration, and retry schedule. Logs retain up to 30 days and 5,000 entries, with at most 100 per feed; errors that older versions did not record cannot be reconstructed. See [runtime logs](docs/web-console.md#运行日志).
 
+Subscription settings can check for updates immediately or explicitly send the latest article again to the current recipient as a test. For live acceptance while the original bot keeps running, use the [separate test bot deployment](docs/online-testing.md).
+
+Recent articles retain up to 20 fetched articles and text summaries per feed, with delivery status tracked separately for each recipient. Unrecorded historical delivery cannot be reconstructed, and queued messages are not marked as delivered.
+
 ## Quick start with Docker Compose
 
 You need Docker with the Compose plugin, a Telegram Bot Token from [BotFather](https://t.me/BotFather), and your numeric Telegram user ID for `MANAGER`.
