@@ -3,6 +3,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import time
 from datetime import datetime
 from pathlib import Path
@@ -22,6 +23,7 @@ from .agent_contract import authorize_agent, openapi
 LOGGER = logging.getLogger('RSStT.management')
 STATIC = Path(__file__).parent / 'static'
 SAFE = {'GET', 'HEAD', 'OPTIONS'}
+ASSET = re.compile(r'[a-z0-9-]+\.(?:js|css|svg|png)')
 NOTIFICATIONS_KEY = web.AppKey('notifications', notifications.Notifications)
 
 
@@ -63,6 +65,25 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
     # Re-authenticate after restart/password rotation; integration tokens persist.
     await revoke_browser_sessions(store)
 
+    def same_origin(request):
+        """Accept the configured origin, or the origin the browser actually used for this host.
+
+        Opening the console via localhost, an IP or a second domain used to make
+        sign-in fail. Cookies are SameSite=Strict, so matching the Host header
+        is still a sound CSRF check.
+        """
+        sent = request.headers.get('Origin')
+        if not sent:
+            return False
+        if sent.rstrip('/') == origin:
+            return True
+        try:
+            parts = urlsplit(sent)
+        except ValueError:
+            return False
+        forwarded = request.headers.get('X-Forwarded-Host', '').split(',')[0].strip()
+        return parts.scheme in ('http', 'https') and parts.netloc in {request.host, forwarded} - {''}
+
     @web.middleware
     async def boundary(request, handler):
         try:
@@ -79,10 +100,10 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
                     if request.method not in SAFE:
                         if principal['permission'] == 'read':
                             raise Problem('这个连接授权只有读取权限。', 403)
-                        if not bearer and request.headers.get('Origin') != origin:
+                        if not bearer and not same_origin(request):
                             raise Problem('请求来源不匹配，请通过配置的管理台地址访问。', 403)
-                elif request.path == '/api/login' and request.headers.get('Origin') != origin:
-                    raise Problem('登录来源与 WEB_ORIGIN 不匹配。', 403)
+                elif request.path == '/api/login' and not same_origin(request):
+                    raise Problem('登录请求来源与当前访问地址不一致，请直接打开管理台地址后重试。', 403)
             from .web_audit import trace
             async with trace(request, service, store):
                 response = await handler(request)
@@ -141,7 +162,7 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
         await store.audit(auth.username, 'login', 'success')
         store.diagnostics.emit('system', 'info', 'auth.signed_in', '管理员已登录网页管理台。')
         response = web.json_response({'ok': True})
-        response.set_cookie(cookie_name, secret, httponly=True, secure=parsed.scheme == 'https', samesite='Strict', max_age=28800, path='/')
+        response.set_cookie(cookie_name, secret, httponly=True, secure=parsed.scheme == 'https' or request.secure or request.headers.get('X-Forwarded-Proto') == 'https', samesite='Strict', max_age=28800, path='/')
         return response
 
     @routes.get('/api/session')
@@ -216,8 +237,19 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
             'bot': service.gateway.status(), 'uptime_seconds': round((datetime.now(service.started.tzinfo) - service.started).total_seconds()),
             'threshold': threshold, 'metrics_error': metrics.last_error,
             'activity': await store.rows('SELECT * FROM activity ORDER BY id DESC LIMIT 8'),
-            'attention': (await service.subscriptions(request['principal'], {'attention': '1', 'size': '5'}))['items'],
+            'attention': await service.sub_data(
+                await (await service.sub_query(request['principal'], {})).filter(state=1, feed__error_count__gte=threshold)
+                .select_related('feed', 'user').order_by('-feed__error_count', 'feed_id').limit(30)),
         })
+
+    @routes.get('/api/status')
+    async def status(request):
+        admin(request)
+        threshold = await service.threshold()
+        attention = await (await service.sub_query(request['principal'], {})).filter(
+            state=1, feed__error_count__gte=threshold).count()
+        return web.json_response({'bot': service.gateway.status(), 'attention': attention,
+                                  'uptime_seconds': round((datetime.now(service.started.tzinfo) - service.started).total_seconds())})
 
     @routes.get('/api/statistics')
     async def statistics_window(request):
@@ -326,6 +358,11 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
             result = await service.add(values.get('target'), values.get('urls'), request['principal'])
         await store.audit(request['principal']['name'], '添加订阅', f"{values['target']} · {sum(r['status']=='created' for r in result['results'])} 个新增")
         return web.json_response(result)
+
+    @routes.get('/api/subscriptions/{id:\\d+}')
+    async def subscription_detail(request):
+        sub = await service.subscription(request.match_info['id'], request['principal'])
+        return web.json_response((await service.sub_data([sub]))[0])
 
     @routes.patch('/api/subscriptions/{id}')
     async def patch_subscription(request):
@@ -484,13 +521,15 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
     @routes.get('/assets/{name}')
     async def assets(request):
         name = request.match_info['name']
-        if name not in ('app.js', 'app.css', 'mark.svg', 'i18n.js', 'messages.js', 'error-messages.js'):
+        if not ASSET.fullmatch(name) or not (STATIC / name).is_file():
             raise web.HTTPNotFound()
-        return web.FileResponse(STATIC / name)
+        response = web.FileResponse(STATIC / name)
+        response.headers['Cache-Control'] = 'no-cache'
+        return response
 
     from .backup_api import install as install_backups
     install_backups(routes, service, env.DATABASE_URL, admin, body)
-    notifier = await notifications.Notifications(store, offline=demo or bool(snapshot)).open()
+    notifier = await notifications.Notifications(store, offline=demo or bool(snapshot), origin=origin).open()
 
     async def notification_start(app):
         notifier.start()

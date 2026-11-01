@@ -13,7 +13,7 @@ import aiohttp
 from .service import Problem
 
 active = None
-KINDS = ('bark', 'telegram', 'webhook', 'ntfy')
+KINDS = ('bot', 'bark', 'telegram', 'webhook', 'ntfy')
 DEFAULT_POLICY = dict(enabled=False, threshold=3, cooldown=3600, new_users=True)
 
 
@@ -51,8 +51,9 @@ async def user_seen(user_id):
 
 
 class Notifications:
-    def __init__(self, store, offline=False, sender=None):
+    def __init__(self, store, offline=False, sender=None, origin=None):
         self.store, self.offline = store, offline
+        self.origin = (origin or '').rstrip('/')
         self.sender = sender or self.send
         self.task = None
         self.lock = asyncio.Lock()
@@ -114,6 +115,11 @@ class Notifications:
                 if not isinstance(value, dict):
                     raise Problem('渠道配置必须为对象。')
                 channel = {**cfg['channels'].get(kind, {}), **value}
+                if kind == 'bot':
+                    if set(channel) != {'enabled'} or type(channel['enabled']) is not bool:
+                        raise Problem('渠道字段无效。')
+                    cfg['channels'][kind] = channel
+                    continue
                 allowed = {'enabled', 'url', 'headers'} if kind in ('bark', 'webhook') else {'enabled', 'token', 'chat_id'} if kind == 'telegram' else {'enabled', 'url', 'token', 'topic'}
                 if set(channel) - allowed or type(channel.get('enabled')) is not bool:
                     raise Problem('渠道字段无效。')
@@ -166,6 +172,8 @@ class Notifications:
                 return
             reached = kind == 'user' or count >= p['threshold']
             trigger = reached and not old['latched'] and time.time() - old['last_at'] >= p['cooldown']
+            # A feed that alerted earlier and now fetches cleanly gets one recovery notice.
+            recovered = kind == 'fetch' and old['latched'] and count == 0
             now = time.time()
             # State and jobs commit together: crash cannot consume an event without its job.
             async with self.store.lock:
@@ -173,6 +181,8 @@ class Notifications:
                     await self.store.db.execute('INSERT OR REPLACE INTO notify_seen VALUES (?,?,?,?)', (kind, subject, int(reached), now if trigger else old['last_at']))
                     if trigger and p['enabled'] and (kind != 'user' or p['new_users']):
                         await self.enqueue(cfg, 'user.first_seen' if kind == 'user' else 'fetch.failed', subject, now)
+                    elif recovered and p['enabled']:
+                        await self.enqueue(cfg, 'fetch.recovered', subject, now)
                     await self.store.db.commit()
                 except BaseException:
                     await self.store.db.rollback()
@@ -271,11 +281,74 @@ class Notifications:
                 await self.task
             self.task = None
 
+    async def compose(self, job):
+        """Human-readable title/body: names, links and counts instead of event codes."""
+        from .. import db, env
+        english = False
+        try:
+            manager = next(iter(env.MANAGER), None)
+            owner = await db.User.get_or_none(id=manager) if manager is not None else None
+            english = bool(owner and owner.lang and not owner.lang.startswith('zh') and owner.lang != 'null')
+        except Exception:
+            pass
+        T = (lambda zh, en: en) if english else (lambda zh, en: zh)
+        link = lambda path: f'\n{self.origin}/#{path}' if self.origin else ''
+        event, subject = job['event'], job['subject']
+        try:
+            if event in ('fetch.failed', 'fetch.recovered'):
+                feed = await db.Feed.get_or_none(id=int(subject))
+                name = (feed.title if feed else None) or T(f'订阅源 #{subject}', f'Feed #{subject}')
+                url = feed.link if feed else ''
+                chats = []
+                if feed:
+                    ids = await db.Sub.filter(feed_id=feed.id, state=1).values_list('user_id', flat=True)
+                    meta = await self.store.target_map(list(ids)[:20])
+                    chats = [(meta.get(str(i)) or {}).get('title') or str(i) for i in list(ids)[:5]]
+                if event == 'fetch.failed':
+                    count = feed.error_count if feed else 0
+                    title = T('订阅源抓取失败', 'Feed is failing')
+                    body = T(f'「{name}」已连续抓取失败 {count} 次。', f'“{name}” has failed {count} times in a row.')
+                else:
+                    title = T('订阅源已恢复', 'Feed recovered')
+                    body = T(f'「{name}」已恢复正常抓取。', f'“{name}” is fetching normally again.')
+                if url:
+                    body += f'\n{url}'
+                if chats:
+                    body += T('\n推送到：', '\nDelivers to: ') + T('、', ', ').join(chats)
+                body += link(f'logs?feed={subject}')
+            elif event == 'user.first_seen':
+                meta = (await self.store.target_map([int(subject)])).get(str(subject)) or {}
+                ident = int(subject)
+                kind = meta.get('kind') or ('private' if ident > 0 else 'unknown')
+                kind_name = {'private': T('私聊用户', 'private user'), 'group': T('群组', 'group'),
+                             'channel': T('频道', 'channel')}.get(kind, T('频道或群组', 'channel or group'))
+                who = meta.get('title') or str(ident)
+                if meta.get('username'):
+                    who += f" (@{meta['username']})"
+                title = T('新会话开始使用机器人', 'A new chat started using the bot')
+                body = T(f'{kind_name}：{who}\nID：{ident}\n如果不认识，可以在管理台封禁或让机器人退出。',
+                         f'{kind_name}: {who}\nID: {ident}\nIf you don\'t recognise it, block it or make the bot leave in the console.')
+                body += link(f'chats?chat={subject}')
+            elif event == 'test':
+                title = T('测试通知', 'Test notification')
+                body = T('通知渠道工作正常。', 'This notification channel works.')
+            else:
+                title, body = 'RSStT', f'{event} · {subject}'
+        except Exception:
+            title, body = 'RSStT', f'{event} · {subject}'
+        return title, body
+
     async def send(self, kind, cfg, job):
         if self.offline:
             raise RuntimeError('Offline transport disabled')
-        title = 'RSStT 管理通知'
-        text = f"{job['event']} · ID {job['subject']}"
+        title, text = await self.compose(job)
+        if kind == 'bot':
+            from .. import env
+            if not env.bot or not env.MANAGER:
+                raise NotificationDeliveryError('Bot client unavailable')
+            for manager in env.MANAGER:
+                await env.bot.send_message(manager, f'🔔 {title}\n\n{text}', link_preview=False)
+            return
         headers = cfg.get('headers', {})
         url = cfg.get('url')
         payload = dict(event=job['event'], title=title, body=text, event_id=str(job['id']))

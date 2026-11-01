@@ -36,7 +36,7 @@ async def test_threshold_restart_recovery(context):
     await e.event('fetch', '1', 0)
     await context.store.execute('UPDATE notify_seen SET last_at=0')
     await e.event('fetch', '1', 3)
-    assert len(await e.history()) == 2
+    assert [j['event'] for j in reversed(await e.history())] == ['fetch.failed', 'fetch.recovered', 'fetch.failed']
     await e.drain_once()
     assert (await e.history())[-1]['status'] == 'simulated'
 
@@ -138,7 +138,7 @@ async def test_real_monitor_path(context, monkeypatch):
     result.status = 500
     for _ in range(3):
         await monitor._do_monitor_a_feed(context.feed, datetime.now(timezone.utc))
-    assert len(await e.history()) == 2
+    assert [j["event"] for j in reversed(await e.history())] == ["fetch.failed", "fetch.recovered", "fetch.failed"]
 
 
 async def test_real_subscription_path(context, monkeypatch):
@@ -162,11 +162,12 @@ async def test_cooldown_and_concurrent_idempotency(context):
     assert len(await e.history()) == 1
     await e.event('fetch', '1', 0)
     await e.event('fetch', '1', 3)
-    assert len(await e.history()) == 1
+    # One recovery notice; the new failure within the cooldown is suppressed.
+    assert [j['event'] for j in reversed(await e.history())] == ['fetch.failed', 'fetch.recovered']
     # Cooldown suppresses this whole failure episode, not a late repeat.
     await context.store.execute('UPDATE notify_seen SET last_at=0')
     await e.event('fetch', '1', 4)
-    assert len(await e.history()) == 1
+    assert len(await e.history()) == 2
 
 
 async def test_failed_persistence_does_not_break_business(context, monkeypatch):
@@ -222,7 +223,7 @@ async def test_channel_payloads_without_network(context, monkeypatch, kind):
     elif kind == 'webhook':
         assert payload['event_id'] == '7'
     else:
-        assert payload['body'] == 'test · ID administrator'
+        assert payload['title'] and payload['body'] and 'administrator' not in payload['body']
     e.offline = True
     with pytest.raises(RuntimeError, match='Offline'):
         await REAL_SEND(e, kind, cfg, {})
