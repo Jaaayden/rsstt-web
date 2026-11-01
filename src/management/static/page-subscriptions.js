@@ -12,7 +12,6 @@ import {
     Input,
     Textarea,
     Select,
-    Segmented,
     SearchInput,
     Spinner,
     Empty,
@@ -20,15 +19,13 @@ import {
     Badge,
     ChatAvatar,
     Pager,
-    Copy,
     Drawer,
     Tabs,
     Modal,
     ChatPicker,
     confirm,
-    KindBadge,
 } from "./ui.js";
-import { L, api, qs, num, ago, dateTime, readRoute, setParams, toast, download, host, minutes, app, go } from "./core.js";
+import { L, api, qs, num, ago, dateTime, readRoute, setParams, toast, download, host, minutes, app } from "./core.js";
 import { OptionsForm, IntervalField } from "./options.js";
 import { EventRow } from "./page-logs.js";
 

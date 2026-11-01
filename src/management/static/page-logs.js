@@ -1,16 +1,11 @@
 import { html, useState, useAsync, useRoute, Icon, Button, Select, Segmented, Spinner, Empty, Notice, Badge, Pager } from "./ui.js";
-import { L, lang, api, qs, num, ago, dateTime, readRoute, setParams, go, app } from "./core.js";
+import { L, lang, api, qs, num, dateTime, readRoute, setParams, app } from "./core.js";
 
 const CATEGORY = {
     fetch: () => L("抓取", "Fetch"),
     delivery: () => L("推送", "Delivery"),
     notification: () => L("通知", "Notification"),
     system: () => L("系统", "System"),
-};
-const LEVEL = {
-    info: ["blue", () => L("信息", "Info")],
-    warning: ["amber", () => L("警告", "Warning")],
-    error: ["red", () => L("错误", "Error")],
 };
 
 // English for event codes; Chinese comes from the server message.

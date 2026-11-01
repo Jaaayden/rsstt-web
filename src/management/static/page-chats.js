@@ -1,7 +1,6 @@
 import {
     html,
     useState,
-    useEffect,
     useAsync,
     useRoute,
     Icon,
@@ -22,10 +21,9 @@ import {
     Drawer,
     Tabs,
     confirm,
-    openModal,
     Modal,
 } from "./ui.js";
-import { L, api, qs, num, ago, dateTime, readRoute, setParams, go, toast, download, ROLE, KIND, kindOf, app } from "./core.js";
+import { L, api, qs, ago, dateTime, readRoute, setParams, go, toast, download, ROLE, KIND, kindOf, app } from "./core.js";
 import { OptionsForm, IntervalField, labelOf, OPTIONS } from "./options.js";
 
 const VISIBILITY = () => [

@@ -1,7 +1,5 @@
 """Behaviour added in the console overhaul: access by any host, detail/status
 endpoints, static assets and readable administrator notifications."""
-from types import SimpleNamespace
-
 from conftest import ORIGIN, PASSWORD
 from src import db, env
 from src.management.notifications import Notifications

@@ -19,10 +19,9 @@ import {
     Modal,
     ChatPicker,
     confirm,
-    openModal,
     Copy,
 } from "./ui.js";
-import { L, api, qs, num, ago, dateTime, readRoute, setParams, toast, download, app, emit } from "./core.js";
+import { L, api, qs, num, dateTime, readRoute, setParams, toast, download, app, emit } from "./core.js";
 
 const SECTIONS = [
     ["general", "sliders", () => L("订阅规则", "Subscription rules")],
@@ -206,7 +205,7 @@ const CHANNELS = [
 ];
 
 function Notifications() {
-    const { data, error, reload, setData } = useAsync(() => api("/notifications"), []);
+    const { data, error, setData } = useAsync(() => api("/notifications"), []);
     const history = useAsync(() => api("/notifications/history"), []);
     const [editing, setEditing] = useState(null);
     const [busy, setBusy] = useState("");
@@ -240,7 +239,6 @@ function Notifications() {
             setBusy("");
         }
     }
-    const configured = Object.keys(data.channels);
     const statusTone = { sent: "green", simulated: "blue", pending: "amber", failed: "red", cancelled: "neutral" };
     const statusName = {
         sent: L("已发送", "Sent"),
@@ -550,7 +548,6 @@ function Runtime() {
         const pending = item.key in draft;
         const value = pending ? draft[item.key] : item.value;
         if (item.type === "boolean") {
-            const current = value === null || value === undefined ? (item.effective_value ?? "") : value;
             return html`<${Select}
                 value=${pending ? (draft[item.key] === null ? "" : String(draft[item.key])) : item.configured ? String(item.value) : ""}
                 onChange=${(v) => set(item.key, v === "" ? null : v === "true")}

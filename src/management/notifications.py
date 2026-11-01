@@ -290,7 +290,7 @@ class Notifications:
             owner = await db.User.get_or_none(id=manager) if manager is not None else None
             english = bool(owner and owner.lang and not owner.lang.startswith('zh') and owner.lang != 'null')
         except Exception:
-            pass
+            english = False  # Language lookup is best-effort; fall back to Chinese copy.
         T = (lambda zh, en: en) if english else (lambda zh, en: zh)
         link = lambda path: f'\n{self.origin}/#{path}' if self.origin else ''
         event, subject = job['event'], job['subject']
@@ -329,7 +329,7 @@ class Notifications:
                                     kind='channel' if isinstance(entity, Channel) and entity.broadcast else
                                     'group' if isinstance(entity, (Channel, Chat)) else 'private')
                     except Exception:
-                        pass
+                        meta = {}  # Lookup is best-effort; the notice still carries the numeric ID.
                 kind = meta.get('kind') or ('private' if ident > 0 else 'unknown')
                 kind_name = {'private': T('私聊用户', 'private user'), 'group': T('群组', 'group'),
                              'channel': T('频道', 'channel')}.get(kind, T('频道或群组', 'channel or group'))
