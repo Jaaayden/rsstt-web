@@ -1010,7 +1010,7 @@ function FeedLogs({ sub }) {
             ? html`<${Empty} icon="logs" title=${L("还没有日志", "No logs yet")}
                   >${app.info.snapshot
                       ? L("离线副本不运行抓取，所以没有日志。", "The offline copy doesn't fetch, so there are no logs.")
-                      : L("下次抓取后会出现记录。", "Entries appear after the next fetch.")}<//
+                      : L("还没有失败或更新的记录。没有新文章的正常检查不会逐条记录。", "No failures or updates yet. Routine checks with nothing new aren't logged.")}<//
               >`
             : html`<div class="timeline" style="margin-top:8px">${data.items.map((e) => html`<${EventRow} event=${e} hideFeed />`)}</div>
                   <${Pager} page=${page} size=${data.size} total=${data.total} onPage=${setPage} />`}

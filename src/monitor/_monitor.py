@@ -500,7 +500,12 @@ class Monitor(Singleton):
                 diagnostic_context['failures'] = new_error_count
             if new_next_check_time:
                 diagnostic_context['next_retry_at' if new_error_count else 'next_check_at'] = new_next_check_time.isoformat()
-            if outcome:
+            # Routine "nothing new" checks are the vast majority (hundreds per hour) and
+            # carry no diagnostic value; skip them unless the feed is recovering or the
+            # check was requested by hand. Failures and updates are always recorded.
+            routine = (outcome in ('fetch.unchanged', 'fetch.not_modified', 'fetch.empty')
+                       and not previous_errors and result is None)
+            if outcome and not routine:
                 # Preserve the source ID independently of later URL migration.
                 await diagnostics.record('fetch', outcome_level, outcome, outcome_message,
                                          feed_id=diagnostic_id, detail=outcome_detail, context=diagnostic_context)

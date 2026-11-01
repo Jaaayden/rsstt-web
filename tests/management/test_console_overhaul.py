@@ -181,3 +181,38 @@ async def test_restart_schedules_graceful_exit(logged, monkeypatch):
     assert response.status == 202
     await asyncio.sleep(1.3)
     assert calls == ['restart']
+
+
+async def test_unchanged_feed_is_not_reparsed_or_rewritten(context, monkeypatch):
+    from feedparser import FeedParserDict
+    from src.management import articles
+    cache = context.store.articles
+    entries = [FeedParserDict(guid=f'g{i}', title=f'T{i}', link=f'https://example.com/{i}', summary='<p>x</p>')
+               for i in range(3)]
+    await cache.capture(context.feed.id, entries)
+    await cache.flush()
+    parsed = []
+    original = articles._article
+    monkeypatch.setattr(articles, '_article', lambda *a, **k: parsed.append(1) or original(*a, **k))
+    await cache.capture(context.feed.id, entries)          # nothing new: no parsing, nothing queued
+    assert parsed == [] and not cache.pending_articles
+    newer = [FeedParserDict(guid='g9', title='New', link='https://example.com/9', summary='new'), *entries]
+    await cache.capture(context.feed.id, newer)            # only the new entry is parsed
+    assert len(parsed) == 1 and len(cache.pending_articles) == 1
+    await cache.flush()
+    titles = [item['title'] for item in (await cache.history(context.feed.id, -1001))['items']]
+    assert titles[0] == 'New' and set(titles) == {'New', 'T0', 'T1', 'T2'}
+
+
+async def test_healthy_fetches_skip_notification_storage(context):
+    engine = await Notifications(context.store, offline=True).open()
+    await engine.configure({'policy': {'enabled': True, 'threshold': 3}, 'channels': {'bot': {'enabled': True}}})
+    for count in (0, 0, 1, 2, 0):
+        await engine.event('fetch', '7', count)
+    assert await context.store.rows("SELECT * FROM notify_seen WHERE kind='fetch'") == []
+    await engine.event('fetch', '7', 3)                     # alert
+    await engine.event('fetch', '7', 0)                     # recovery still detected via the cache
+    assert [j['event'] for j in reversed(await engine.history())] == ['fetch.failed', 'fetch.recovered']
+    await engine.configure({'policy': {'threshold': 1}})
+    await engine.event('fetch', '8', 1)                     # new threshold applies immediately
+    assert len(await engine.history()) == 3

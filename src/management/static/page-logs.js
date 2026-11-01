@@ -282,8 +282,8 @@ export function Logs() {
         ${data
             ? html`<p class="muted" style="margin-top:12px;font-size:12.5px">
                   ${L(
-                      `最多保留 ${data.retention.days} 天、${num(data.retention.max_entries)} 条；每个订阅源最多 ${data.retention.per_feed} 条。成功推送不逐条记录。`,
-                      `Up to ${data.retention.days} days and ${num(data.retention.max_entries)} entries, ${data.retention.per_feed} per feed. Successful deliveries aren't logged one by one.`,
+                      `最多保留 ${data.retention.days} 天、${num(data.retention.max_entries)} 条；每个订阅源最多 ${data.retention.per_feed} 条。没有新文章的正常检查和成功推送不逐条记录，只记录失败、有更新和恢复。`,
+                      `Up to ${data.retention.days} days and ${num(data.retention.max_entries)} entries, ${data.retention.per_feed} per feed. Routine checks with nothing new and successful deliveries aren't logged one by one — only failures, updates and recoveries.`,
                   )}
               </p>`
             : null}

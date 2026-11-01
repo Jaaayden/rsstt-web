@@ -113,8 +113,10 @@ async def test_successful_fetch_and_deactivation_are_distinct(context, monkeypat
                              web_response=SimpleNamespace(etag=None),
                              calc_next_check_as_per_server_side_cache=lambda: None)
     monkeypatch.setattr(web, 'feed_get', AsyncMock(return_value=result))
+    before = len(events)
     await Monitor()._do_monitor_a_feed(context.feed, datetime.now(timezone.utc))
-    assert events[-1]['code'] == 'fetch.empty'
+    # A routine successful check of a healthy feed is not logged (hundreds per hour).
+    assert len(events) == before
     context.feed.error_count = 99
     result.rss_d = None
     result.error = SimpleNamespace(error_name='network error', base_error=TimeoutError())

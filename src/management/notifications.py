@@ -58,6 +58,8 @@ class Notifications:
         self.task = None
         self.lock = asyncio.Lock()
         self.degraded = False
+        self._cfg = None             # cached notify_config; refreshed on every configure()
+        self._latched_fetch = None   # feeds currently in an alerted state (None = not loaded yet)
 
     async def _diagnostic(self, *args, **kwargs):
         journal = getattr(self.store, 'diagnostics', None)
@@ -84,7 +86,21 @@ class Notifications:
 
     async def config(self):
         rows = await self.store.rows('SELECT value FROM notify_config WHERE id=1')
-        return json.loads(rows[0]['value']) if rows else dict(policy=DEFAULT_POLICY.copy(), channels={})
+        self._cfg = json.loads(rows[0]['value']) if rows else dict(policy=DEFAULT_POLICY.copy(), channels={})
+        return json.loads(json.dumps(self._cfg))
+
+    async def _fetch_is_routine(self, subject, count):
+        """True when a fetch result cannot change any notification state.
+
+        A healthy feed below the threshold that was not alerted before needs no
+        database round trip; this runs after every fetch (hundreds per hour).
+        """
+        if self._latched_fetch is None:
+            rows = await self.store.rows("SELECT subject FROM notify_seen WHERE kind='fetch' AND latched=1")
+            self._latched_fetch = {row['subject'] for row in rows}
+        if self._cfg is None:
+            await self.config()
+        return subject not in self._latched_fetch and count < self._cfg['policy']['threshold']
 
     async def summary(self):
         cfg = await self.config()
@@ -147,6 +163,7 @@ class Notifications:
                     raise Problem('ntfy topic 或 Token 无效。')
                 cfg['channels'][kind] = channel
             await self.store.execute('INSERT OR REPLACE INTO notify_config VALUES (1,?)', (json.dumps(cfg),))
+            self._cfg = json.loads(json.dumps(cfg))  # keep the fast path's threshold current
         return await self.summary()
 
     async def safe_event(self, kind, subject, count):
@@ -163,6 +180,8 @@ class Notifications:
                                      context={**context, 'stage': 'queue', 'status': 'failed'})
 
     async def event(self, kind, subject, count):
+        if kind == 'fetch' and await self._fetch_is_routine(subject, count):
+            return
         async with self.lock:
             cfg = await self.config()
             p = cfg['policy']
@@ -184,6 +203,9 @@ class Notifications:
                     elif recovered and p['enabled']:
                         await self.enqueue(cfg, 'fetch.recovered', subject, now)
                     await self.store.db.commit()
+                    if kind == 'fetch' and self._latched_fetch is not None:
+                        # Only after commit, so a rollback never leaves the cache ahead of the table.
+                        (self._latched_fetch.add if reached else self._latched_fetch.discard)(subject)
                 except BaseException:
                     await self.store.db.rollback()
                     raise
