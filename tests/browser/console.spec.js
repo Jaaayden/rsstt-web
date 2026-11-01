@@ -165,10 +165,14 @@ test("settings sections load", async ({ page }) => {
 
 test("switches language and theme", async ({ page }) => {
     await signIn(page);
-    await page.locator(".sidebar .pref", { hasText: "中文" }).click();
+    // The button names the language it switches to.
+    await page.locator(".sidebar").getByRole("button", { name: "English" }).click();
     await expect(page.getByRole("heading", { name: "Overview" })).toBeVisible();
-    await page.locator(".sidebar .pref", { hasText: "System" }).click();
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+    await expect(page.locator(".sidebar").getByRole("button", { name: "中文" })).toBeVisible();
+    await page.locator(".sidebar").getByLabel("Appearance").selectOption("dark");
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+    await page.locator(".sidebar").getByLabel("Appearance").selectOption("system");
+    await expect(page.locator("html")).not.toHaveAttribute("data-theme", /.+/);
 });
 
 test("phone layout has no horizontal overflow", async ({ page }) => {

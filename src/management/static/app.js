@@ -15,20 +15,26 @@ const PAGES = {
     settings: { icon: "settings", label: () => L("设置", "Settings"), view: Settings },
 };
 
-function Prefs({ dark }) {
-    const next = { system: "light", light: "dark", dark: "system" }[theme];
-    const themeLabel = { system: L("跟随系统", "System"), light: L("浅色", "Light"), dark: L("深色", "Dark") }[theme];
+function Prefs() {
+    // The language button names the language you switch TO; appearance is an explicit choice.
     return html`<div class="prefs">
-        <button class="pref" title=${L("切换界面语言", "Switch language")} onClick=${() => setLang(lang === "en" ? "zh" : "en")}>
-            <${Icon} name="globe" size=${14} />${lang === "en" ? "English" : "中文"}
-        </button>
         <button
             class="pref"
-            title=${L("切换外观：浅色 / 深色 / 跟随系统", "Switch appearance: light / dark / system")}
-            onClick=${() => applyTheme(next)}
+            lang=${lang === "en" ? "zh-CN" : "en"}
+            title=${lang === "en" ? "切换为中文" : "Switch to English"}
+            onClick=${() => setLang(lang === "en" ? "zh" : "en")}
         >
-            <${Icon} name=${theme === "dark" ? "moon" : theme === "light" ? "sun" : "monitor"} size=${14} />${themeLabel}
+            <${Icon} name="globe" size=${14} />${lang === "en" ? "中文" : "English"}
         </button>
+        <label class="pref pref-select" title=${L("外观", "Appearance")}>
+            <${Icon} name=${theme === "dark" ? "moon" : theme === "light" ? "sun" : "monitor"} size=${14} />
+            <select aria-label=${L("外观", "Appearance")} value=${theme} onChange=${(e) => applyTheme(e.currentTarget.value)}>
+                <option value="system" selected=${theme === "system"}>${L("跟随系统", "System")}</option>
+                <option value="light" selected=${theme === "light"}>${L("浅色", "Light")}</option>
+                <option value="dark" selected=${theme === "dark"}>${L("深色", "Dark")}</option>
+            </select>
+            <${Icon} name="down" size=${12} />
+        </label>
     </div>`;
 }
 
