@@ -458,67 +458,319 @@ const RUNTIME_GROUPS = [
     {
         title: () => L("Telegram 连接", "Telegram connection"),
         keys: {
-            TOKEN: () =>
-                L(
-                    "机器人 Token（来自 @BotFather）。修改后重启即换成另一个机器人。",
-                    "Bot token from @BotFather. Changing it switches bots after restart.",
-                ),
-            API_ID: () => L("Telegram API ID，可选。", "Telegram API ID (optional)."),
-            API_HASH: () => L("Telegram API Hash，可选。", "Telegram API hash (optional)."),
-            MULTIUSER: () =>
-                L(
-                    "允许其他人使用机器人。关闭后只有所有者和管理员可用。",
-                    "Let others use the bot. When off, only the owner and admins can.",
-                ),
-            ERROR_LOGGING_CHAT: () => L("把错误日志发到这个会话 ID。", "Send error logs to this chat ID."),
+            TOKEN: [
+                () => L("机器人 Token", "Bot token"),
+                () =>
+                    L(
+                        "当前机器人使用的 Token（来自 @BotFather）。正常情况下不需要改动。只有在 @BotFather 里重新生成了 Token、旧 Token 失效时，才需要在这里填入新的。重启或更新程序都不会改变它；但如果在这里填入另一个机器人的 Token，重启后就会以那个机器人的身份运行。",
+                        "The token this bot runs with (from @BotFather). Normally leave it alone. Only fill in a new one if you regenerated the token in @BotFather and the old one stopped working. Restarting or updating never changes it — but if you enter another bot's token here, the next restart runs as that bot.",
+                    ),
+            ],
+            MULTIUSER: [
+                () => L("允许其他人使用", "Let others use the bot"),
+                () =>
+                    L(
+                        "开启：任何人都可以私聊机器人订阅，或把机器人拉进自己的群组和频道。关闭：只有所有者（MANAGER），以及你在“会话”里设为“用户”或“管理员”的会话可以使用。",
+                        "On: anyone can subscribe via the bot or add it to their own groups and channels. Off: only the owner (MANAGER) and chats you set to User or Admin under Chats can use it.",
+                    ),
+            ],
+            ERROR_LOGGING_CHAT: [
+                () => L("错误报告发送到", "Send error reports to"),
+                () =>
+                    L(
+                        "机器人遇到未处理的错误时，把报错发到这个会话 ID。不填则发给所有者。",
+                        "Chat ID that receives unhandled error reports. Empty = the owner.",
+                    ),
+            ],
+            API_ID: [
+                () => L("Telegram API ID（可选）", "Telegram API ID (optional)"),
+                () =>
+                    L(
+                        "在 my.telegram.org 申请的应用凭据，需和下面的 API Hash 一起填。不填时使用内置的公共凭据，偶尔会因为使用的人多而登录变慢；填自己的更稳定。",
+                        "App credentials from my.telegram.org, together with the API hash below. Without them the bot uses shared public credentials, which occasionally slows sign-in; your own are more reliable.",
+                    ),
+            ],
+            API_HASH: [
+                () => L("Telegram API Hash（可选）", "Telegram API hash (optional)"),
+                () => L("与上面的 API ID 配套。", "Goes with the API ID above."),
+            ],
         },
     },
     {
         title: () => L("网络与代理", "Network & proxy"),
         keys: {
-            T_PROXY: () => L("连接 Telegram 用的代理，如 socks5://127.0.0.1:1080。", "Proxy for Telegram, e.g. socks5://127.0.0.1:1080."),
-            R_PROXY: () => L("抓取 RSS 用的代理。", "Proxy for fetching feeds."),
-            SOCKS_PROXY: () => L("全局 SOCKS 代理（旧写法）。", "Global SOCKS proxy (legacy)."),
-            HTTP_PROXY: () => L("全局 HTTP 代理（旧写法）。", "Global HTTP proxy (legacy)."),
-            HTTPS_PROXY: () => L("全局 HTTPS 代理（旧写法）。", "Global HTTPS proxy (legacy)."),
-            PROXY_BYPASS_PRIVATE: () => L("访问内网地址时不走代理。", "Bypass the proxy for private addresses."),
-            PROXY_BYPASS_DOMAINS: () => L("不走代理的域名，空格分隔。", "Domains that bypass the proxy, space-separated."),
-            IPV6_PRIOR: () => L("优先使用 IPv6。", "Prefer IPv6."),
-            VERIFY_TLS: () => L("校验 HTTPS 证书。", "Verify TLS certificates."),
+            T_PROXY: [
+                () => L("连接 Telegram 的代理", "Proxy for Telegram"),
+                () =>
+                    L(
+                        "服务器无法直连 Telegram 时使用，例如 socks5://127.0.0.1:1080。支持 http、socks4、socks5。",
+                        "Use when the server can't reach Telegram directly, e.g. socks5://127.0.0.1:1080. http, socks4 and socks5 are supported.",
+                    ),
+            ],
+            R_PROXY: [
+                () => L("抓取 RSS 的代理", "Proxy for fetching feeds"),
+                () =>
+                    L(
+                        "只用于抓取订阅源，例如有些网站需要换一个出口 IP 才能访问。",
+                        "Only for fetching feeds, e.g. when some sites need a different outgoing IP.",
+                    ),
+            ],
+            SOCKS_PROXY: [
+                () => L("全局 SOCKS 代理（旧写法）", "Global SOCKS proxy (legacy)"),
+                () =>
+                    L(
+                        "同时用于 Telegram 和 RSS，只在上面两项都没设置时生效。新部署建议用上面两项。",
+                        "Used for both Telegram and feeds when the two settings above are empty. Prefer those for new setups.",
+                    ),
+            ],
+            HTTP_PROXY: [
+                () => L("全局 HTTP 代理（旧写法）", "Global HTTP proxy (legacy)"),
+                () => L("同上，HTTP 代理的写法。", "Same as above, for an HTTP proxy."),
+            ],
+            HTTPS_PROXY: [
+                () => L("全局 HTTPS 代理（旧写法）", "Global HTTPS proxy (legacy)"),
+                () => L("同上，HTTPS 代理的写法。", "Same as above, for an HTTPS proxy."),
+            ],
+            PROXY_BYPASS_PRIVATE: [
+                () => L("内网地址不走代理", "Bypass proxy for private addresses"),
+                () =>
+                    L(
+                        "开启后，访问 192.168.x.x、10.x.x.x 这类内网地址时直接连接，适合订阅自建的 RSSHub 等内网服务。",
+                        "When on, private addresses like 192.168.x.x or 10.x.x.x are reached directly — handy for a self-hosted RSSHub.",
+                    ),
+            ],
+            PROXY_BYPASS_DOMAINS: [
+                () => L("不走代理的域名", "Domains that bypass the proxy"),
+                () =>
+                    L(
+                        "这些域名直接连接，用空格分隔，例如 example.com rsshub.app。",
+                        "Reached directly; separate with spaces, e.g. example.com rsshub.app.",
+                    ),
+            ],
+            IPV6_PRIOR: [
+                () => L("优先使用 IPv6", "Prefer IPv6"),
+                () => L("服务器同时有 IPv4 和 IPv6 时，抓取优先走 IPv6。", "When the server has both, fetch over IPv6 first."),
+            ],
+            VERIFY_TLS: [
+                () => L("校验 HTTPS 证书", "Verify HTTPS certificates"),
+                () =>
+                    L(
+                        "关闭后可以访问证书过期或自签名的网站，但会有被劫持的风险。建议保持开启。",
+                        "Turning it off allows sites with expired or self-signed certificates, at the risk of interception. Keep it on.",
+                    ),
+            ],
         },
     },
     {
         title: () => L("抓取", "Fetching"),
         keys: {
-            USER_AGENT: () =>
-                L(
-                    "抓取 RSS 时使用的 User-Agent（单个订阅源可在订阅详情里单独覆盖）。",
-                    "User-Agent for fetching (individual feeds can override it).",
-                ),
-            HTTP_TIMEOUT: () => L("单次请求超时（秒）。", "Request timeout (seconds)."),
-            HTTP_CONCURRENCY: () => L("同时进行的请求数，0 为不限。", "Concurrent requests, 0 = unlimited."),
-            HTTP_CONCURRENCY_PER_HOST: () => L("对同一主机同时进行的请求数。", "Concurrent requests per host."),
-            CRON_SECOND: () => L("每分钟的第几秒开始检查。", "Second of the minute when checks start."),
-            HTTP_MAX_LINE_SIZE: () => L("HTTP 响应行最大字节数。", "Max HTTP line size (bytes)."),
-            HTTP_MAX_FIELD_SIZE: () => L("HTTP 响应头最大字节数。", "Max HTTP header field size (bytes)."),
+            USER_AGENT: [
+                () => L("浏览器标识（User-Agent）", "User-Agent"),
+                () =>
+                    L(
+                        "抓取时告诉网站“我是谁”。有些网站会拦截默认标识，可以换成常见浏览器的值。单个订阅源可以在订阅详情的“抓取”里单独设置。",
+                        "How the bot identifies itself to sites. Some sites block the default; use a common browser value instead. Individual feeds can override it under the subscription's Fetching tab.",
+                    ),
+            ],
+            HTTP_TIMEOUT: [
+                () => L("请求超时（秒）", "Request timeout (seconds)"),
+                () =>
+                    L(
+                        "抓取一个订阅源最多等多久。网站响应慢、经常超时可以调大。",
+                        "How long to wait for a feed. Raise it if slow sites keep timing out.",
+                    ),
+            ],
+            HTTP_CONCURRENCY: [
+                () => L("同时抓取的数量", "Concurrent requests"),
+                () =>
+                    L(
+                        "同一时间最多发出多少个请求，0 表示不限。服务器配置低可以调小。",
+                        "Maximum requests in flight; 0 = unlimited. Lower it on small servers.",
+                    ),
+            ],
+            HTTP_CONCURRENCY_PER_HOST: [
+                () => L("同一网站同时抓取的数量", "Concurrent requests per site"),
+                () => L("避免同时向一个网站发太多请求而被限制或封禁。", "Avoids hitting one site with too many requests at once."),
+            ],
+            CRON_SECOND: [
+                () => L("每分钟第几秒开始检查", "Second of each minute to start checks"),
+                () =>
+                    L(
+                        "机器人每分钟检查一次哪些订阅该更新了，这里设置从第几秒（0–59）开始。一般不用改。",
+                        "The bot checks which feeds are due once a minute; this sets the second (0–59) it starts. Rarely needs changing.",
+                    ),
+            ],
+            HTTP_MAX_LINE_SIZE: [
+                () => L("响应行长度上限（字节）", "Max response line size (bytes)"),
+                () => L("个别网站的响应过长导致抓取失败时才需要调大。", "Only raise if a site fails because of overly long responses."),
+            ],
+            HTTP_MAX_FIELD_SIZE: [
+                () => L("响应头长度上限（字节）", "Max response header size (bytes)"),
+                () => L("个别网站的响应头过长导致抓取失败时才需要调大。", "Only raise if a site fails because of overly long headers."),
+            ],
         },
     },
     {
         title: () => L("内容处理", "Content"),
         keys: {
-            TELEGRAPH_TOKEN: () =>
-                L("Telegraph Token，长文章会发到 Telegraph。可以填多个，空格分隔。", "Telegraph token(s) for long posts; space-separated."),
-            TABLE_TO_IMAGE: () => L("把文章里的表格渲染成图片。", "Render tables as images."),
-            TRAFFIC_SAVING: () => L("省流模式：少下载媒体。", "Traffic saving: download less media."),
-            LAZY_MEDIA_VALIDATION: () => L("延迟校验媒体，降低资源占用。", "Validate media lazily to save resources."),
-            IMG_RELAY_SERVER: () => L("图片中转服务器地址。", "Image relay server URL."),
-            IMAGES_WESERV_NL: () => L("images.weserv.nl 镜像地址。", "images.weserv.nl mirror URL."),
+            TELEGRAPH_TOKEN: [
+                () => L("Telegraph Token", "Telegraph tokens"),
+                () =>
+                    L(
+                        "文章太长、一条 Telegram 消息放不下时，机器人会把全文发布到 Telegraph，再推送链接。没有 Token 就不能使用 Telegraph。订阅较多时建议 5 个以上，用来分摊 Telegraph 的频率限制。点“自动获取”即可生成，不需要注册。",
+                        "When a post is too long for one Telegram message, the bot publishes it on Telegraph and sends the link. Without tokens Telegraph is disabled. With many subscriptions use 5 or more to spread Telegraph's rate limits. Click Generate — no sign-up needed.",
+                    ),
+            ],
+            TABLE_TO_IMAGE: [
+                () => L("表格转成图片", "Render tables as images"),
+                () =>
+                    L(
+                        "Telegram 不支持表格，开启后把文章里的表格画成图片发送。会多占一些 CPU 和内存。",
+                        "Telegram can't show tables; this draws them as images. Uses extra CPU and memory.",
+                    ),
+            ],
+            TRAFFIC_SAVING: [
+                () => L("省流量模式", "Traffic saving"),
+                () =>
+                    L(
+                        "减少下载和检查图片、视频，适合流量有限的服务器。",
+                        "Downloads and checks less media; for servers with limited traffic.",
+                    ),
+            ],
+            LAZY_MEDIA_VALIDATION: [
+                () => L("跳过预先检查媒体", "Skip media pre-checks"),
+                () =>
+                    L(
+                        "不预先检查图片和视频能否访问，直接交给 Telegram，能降低资源占用；遇到失效的媒体时再自动降级处理。",
+                        "Hand media straight to Telegram without checking it first; saves resources and falls back automatically if something is broken.",
+                    ),
+            ],
+            IMG_RELAY_SERVER: [
+                () => L("图片中转服务", "Image relay server"),
+                () =>
+                    L(
+                        "有些网站禁止外链图片，通过这个服务中转后再发送。",
+                        "Some sites block hot-linked images; they're relayed through this service.",
+                    ),
+            ],
+            IMAGES_WESERV_NL: [
+                () => L("图片压缩服务", "Image resize service"),
+                () =>
+                    L(
+                        "图片太大无法发送时，用这个服务压缩。可以换成自建的 wsrv.nl 镜像。",
+                        "Shrinks images too large to send. You can point it at your own wsrv.nl mirror.",
+                    ),
+            ],
         },
     },
 ];
 
+const SOURCE_LABEL = {
+    web: () => L("来自网页设置", "set on the web"),
+    deployment: () => L("来自部署环境", "from deployment"),
+    default: () => L("默认值", "default"),
+};
+const onOff = (v) => (v ? L("开启", "On") : L("关闭", "Off"));
+
+function currentText(item) {
+    const v = item.current;
+    if (item.key === "TELEGRAPH_TOKEN")
+        return v ? L(`${v} 个`, `${v} tokens`) : L("未设置（不使用 Telegraph）", "none (Telegraph disabled)");
+    if (item.sensitive) return v ? L("已设置", "set") : L("未设置", "not set");
+    if (item.type === "boolean") return onOff(v);
+    if (item.key === "API_ID" && v == null) return L("未设置（使用公共凭据）", "not set (public credentials)");
+    if (item.key === "ERROR_LOGGING_CHAT" && item.current_source === "default") return L(`${v}（所有者）`, `${v} (owner)`);
+    if (v === null || v === undefined || v === "") return L("未设置", "not set");
+    return String(v);
+}
+
+/** Value used when the web override is cleared: deployment value, else the default. */
+function fallbackOf(item) {
+    if (item.deployment_set)
+        return item.sensitive
+            ? L("部署环境中的值", "the deployment value")
+            : item.type === "boolean"
+              ? onOff(item.deployment_value)
+              : String(item.deployment_value ?? "");
+    if (item.type === "boolean") return onOff(item.default);
+    return item.default != null ? String(item.default) : null;
+}
+
+function RuntimeRow({ item, label, help, draft, set, unset, onTelegraph }) {
+    const pending = item.key in draft;
+    const fallback = fallbackOf(item);
+    const fallbackWord = item.deployment_set ? L("部署设置", "Deployment") : L("默认", "Default");
+    let control;
+    if (item.type === "boolean") {
+        const value = pending ? draft[item.key] : item.configured ? item.value : null;
+        control = html`<${Segmented}
+            size="sm"
+            value=${value === null ? "inherit" : value ? "on" : "off"}
+            onChange=${(v) => set(item.key, v === "inherit" ? null : v === "on")}
+            options=${[
+                ["inherit", `${fallbackWord}（${fallback}）`],
+                ["on", L("开启", "On")],
+                ["off", L("关闭", "Off")],
+            ]}
+        />`;
+    } else if (item.sensitive) {
+        control = html`<div class="row" style="width:100%">
+            <${Input}
+                type="password"
+                autocomplete="off"
+                class="mono"
+                placeholder=${item.configured
+                    ? L("已在网页设置，留空保持不变", "Set on the web — leave empty to keep")
+                    : L("留空保持不变", "Leave empty to keep")}
+                value=${pending ? draft[item.key] || "" : ""}
+                onInput=${(v) => (v ? set(item.key, v) : unset(item.key))}
+            />
+            ${item.key === "TELEGRAPH_TOKEN"
+                ? html`<${Button} kind="primary" icon="zap" onClick=${onTelegraph}>${L("自动获取", "Generate")}<//>`
+                : null}
+        </div>`;
+    } else {
+        const value = pending ? draft[item.key] : item.value;
+        control = html`<${Input}
+            type=${item.type === "integer" ? "number" : "text"}
+            class=${item.type === "string" ? "mono" : ""}
+            min=${item.min}
+            max=${item.max}
+            placeholder=${fallback
+                ? L(
+                      `留空使用${fallbackWord === "默认" ? "默认值" : "部署设置"}：${fallback}`,
+                      `Empty uses the ${fallbackWord.toLowerCase()}: ${fallback}`,
+                  )
+                : L("留空则不设置", "Empty = not set")}
+            value=${value ?? ""}
+            onInput=${(v) => set(item.key, v === "" ? null : item.type === "integer" ? Number(v) : v)}
+        />`;
+    }
+    return html`<div class="rt-row">
+        <div class="rt-head">
+            <b>${label()}</b>
+            <span class="mono muted rt-key">${item.key}</span>
+            ${item.pending_restart ? html`<${Badge} tone="amber">${L("已保存，待重启", "Saved, restart needed")}<//>` : null}
+            ${pending ? html`<${Badge} tone="accent">${L("未保存", "Unsaved")}<//>` : null}
+        </div>
+        <p class="rt-help">${help()}</p>
+        <div class="rt-current">
+            ${L("当前生效：", "In effect: ")}<b>${currentText(item)}</b>
+            <span class="muted"> · ${SOURCE_LABEL[item.current_source]?.()}</span>
+            ${item.type !== "boolean" && !item.sensitive && item.default != null && item.current_source !== "default"
+                ? html`<span class="muted"> · ${L("默认", "default")} ${String(item.default)}</span>`
+                : null}
+            ${item.configured && !pending
+                ? html` ·
+                      <button class="link-btn" onClick=${() => set(item.key, null)}>${L("删除网页设置", "Remove web override")}</button>`
+                : null}
+        </div>
+        <div class="rt-control">${control}</div>
+    </div>`;
+}
+
 function Runtime() {
-    const { data, error, reload } = useAsync(() => api("/runtime-config"), []);
+    const { data, error, setData } = useAsync(() => api("/runtime-config"), []);
     const [draft, setDraft] = useState({});
     const [busy, setBusy] = useState(false);
     if (error) return html`<${Notice} tone="error">${error.message}<//>`;
@@ -526,16 +778,50 @@ function Runtime() {
     const items = Object.fromEntries(data.items.map((i) => [i.key, i]));
     const dirty = Object.keys(draft);
     async function save() {
+        if ("TOKEN" in draft && draft.TOKEN) {
+            const ok = await confirm({
+                title: L("更换机器人 Token？", "Change the bot token?"),
+                body: L(
+                    "重启后，程序会用这个新 Token 登录。如果它属于另一个机器人，就会变成以那个机器人身份运行，现有会话会收不到推送。只有在 @BotFather 重新生成了当前机器人的 Token 时才需要这样做。",
+                    "After restart the program signs in with this token. If it belongs to a different bot, it will run as that bot and existing chats stop receiving posts. Only do this after regenerating the current bot's token in @BotFather.",
+                ),
+                ok: L("确认更换", "Change token"),
+                danger: true,
+            });
+            if (!ok) return;
+        }
         setBusy(true);
         try {
-            await api("/runtime-config", { method: "PATCH", body: draft });
-            toast(L("已保存，重启后生效", "Saved; restart to apply"));
+            setData(await api("/runtime-config", { method: "PATCH", body: draft }));
+            toast(L("已保存，重启机器人后生效", "Saved; restart the bot to apply"));
             setDraft({});
-            reload(true);
         } catch (err) {
             toast(err.message, "error");
         } finally {
             setBusy(false);
+        }
+    }
+    async function telegraph() {
+        const ok = await confirm({
+            title: L("自动获取 Telegraph Token？", "Generate Telegraph tokens?"),
+            body: L(
+                "服务器会向 Telegraph（api.telegra.ph）申请 5 个新 Token，加到现有 Token 后面，并保存到运行配置。不需要注册账号。重启机器人后生效。",
+                "The server requests 5 new tokens from Telegraph (api.telegra.ph), adds them to the existing ones and saves them. No sign-up needed. Applies after restart.",
+            ),
+            ok: L("获取", "Generate"),
+        });
+        if (!ok) return;
+        try {
+            const result = await api("/runtime-config/telegraph-tokens", { method: "POST", body: { count: 5 } });
+            setData(result);
+            toast(
+                L(
+                    `已获取 ${result.added} 个，共 ${result.total} 个，重启后生效`,
+                    `Added ${result.added}, ${result.total} in total; restart to apply`,
+                ),
+            );
+        } catch (err) {
+            toast(err.message, "error");
         }
     }
     const set = (key, value) => setDraft({ ...draft, [key]: value });
@@ -544,89 +830,43 @@ function Runtime() {
         delete next[key];
         setDraft(next);
     };
-    function control(item) {
-        const pending = item.key in draft;
-        const value = pending ? draft[item.key] : item.value;
-        if (item.type === "boolean") {
-            return html`<${Select}
-                value=${pending ? (draft[item.key] === null ? "" : String(draft[item.key])) : item.configured ? String(item.value) : ""}
-                onChange=${(v) => set(item.key, v === "" ? null : v === "true")}
-                options=${[
-                    ["", L("使用部署值", "Deployment value")],
-                    ["true", L("开启", "On")],
-                    ["false", L("关闭", "Off")],
-                ]}
-            />`;
-        }
-        if (item.sensitive)
-            return html`<${Input}
-                type="password"
-                autocomplete="off"
-                class="mono"
-                placeholder=${item.configured
-                    ? L("已在网页设置（留空不变）", "Set here (empty = unchanged)")
-                    : item.effective_configured
-                      ? L("已在部署环境中设置", "Set in deployment")
-                      : L("未设置", "Not set")}
-                value=${pending ? draft[item.key] || "" : ""}
-                onInput=${(v) => (v ? set(item.key, v) : unset(item.key))}
-            />`;
-        return html`<${Input}
-            type=${item.type === "integer" ? "number" : "text"}
-            class=${item.type === "string" ? "mono" : ""}
-            min=${item.min}
-            max=${item.max}
-            placeholder=${item.effective_value != null ? String(item.effective_value) : L("默认", "Default")}
-            value=${value ?? ""}
-            onInput=${(v) => set(item.key, v === "" ? null : item.type === "integer" ? Number(v) : v)}
-        />`;
-    }
     return html`
-        ${data.pending_restart
-            ? html`<${Notice} tone="warn" title=${L("有配置等待重启", "Changes waiting for restart")}
-                  >${L("已保存的运行配置要在机器人重启后才生效。", "Saved runtime settings take effect after the bot restarts.")}<//
-              >`
-            : null}
+        <${Notice}
+            tone=${data.pending_restart ? "warn" : "info"}
+            title=${data.pending_restart
+                ? L("有已保存的修改还没生效", "Saved changes are waiting for a restart")
+                : L("这些设置在重启机器人后生效", "These settings apply after the bot restarts")}
+        >
+            ${L(
+                "这里的设置会覆盖部署环境（docker-compose 或 .env）中的同名配置；“删除网页设置”后重启即恢复为部署环境的值。保存后需要重启机器人，例如在服务器上执行 docker restart 加容器名。",
+                "Values here override the same settings from the deployment (docker-compose or .env). Remove the web override and restart to go back to the deployment value. Saving needs a restart, e.g. docker restart <container> on the server.",
+            )}
+        <//>
         ${RUNTIME_GROUPS.map(
             (g) =>
                 html`<${Card} title=${g.title()}>
-                    <div class="form-grid">
+                    <div class="rt-list">
                         ${Object.entries(g.keys)
                             .filter(([key]) => items[key])
-                            .map(([key, help]) => {
-                                const item = items[key];
-                                return html`<${Field}
-                                    label=${html`<span class="mono" style="font-size:12.5px">${key}</span> ${item.pending_restart
-                                            ? html`<${Badge} tone="amber">${L("待重启", "Restart")}<//>`
-                                            : item.configured
-                                              ? html`<${Badge} tone="accent">${L("网页设置", "Web")}<//>`
-                                              : null}`}
-                                    hint=${help()}
-                                >
-                                    <div class="row">
-                                        ${control(item)}
-                                        ${item.configured && !(key in draft)
-                                            ? html`<${Button}
-                                                  size="sm"
-                                                  kind="ghost"
-                                                  title=${L(
-                                                      "删除网页设置，重启后改用部署值",
-                                                      "Remove the web override; deployment value applies after restart",
-                                                  )}
-                                                  onClick=${() => set(key, null)}
-                                                  >${L("恢复", "Revert")}<//
-                                              >`
-                                            : null}
-                                    </div>
-                                <//>`;
-                            })}
+                            .map(
+                                ([key, [label, help]]) =>
+                                    html`<${RuntimeRow}
+                                        item=${items[key]}
+                                        label=${label}
+                                        help=${help}
+                                        draft=${draft}
+                                        set=${set}
+                                        unset=${unset}
+                                        onTelegraph=${telegraph}
+                                    />`,
+                            )}
                     </div>
                 <//>`,
         )}
         <p class="muted" style="font-size:12.5px">
             ${L(
-                `所有者（${data.deployment_only.join("、")}）、数据库地址、网页登录密码和监听地址只能在部署环境里修改。`,
-                `Owner (${data.deployment_only.join(", ")}), database URL, console password and listen address can only be set in the deployment environment.`,
+                `所有者（${data.deployment_only.slice(0, 3).join("、")} 等）、数据库地址、网页登录密码和监听地址只能在部署环境里修改。`,
+                `Owner (${data.deployment_only.slice(0, 3).join(", ")}…), database URL, console password and listen address can only be set in the deployment environment.`,
             )}
         </p>
         ${dirty.length

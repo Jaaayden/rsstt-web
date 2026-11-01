@@ -61,7 +61,38 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
     from ..runtime_config import RuntimeConfig, ConfigError
     runtime = RuntimeConfig(store.path.parent,
                             applied=getattr(env, 'RUNTIME_CONFIG_OVERRIDES', {}),
-                            environment=getattr(env, 'RUNTIME_CONFIG_ENVIRONMENT', {}))
+                            environment=getattr(env, 'RUNTIME_CONFIG_ENVIRONMENT', {}),
+                            deployment=getattr(env, 'RUNTIME_CONFIG_DEPLOYMENT', {}))
+
+    def running_values():
+        """What this process actually uses right now (secrets only as set / count)."""
+        current = {}
+        for key in ('MULTIUSER', 'VERIFY_TLS', 'PROXY_BYPASS_PRIVATE', 'IPV6_PRIOR', 'TABLE_TO_IMAGE',
+                    'TRAFFIC_SAVING', 'LAZY_MEDIA_VALIDATION', 'CRON_SECOND', 'HTTP_TIMEOUT', 'HTTP_CONCURRENCY',
+                    'HTTP_CONCURRENCY_PER_HOST', 'HTTP_MAX_LINE_SIZE', 'HTTP_MAX_FIELD_SIZE', 'USER_AGENT',
+                    'IMG_RELAY_SERVER', 'IMAGES_WESERV_NL', 'API_ID', 'ERROR_LOGGING_CHAT'):
+            if hasattr(env, key):
+                value = getattr(env, key)
+                current[key] = str(value) if key == 'ERROR_LOGGING_CHAT' and value is not None else value
+        current['PROXY_BYPASS_DOMAINS'] = ' '.join(getattr(env, 'PROXY_BYPASS_DOMAINS', []) or []) or None
+        current['TELEGRAPH_TOKEN'] = len(getattr(env, 'TELEGRAPH_TOKEN', []) or [])
+        current['TOKEN'] = bool(getattr(env, 'TOKEN', None))
+        current['API_HASH'] = bool(getattr(env, 'API_HASH', None))
+        current['T_PROXY'] = bool(getattr(env, 'TELEGRAM_PROXY', None))
+        current['R_PROXY'] = bool(getattr(env, 'R_PROXY', None))
+        for key in ('SOCKS_PROXY', 'HTTP_PROXY', 'HTTPS_PROXY'):
+            current[key] = bool(getattr(env, 'RUNTIME_CONFIG_ENVIRONMENT', {}).get(key))
+        return current
+
+    def describe_runtime():
+        result = runtime.describe()
+        current = running_values()
+        for row in result['items']:
+            if row['key'] in current:
+                row['current'] = current[row['key']]
+            row['current_source'] = ('web' if row['key'] in runtime.applied else
+                                     'deployment' if row['deployment_set'] else 'default')
+        return result
     auth = await Auth.load(store, password, "preview-admin" if demo else "admin")
     # Re-authenticate after restart/password rotation; integration tokens persist.
     await revoke_browser_sessions(store)
@@ -454,7 +485,7 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
     async def runtime_config(request):
         admin(request)
         try:
-            return web.json_response(runtime.describe())
+            return web.json_response(describe_runtime())
         except ConfigError as error:
             store.diagnostics.emit('system', 'error', 'runtime_config.read_failed', '无法读取运行配置，请检查配置文件。',
                                    detail=str(error), context={'stage': 'configuration', 'exception_type': type(error).__name__})
@@ -468,7 +499,8 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
             raise Problem('没有可保存的运行配置。')
         async with service.mutation:
             try:
-                result = runtime.save(values)
+                runtime.save(values)
+                result = describe_runtime()
             except ConfigError as error:
                 store.diagnostics.emit('system', 'warning', 'runtime_config.rejected', '运行配置未保存，请检查配置项。',
                                        detail=str(error), context={'stage': 'configuration', 'exception_type': type(error).__name__})
@@ -477,6 +509,28 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
         store.diagnostics.emit('system', 'info', 'runtime_config.saved', '运行配置已保存，等待重启生效。',
                                context={'stage': 'configuration'})
         return web.json_response(result)
+
+    @routes.post('/api/runtime-config/telegraph-tokens')
+    async def telegraph_tokens(request):
+        """Create Telegraph accounts (no sign-in needed) and save their tokens; applies on restart."""
+        admin(request)
+        values = await body(request)
+        count = integer(values.get('count', 5), '数量', 1, 10)
+        if demo:
+            raise Problem('演示和离线实例不连接外网，无法自动获取 Telegraph Token。', 409, code='OFFLINE')
+        tokens = await create_telegraph_tokens(count)
+        from ..runtime_config import ConfigError as _ConfigError
+        existing = runtime._read().get('TELEGRAPH_TOKEN') or ' '.join(getattr(env, 'TELEGRAPH_TOKEN', []) or [])
+        merged = list(dict.fromkeys([*existing.split(), *tokens]))[:50]
+        async with service.mutation:
+            try:
+                runtime.save({'TELEGRAPH_TOKEN': ' '.join(merged)})
+            except _ConfigError as error:
+                raise Problem(str(error)) from None
+        await store.audit(request['principal']['name'], '自动获取 Telegraph Token（待重启）', f'{len(tokens)} 个')
+        store.diagnostics.emit('system', 'info', 'runtime_config.saved', '运行配置已保存，等待重启生效。',
+                               context={'stage': 'configuration'})
+        return web.json_response({'added': len(tokens), 'total': len(merged), **describe_runtime()})
 
     @routes.get('/api/tokens')
     async def tokens(request):
@@ -593,6 +647,36 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
     app.on_cleanup.append(close_manual_fetch)
     app.add_routes(routes)
     return app
+
+
+async def create_telegraph_tokens(count):
+    """Telegraph's createAccount needs no credentials; each call returns one access token."""
+    import aiohttp
+    connector = None
+    proxy = getattr(env, 'TELEGRAM_PROXY', None)
+    if proxy:
+        from aiohttp_socks import ProxyConnector
+        connector = ProxyConnector.from_url(proxy.replace('socks5h', 'socks5'), rdns=True)
+    params = {'short_name': 'RSStT', 'author_name': 'Generated by RSStT',
+              'author_url': 'https://github.com/Rongronggg9/RSS-to-Telegram-Bot'}
+    tokens = []
+    try:
+        async with aiohttp.ClientSession(connector=connector, trust_env=False,
+                                         timeout=aiohttp.ClientTimeout(total=15)) as client:
+            for _ in range(count):
+                async with client.get('https://api.telegra.ph/createAccount', params=params) as response:
+                    data = await response.json(content_type=None)
+                token = (data.get('result') or {}).get('access_token') if isinstance(data, dict) else None
+                if not data.get('ok') or not isinstance(token, str) or not re.fullmatch(r'[0-9a-f]{20,128}', token):
+                    raise ValueError('unexpected Telegraph response')
+                tokens.append(token)
+    except Exception as error:
+        if tokens:
+            return tokens
+        LOGGER.warning('Telegraph token creation failed: %s', type(error).__name__)
+        raise Problem('无法连接 Telegraph（api.telegra.ph）。请检查服务器网络或 Telegram 代理设置后重试。', 502,
+                      code='TELEGRAPH_UNREACHABLE') from None
+    return tokens
 
 
 _runner = None

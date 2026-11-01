@@ -135,3 +135,32 @@ async def test_assets_are_compressed_and_revalidated(context):
     assert again.status == 304
     api = await context.client.get('/api/public')
     assert api.headers['Cache-Control'] == 'no-store'
+
+
+async def test_runtime_config_reports_current_value_and_source(logged):
+    data = await (await logged.client.get('/api/runtime-config')).json()
+    items = {item['key']: item for item in data['items']}
+    assert items['MULTIUSER']['current'] is env.MULTIUSER
+    assert items['MULTIUSER']['default'] is True
+    assert items['HTTP_TIMEOUT']['current'] == env.HTTP_TIMEOUT and items['HTTP_TIMEOUT']['default'] == 12
+    assert items['TOKEN']['current'] is True and 'value' not in items['TOKEN']
+    for item in items.values():
+        assert item['current_source'] in ('web', 'deployment', 'default')
+
+
+async def test_generate_telegraph_tokens(logged, monkeypatch):
+    from src.management import server
+    async def fake(count):
+        return [f'{i:02d}' + 'a' * 58 for i in range(count)]
+    monkeypatch.setattr(server, 'create_telegraph_tokens', fake)
+    response = await logged.client.post('/api/runtime-config/telegraph-tokens', json={'count': 3},
+                                        headers={'Origin': ORIGIN})
+    assert response.status == 200
+    body = await response.json()
+    assert body['added'] == 3 and body['total'] >= 3
+    item = next(i for i in body['items'] if i['key'] == 'TELEGRAPH_TOKEN')
+    assert item['configured'] and item['pending_restart'] and 'value' not in item
+    # A second run appends instead of replacing.
+    again = await (await logged.client.post('/api/runtime-config/telegraph-tokens', json={'count': 3},
+                                            headers={'Origin': ORIGIN})).json()
+    assert again['total'] == body['total']  # same fake tokens are de-duplicated
