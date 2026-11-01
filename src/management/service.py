@@ -284,6 +284,12 @@ class Service:
             elif key in ('title', 'tags'):
                 if value is not None and (not isinstance(value, str) or len(value) > (1024 if key == 'title' else 255)):
                     raise Problem('标题或标签过长。')
+                if key == 'tags' and value:
+                    # Same normalisation as /set_hashtags: "#a, #b" and "a b" both become "a b".
+                    from ..parsing.utils import escape_hashtags
+                    value = ' '.join(escape_hashtags(inner.utils.parse_hashtags(value)))
+                    if len(value) > 255:
+                        raise Problem('标题或标签过长。')
                 clean[key] = value or None
             elif key in ('interval', 'sub_limit') and value is None:
                 clean[key] = None

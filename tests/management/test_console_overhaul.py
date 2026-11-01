@@ -100,3 +100,40 @@ async def test_recovery_notice_after_alert(context):
     await engine.event('fetch', '1', 0)
     events = [job['event'] for job in reversed(await engine.history())]
     assert events == ['fetch.failed', 'fetch.recovered']
+
+
+async def test_hashtags_saved_like_set_hashtags(logged):
+    for raw in ('#news, #tech', 'news tech', '#news #tech'):
+        response = await logged.client.patch(f'/api/subscriptions/{logged.sub.id}', json={'tags': raw},
+                                             headers={'Origin': ORIGIN})
+        assert response.status == 200
+        assert (await response.json())['tags'] == 'news tech', raw
+    cleared = await logged.client.patch(f'/api/subscriptions/{logged.sub.id}', json={'tags': ''}, headers={'Origin': ORIGIN})
+    assert (await cleared.json())['tags'] is None
+
+
+async def test_bot_channel_reports_owner_never_started_bot(context, monkeypatch):
+    engine = await Notifications(context.store).open()
+
+    class Bot:
+        async def send_message(self, chat, text, **kwargs):
+            raise PermissionError('InputUserDeactivated')
+
+    monkeypatch.setattr(env, 'bot', Bot(), raising=False)
+    try:
+        await engine.send('bot', {'enabled': True}, {'event': 'test', 'subject': 'administrator', 'id': 1})
+    except Exception as error:
+        assert 'Telegram rejected' in str(error)
+    else:
+        raise AssertionError('expected a delivery error')
+
+
+async def test_assets_are_compressed_and_revalidated(context):
+    first = await context.client.get('/assets/page-settings.js', headers={'Accept-Encoding': 'gzip'})
+    assert first.status == 200 and first.headers['Content-Encoding'] == 'gzip'
+    assert first.headers['Cache-Control'] == 'no-cache' and 'javascript' in first.headers['Content-Type']
+    assert 'export function Settings' in await first.text()
+    again = await context.client.get('/assets/page-settings.js', headers={'If-None-Match': first.headers['ETag']})
+    assert again.status == 304
+    api = await context.client.get('/api/public')
+    assert api.headers['Cache-Control'] == 'no-store'

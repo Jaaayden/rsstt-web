@@ -54,6 +54,9 @@ export function SubStatus({ sub, threshold = 3 }) {
     return html`<${Badge} tone="green" dot>${L("正常", "Healthy")}<//>`;
 }
 
+/** Stored as "a b" (like /set_hashtags); shown as "#a #b". */
+const hashtags = (tags) => (tags ? "#" + tags.split(" ").join(" #") : "");
+
 const feedGlyph = (s) => [...(s.title || host(s.url) || "?")][0]?.toUpperCase();
 
 function TargetFilter({ value, onChange }) {
@@ -232,7 +235,7 @@ export function Subscriptions() {
                                                           >
                                                           <div>
                                                               <span class="cell-title">${s.title}</span
-                                                              ><span class="cell-sub">${host(s.url)}${s.tags ? " · " + s.tags : ""}</span>
+                                                              ><span class="cell-sub">${host(s.url)}${s.tags ? " · " + hashtags(s.tags) : ""}</span>
                                                           </div>
                                                       </div>
                                                   </td>
@@ -488,7 +491,7 @@ function SubSettings({ sub, onChanged, onDirty, onDeleted }) {
         [sub.target],
     );
     const settings = useAsync(() => api("/settings"), []);
-    const initial = { title: sub.custom_title || "", tags: sub.tags || "", ...sub.options };
+    const initial = { title: sub.custom_title || "", tags: hashtags(sub.tags), ...sub.options };
     const [draft, setDraft] = useState(initial);
     const [busy, setBusy] = useState("");
     const dirtyKeys = Object.keys(draft).filter((k) => draft[k] !== initial[k]);
@@ -501,7 +504,7 @@ function SubSettings({ sub, onChanged, onDirty, onDeleted }) {
             const next = await api(`/subscriptions/${sub.id}`, { method: "PATCH", body });
             onDirty(false);
             onChanged(next);
-            setDraft({ title: next.custom_title || "", tags: next.tags || "", ...next.options });
+            setDraft({ title: next.custom_title || "", tags: hashtags(next.tags), ...next.options });
             toast(L("已保存", "Saved"));
         } catch (err) {
             toast(err.message, "error");

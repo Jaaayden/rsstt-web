@@ -319,6 +319,17 @@ class Notifications:
             elif event == 'user.first_seen':
                 meta = (await self.store.target_map([int(subject)])).get(str(subject)) or {}
                 ident = int(subject)
+                if not meta.get('title') and getattr(env, 'bot', None) is not None and not self.offline:
+                    # A brand-new chat may not have cached metadata yet; ask Telegram once.
+                    try:
+                        from telethon.tl.types import Channel, Chat
+                        from telethon.utils import get_display_name
+                        entity = await asyncio.wait_for(env.bot.get_entity(ident), 5)
+                        meta = dict(title=get_display_name(entity), username=getattr(entity, 'username', None),
+                                    kind='channel' if isinstance(entity, Channel) and entity.broadcast else
+                                    'group' if isinstance(entity, (Channel, Chat)) else 'private')
+                    except Exception:
+                        pass
                 kind = meta.get('kind') or ('private' if ident > 0 else 'unknown')
                 kind_name = {'private': T('私聊用户', 'private user'), 'group': T('群组', 'group'),
                              'channel': T('频道', 'channel')}.get(kind, T('频道或群组', 'channel or group'))
@@ -347,7 +358,11 @@ class Notifications:
             if not env.bot or not env.MANAGER:
                 raise NotificationDeliveryError('Bot client unavailable')
             for manager in env.MANAGER:
-                await env.bot.send_message(manager, f'🔔 {title}\n\n{text}', link_preview=False)
+                try:
+                    await env.bot.send_message(manager, f'🔔 {title}\n\n{text}', link_preview=False)
+                except Exception as error:
+                    # e.g. the owner never pressed /start, so Telegram forbids the bot from writing first.
+                    raise NotificationDeliveryError(f'Telegram rejected the message: {type(error).__name__}') from error
             return
         headers = cfg.get('headers', {})
         url = cfg.get('url')

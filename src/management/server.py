@@ -1,5 +1,6 @@
 """Authenticated, same-origin API and dependency-free static web application."""
 import asyncio
+import gzip
 import json
 import logging
 import os
@@ -121,8 +122,10 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
             response = web.json_response({'error': '操作未完成，请查看服务日志后重试。', 'code': 'INTERNAL_ERROR'}, status=500)
         if request.get('principal', {}).get('kind') == 'token':
             await store.audit(request['principal']['id'], 'agent_request', f"{request.method} {request.match_info.route.resource.canonical if request.match_info.route.resource else '/unknown'} {response.status}")
+        if not request.path.startswith('/assets/'):
+            response.headers['Cache-Control'] = 'no-store'
         response.headers.update({
-            'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
+            'X-Content-Type-Options': 'nosniff',
             'Referrer-Policy': 'no-referrer', 'X-Frame-Options': 'DENY',
             'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
         })
@@ -518,14 +521,29 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
     async def index(request):
         return web.FileResponse(STATIC / 'index.html')
 
+    asset_cache = {}
+
     @routes.get('/assets/{name}')
     async def assets(request):
         name = request.match_info['name']
-        if not ASSET.fullmatch(name) or not (STATIC / name).is_file():
+        path = STATIC / name
+        if not ASSET.fullmatch(name) or not path.is_file():
             raise web.HTTPNotFound()
-        response = web.FileResponse(STATIC / name)
-        response.headers['Cache-Control'] = 'no-cache'
-        return response
+        stat = path.stat()
+        key = (name, stat.st_mtime_ns, stat.st_size)
+        cached = asset_cache.get(name)
+        if not cached or cached[0] != key:
+            raw = path.read_bytes()
+            cached = asset_cache[name] = (key, raw, gzip.compress(raw, 9), f'"{stat.st_mtime_ns:x}-{stat.st_size:x}"')
+        _, raw, packed, etag = cached
+        headers = {'ETag': etag, 'Cache-Control': 'no-cache', 'Vary': 'Accept-Encoding'}
+        if request.headers.get('If-None-Match') == etag:
+            return web.Response(status=304, headers=headers)
+        content_type = {'.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png'}[path.suffix]
+        if 'gzip' in request.headers.get('Accept-Encoding', '') and path.suffix != '.png':
+            return web.Response(body=packed, content_type=content_type, charset=None if path.suffix == '.png' else 'utf-8',
+                                headers={**headers, 'Content-Encoding': 'gzip'})
+        return web.Response(body=raw, content_type=content_type, charset=None if path.suffix == '.png' else 'utf-8', headers=headers)
 
     from .backup_api import install as install_backups
     install_backups(routes, service, env.DATABASE_URL, admin, body)
