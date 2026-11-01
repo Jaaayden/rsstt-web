@@ -4,6 +4,8 @@ import gzip
 import json
 import logging
 import os
+import secrets
+import signal
 import re
 import time
 from datetime import datetime
@@ -54,6 +56,7 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
         raise ValueError('Snapshot preview requires local offline demo mode')
     # Cookies are shared across ports; keep parallel local previews independent.
     cookie_name = f'rsstt_session_{parsed.port}' if demo else 'rsstt_session'
+    boot = secrets.token_hex(6)  # changes on every start; lets the page notice a restart
     service = Service(store, gateway, demo)
     await diagnostics.observe_restore(store)
     from . import chat_audit
@@ -178,7 +181,7 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
             'manual_fetch': '/api/subscriptions/{id}/fetch-now',
             'articles': '/api/subscriptions/{id}/articles',
         }.items()}
-        return web.json_response({'demo': demo, 'snapshot': snapshot, 'features': features})
+        return web.json_response({'demo': demo, 'snapshot': snapshot, 'features': features, 'boot': boot})
 
     @routes.post('/api/login')
     async def login(request):
@@ -450,7 +453,23 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
         admin(request)
         return web.json_response({'options': db.EffectiveOptions.options, 'console': await store.settings(),
                                   'bot': service.gateway.status(), 'origin': origin, 'demo': demo,
-                                  'database': env.DATABASE_URL.split(':', 1)[0], 'version': env.VERSION})
+                                  'database': env.DATABASE_URL.split(':', 1)[0], 'version': env.VERSION,
+                                  'restart': {'supported': not demo, 'container': in_container()}})
+
+    @routes.post('/api/system/restart')
+    async def restart(request):
+        """Graceful exit, exactly like `docker restart`; the container's restart policy starts it again."""
+        admin(request)
+        values = await body(request)
+        if values != {'confirm': True}:
+            raise Problem('请确认重启。')
+        if demo:
+            raise Problem('演示和离线实例不能从网页重启。', 409, code='RESTART_UNAVAILABLE')
+        await store.audit(request['principal']['name'], '重启机器人', 'web')
+        await store.diagnostics.record('system', 'warning', 'system.restart_requested', '管理员从网页重启了机器人。',
+                                       context={'stage': 'restart'})
+        asyncio.get_running_loop().call_later(1.0, request_restart)
+        return web.json_response({'ok': True, 'container': in_container()}, status=202)
 
     @routes.patch('/api/settings')
     async def patch_settings(request):
@@ -647,6 +666,16 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
     app.on_cleanup.append(close_manual_fetch)
     app.add_routes(routes)
     return app
+
+
+def in_container():
+    return Path('/.dockerenv').exists() or Path('/run/.containerenv').exists() or bool(os.environ.get('container'))
+
+
+def request_restart():
+    """Same graceful shutdown path as SIGTERM from `docker restart` / `docker stop`."""
+    LOGGER.warning('Restart requested from the web console')
+    os.kill(os.getpid(), signal.SIGTERM)
 
 
 async def create_telegraph_tokens(count):

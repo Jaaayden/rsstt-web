@@ -84,6 +84,95 @@ function SaveBar({ dirty, busy, onReset, onSave }) {
         <${Button} kind="primary" disabled=${!dirty} loading=${busy} onClick=${onSave}>${L("保存", "Save")}<//>`;
 }
 
+/* ---------- restart ---------- */
+function RestartProgress({ close }) {
+    const [phase, setPhase] = useState("stopping");
+    useEffect(() => {
+        let alive = true;
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        const boot = async () => {
+            try {
+                const r = await fetch("/api/public", { cache: "no-store" });
+                return r.ok ? (await r.json()).boot : null;
+            } catch {
+                return null;
+            }
+        };
+        (async () => {
+            const before = app.info.boot;
+            const started = Date.now();
+            while (alive && Date.now() - started < 180000) {
+                await sleep(2000);
+                const now = await boot();
+                if (!alive) return;
+                if (now === null) setPhase("starting");
+                else if (now !== before) {
+                    setPhase("done");
+                    await sleep(800);
+                    location.reload();
+                    return;
+                }
+            }
+            if (alive) setPhase("timeout");
+        })();
+        return () => (alive = false);
+    }, []);
+    const text = {
+        stopping: L("正在停止机器人…", "Stopping the bot…"),
+        starting: L("正在重新启动，通常需要 10–30 秒…", "Starting again, usually 10–30 seconds…"),
+        done: L("已恢复，正在刷新页面…", "Back online, reloading…"),
+        timeout: L(
+            "3 分钟内没有检测到机器人恢复。请到服务器上查看容器状态和日志（docker ps、docker logs）。",
+            "The bot didn't come back within 3 minutes. Check the container on the server (docker ps, docker logs).",
+        ),
+    }[phase];
+    return html`<${Modal} title=${L("重启机器人", "Restarting the bot")} onClose=${phase === "timeout" ? close : () => {}}>
+        ${phase === "timeout" ? html`<${Notice} tone="error">${text}<//>` : html`<${Spinner} label=${text} />`}
+    <//>`;
+}
+
+export async function restartBot(restart) {
+    const outside = restart && !restart.container;
+    const ok = await confirm({
+        title: L("立即重启机器人？", "Restart the bot now?"),
+        body: html`<p>
+                ${L(
+                    "机器人会正常退出，再由 Docker 自动启动，通常 10–30 秒。期间暂停推送，恢复后会继续检查更新，不会丢订阅。重启后需要重新登录网页。",
+                    "The bot exits cleanly and Docker starts it again, usually in 10–30 seconds. Delivery pauses meanwhile and resumes afterwards; no subscriptions are lost. You'll need to sign in again.",
+                )}
+            </p>
+            ${outside
+                ? html`<div style="margin-top:10px">
+                      <${Notice} tone="warn" title=${L("没有检测到容器环境", "No container detected")}>
+                          ${L(
+                              "看起来机器人不是在 Docker 里运行。只有配置了 systemd、pm2 等进程管理器自动拉起时才能用这个按钮，否则机器人会停止，需要你手动启动。",
+                              "The bot doesn't seem to run in Docker. Only use this if a process manager (systemd, pm2…) restarts it automatically; otherwise it will stop until you start it by hand.",
+                          )}
+                      <//>
+                  </div>`
+                : null}`,
+        ok: L("立即重启", "Restart now"),
+        danger: true,
+    });
+    if (!ok) return;
+    try {
+        await api("/system/restart", { method: "POST", body: { confirm: true } });
+    } catch (err) {
+        toast(err.message, "error");
+        return;
+    }
+    openModal((close) => html`<${RestartProgress} close=${close} />`);
+}
+
+function RestartButton({ size, kind = "secondary" }) {
+    const settings = useAsync(() => api("/settings"), []);
+    const restart = settings.data?.restart;
+    if (!restart?.supported) return null;
+    return html`<${Button} size=${size} kind=${kind} icon="refresh" onClick=${() => restartBot(restart)}
+        >${L("立即重启", "Restart now")}<//
+    >`;
+}
+
 /* ---------- general ---------- */
 function General() {
     const { data, error, reload } = useAsync(() => api("/settings"), []);
@@ -832,6 +921,7 @@ function Runtime() {
     };
     return html`
         <${Notice}
+            action=${data.pending_restart ? html`<${RestartButton} size="sm" kind="primary" />` : null}
             tone=${data.pending_restart ? "warn" : "info"}
             title=${data.pending_restart
                 ? L("有已保存的修改还没生效", "Saved changes are waiting for a restart")
@@ -1019,8 +1109,14 @@ function Backup() {
                   ? html`<${Notice}
                         tone="warn"
                         title=${L("有一个恢复任务等待重启", "A restore is waiting for restart")}
-                        action=${html`<${Button} size="sm" onClick=${cancelPending}>${L("取消", "Cancel")}<//>`}
-                        >${L("重启机器人后会自动应用。", "It will be applied when the bot restarts.")}<//
+                        action=${html`<div class="row">
+                            <${Button} size="sm" onClick=${cancelPending}>${L("取消", "Cancel")}<//
+                            ><${RestartButton} size="sm" kind="primary" />
+                        </div>`}
+                        >${L(
+                            "重启机器人后会自动应用，所有网页登录都会失效。",
+                            "It's applied when the bot restarts; all browser sessions are signed out.",
+                        )}<//
                     >`
                   : html`
                         ${restore.status === "succeeded"
@@ -1357,6 +1453,34 @@ function Account() {
                 : null}
             <${Button} kind="danger" icon="logout" onClick=${revokeAll}>${L("退出所有设备", "Sign out everywhere")}<//>
         <//>
+        ${s?.restart?.supported
+            ? html`<${Card}
+                  title=${L("重启机器人", "Restart the bot")}
+                  description=${L(
+                      "运行配置、备份恢复等需要重启才生效的修改，可以在这里直接重启，不用登录服务器。",
+                      "Apply changes that need a restart (runtime settings, restores) without logging in to the server.",
+                  )}
+              >
+                  <div class="action-card">
+                      <${Icon} name="refresh" size=${18} />
+                      <div>
+                          <b>${L("立即重启", "Restart now")}</b>
+                          <p>
+                              ${s.restart.container
+                                  ? L(
+                                        "机器人会正常退出，并由 Docker 自动启动，通常 10–30 秒。",
+                                        "The bot exits cleanly and Docker starts it again, usually in 10–30 seconds.",
+                                    )
+                                  : L(
+                                        "没有检测到容器环境：只有配置了进程管理器自动拉起时才能使用。",
+                                        "No container detected: only use this with a process manager that restarts the bot.",
+                                    )}
+                          </p>
+                      </div>
+                      <${Button} size="sm" kind="primary" onClick=${() => restartBot(s.restart)}>${L("重启", "Restart")}<//>
+                  </div>
+              <//>`
+            : null}
         <${Card} title=${L("关于这个实例", "About this instance")}>
             ${!s
                 ? html`<${Spinner} />`

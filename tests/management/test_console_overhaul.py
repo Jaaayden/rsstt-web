@@ -164,3 +164,20 @@ async def test_generate_telegraph_tokens(logged, monkeypatch):
     again = await (await logged.client.post('/api/runtime-config/telegraph-tokens', json={'count': 3},
                                             headers={'Origin': ORIGIN})).json()
     assert again['total'] == body['total']  # same fake tokens are de-duplicated
+
+
+async def test_restart_schedules_graceful_exit(logged, monkeypatch):
+    import asyncio
+    from src.management import server
+    calls = []
+    monkeypatch.setattr(server, 'request_restart', lambda: calls.append('restart'))
+    settings = await (await logged.client.get('/api/settings')).json()
+    assert settings['restart']['supported'] is True and 'container' in settings['restart']
+    boot = (await (await logged.client.get('/api/public')).json())['boot']
+    assert isinstance(boot, str) and boot
+    bad = await logged.client.post('/api/system/restart', json={}, headers={'Origin': ORIGIN})
+    assert bad.status == 400 and not calls
+    response = await logged.client.post('/api/system/restart', json={'confirm': True}, headers={'Origin': ORIGIN})
+    assert response.status == 202
+    await asyncio.sleep(1.3)
+    assert calls == ['restart']
