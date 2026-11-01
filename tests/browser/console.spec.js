@@ -87,7 +87,7 @@ test("blocking asks first and cancelling keeps the role", async ({ page }) => {
 
 test("subscription drawer keeps unsaved edits per tab and saves", async ({ page }) => {
     await signIn(page, "/#subscriptions");
-    await page.locator("tbody tr").first().click();
+    await page.locator("tbody tr .cell-title").first().click();
     const drawer = page.locator(".drawer");
     await drawer.getByLabel("自定义标题").fill("E2E 标题");
     await expect(drawer.getByText("1 项修改未保存")).toBeVisible();
@@ -109,7 +109,7 @@ test("subscription drawer keeps unsaved edits per tab and saves", async ({ page 
 
 test("edit recipients of a shared feed", async ({ page }) => {
     await signIn(page, "/#subscriptions?q=机器之心");
-    await page.locator("tbody tr").first().click();
+    await page.locator("tbody tr .cell-title").first().click();
     const drawer = page.locator(".drawer");
     await drawer.getByRole("tab", { name: "接收会话" }).click();
     await expect(drawer.getByRole("button", { name: "编辑接收会话" })).toBeVisible();
@@ -128,7 +128,7 @@ test("edit recipients of a shared feed", async ({ page }) => {
 
 test("manual fetch reports a result", async ({ page }) => {
     await signIn(page, "/#subscriptions");
-    await page.locator("tbody tr").first().click();
+    await page.locator("tbody tr .cell-title").first().click();
     await page.locator(".drawer").getByRole("tab", { name: "抓取" }).click();
     await page.locator(".drawer").getByRole("button", { name: "立即检查" }).click();
     await page.locator(".modal").getByRole("button", { name: "立即检查" }).click();
