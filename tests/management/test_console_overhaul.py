@@ -251,7 +251,7 @@ async def test_settings_report_the_web_version_and_the_bot_core(logged, tmp_path
     from src.management import version
     data = await (await logged.client.get('/api/settings')).json()
     assert data['version'] == version.WEB_VERSION
-    assert data['upstream_version'] == env.VERSION
+    assert data['upstream_version'] == 'v2.10.0' == version.core()
     # Inside the image the build commit comes from /app/.version.
     fake = tmp_path / 'src' / 'management'
     fake.mkdir(parents=True)
