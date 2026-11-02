@@ -7,7 +7,7 @@
 <p align="center">Your feeds. Your destinations. One console.</p>
 
 <p align="center">
-  English · <a href="README.zh.md">简体中文</a> · <a href="docs/web-console.md">Documentation</a> · <a href="LICENSE">AGPLv3+</a>
+  English · <a href="README.zh.md">简体中文</a> · <a href="https://jaaayden.github.io/rsstt-web/en/">Documentation</a> · <a href="https://jaaayden.github.io/rsstt-web/deploy.md">Deploy with AI</a> · <a href="LICENSE">AGPLv3+</a>
 </p>
 
 ![RSStT Web overview with demonstration data](docs/resources/console-overview.png)

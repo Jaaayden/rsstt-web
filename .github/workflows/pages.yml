@@ -1,0 +1,59 @@
+name: Documentation
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'website/**'
+      - 'compose.console.yaml'
+      - '.env.console.example'
+      - '.github/workflows/pages.yml'
+  pull_request:
+    paths:
+      - 'website/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  build:
+    name: Build documentation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Install pnpm
+        run: npm install --global pnpm@11
+      - name: Install documentation dependencies
+        run: pnpm --dir website install --frozen-lockfile
+      - name: Build
+        run: pnpm --dir website exec vitepress build
+      - name: Check the AI deployment guide is served verbatim
+        run: |
+          test -f website/.vitepress/dist/deploy.md
+          test -f website/.vitepress/dist/llms.txt
+          head -1 website/.vitepress/dist/deploy.md | grep -q '^# Deploy RSStT Web'
+      - uses: actions/upload-pages-artifact@v4
+        if: github.ref == 'refs/heads/main'
+        with:
+          path: website/.vitepress/dist
+  deploy:
+    name: Deploy to GitHub Pages
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

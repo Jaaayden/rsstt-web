@@ -7,7 +7,7 @@
 <p align="center">订阅、会话与推送，一处管理。</p>
 
 <p align="center">
-  <a href="README.md">English</a> · 简体中文 · <a href="docs/web-console.md">使用文档</a> · <a href="LICENSE">AGPLv3+</a>
+  <a href="README.md">English</a> · 简体中文 · <a href="https://jaaayden.github.io/rsstt-web/">文档</a> · <a href="https://jaaayden.github.io/rsstt-web/deploy.md">交给 AI 部署</a> · <a href="LICENSE">AGPLv3+</a>
 </p>
 
 ![RSStT Web 概览页，使用演示数据](docs/resources/console-overview.zh.png)
