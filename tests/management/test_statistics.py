@@ -197,7 +197,7 @@ async def test_unverified_metadata_never_promotes_guessed_type(logged, membershi
     await logged.store.target(-1001, 'Test', None, 'group', membership)
     result = await statistics.usage(logged.store)
     assert result['known']['unknown'] == 1
-    assert result['active']['unknown'] == 1
+    assert result['active']['unknown'] == (0 if membership == 'left' else 1)
     # Explicit upstream state is still a valid fallback.
     await db.User.filter(id=-1001).update(state=50)
     assert (await statistics.usage(logged.store))['known']['channel'] == 2

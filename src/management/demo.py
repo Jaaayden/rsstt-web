@@ -40,7 +40,7 @@ class DemoGateway:
         pass
 
     def status(self):
-        return {'connected': False, 'name': 'Lantern RSS', 'username': 'lantern_rss_bot'}
+        return {'connected': False, 'name': 'RSStT Preview', 'username': 'rsstt_preview_bot'}
 
 
 async def offline_feed(url, **kwargs):
@@ -73,9 +73,23 @@ async def main():
             feed = await db.Feed.create(title=title, link=f'https://{url}', error_count=4 if i == 4 else 7 if i == 9 else 0)
             for target in targets[:3 + i % 4]:
                 await db.Sub.create(user_id=target[0], feed=feed, state=0 if i == 10 else 1)
+        # Synthetic history belongs only to a fresh demo. Explicit coverage lets
+        # hourly/day charts demonstrate their real API paths.
+        now = datetime.now(timezone.utc)
+        first_day = (now - timedelta(days=29)).replace(hour=0, minute=0, second=0, microsecond=0)
+        first_hour = now.replace(minute=0, second=0, microsecond=0) - timedelta(hours=23)
         for i in range(30):
-            day = (datetime.now(timezone.utc).date() - timedelta(days=29 - i)).isoformat()
-            await store.increment(fetched=90 + (i * 47) % 150, delivered=200 + (i * 73) % 220, failed=1 if i % 4 == 0 else 0, day=day)
+            day = first_day + timedelta(days=i)
+            if day.date() < first_hour.date():
+                await store.increment(fetched=90 + (i * 47) % 150, delivered=200 + (i * 73) % 220,
+                                      failed=1 if i % 4 == 0 else 0, day=day.date().isoformat())
+        for i in range(24):
+            await store.increment(fetched=4 + (i * 7) % 15, delivered=9 + (i * 11) % 29,
+                                  failed=1 if i % 9 == 0 else 0, at=first_hour + timedelta(hours=i))
+        await store.db.executemany('UPDATE meta SET value=? WHERE key=?',
+                                  [(first_day.isoformat(), 'started_at'),
+                                   (first_hour.isoformat(), 'hourly_started_at')])
+        await store.db.commit()
         for action, detail in [('添加订阅', '技术与创造 · Hacker News'), ('更新设置', '默认更新间隔 · 10 分钟'), ('导入 OPML', '慢慢读书 · 8 个订阅')]:
             await store.audit('管理员', action, detail)
     gateway = DemoGateway()

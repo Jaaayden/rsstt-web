@@ -29,7 +29,7 @@ COMPONENTS = {
     'runtime_config': (),
     'notification_secrets': ('notify_config',),
 }
-EXTENSION_DATA = ('metrics_hourly', 'notify_seen', 'feed_fetch_options')
+EXTENSION_DATA = ('metrics_hourly', 'notify_seen', 'feed_fetch_options', 'chat_events')
 META_KEYS = ('started_at', 'attention_threshold', 'hourly_started_at')
 OPTION_KEYS = ('default_interval', 'minimal_interval', 'user_sub_limit',
                'channel_or_group_sub_limit', 'sub_limit_reached_message')
@@ -321,6 +321,9 @@ def apply_rows(connection, package, options):
         placeholders = ','.join('?' for _ in item['columns'])
         decoded = [[base64.b64decode(v['blob'], validate=True) if isinstance(v, dict) else v for v in row] for row in item['rows']]
         connection.executemany(f'INSERT INTO {schema}.{ident(table)} ({cols}) VALUES ({placeholders})', decoded)
+    if 'chat_events' not in package['manifest'].get('extensions', []) and connection.execute(
+            "SELECT 1 FROM console.sqlite_master WHERE type='table' AND name='chat_events'").fetchone():
+        connection.execute('DELETE FROM console.chat_events')
     if connection.execute("SELECT 1 FROM console.sqlite_master WHERE type='table' AND name='notify_jobs'").fetchone():
         connection.execute('DELETE FROM console.notify_jobs')
     # Restore invalidates target sessions too. Source sessions are never included.

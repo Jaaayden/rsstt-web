@@ -392,7 +392,7 @@ export const english = {
     "结尾完整网址，无源标题": "Full URL at end, without feed title",
     条目标签: "Entry tags",
     排版样式: "Layout style",
-    继承会话默认值: "Inherit destination default",
+    继承会话默认值: "Inherit chat default",
     "更新间隔（分钟）": "Update interval (minutes)",
     默认: "Default",
     更多推送与排版设置: "More delivery and formatting options",
@@ -417,7 +417,7 @@ export const english = {
     离线新增不会读取: "Offline additions do not fetch",
     "内容或校验地址。": "content or validate URLs.",
     订阅设置: "Subscription settings",
-    "接收会话：": "Receiving destination: ",
+    "接收会话：": "Receiving chat: ",
     自定义标题: "Custom title",
     使用订阅源原标题: "Use original feed title",
     附加标签: "Additional tags",
@@ -722,7 +722,7 @@ Object.assign(english, {
     会话类型: "Chat type",
     会话设置: "Chat settings",
     机器人访问状态: "Bot access",
-    上次核验可发送: "Last verified for delivery",
+    上次核验可发送: "Last check: can send",
     已记录私聊: "Recorded private chat",
     机器人已退出: "Bot has left",
     尚未核验: "Not verified",
@@ -995,7 +995,7 @@ Object.assign(english, {
     达到管理台连续抓取失败阈值的启用订阅数:
         "Number of enabled subscriptions that reached the console consecutive fetch-failure threshold",
     显示订阅源名称及原文链接: "Show feed title and original article link",
-    上次核验可发送: "Verified access",
+    上次核验可发送: "Last check: can send",
     添加已有会话: "Add an existing chat",
 });
 
@@ -1020,4 +1020,154 @@ Object.assign(english, {
 Object.assign(english, {
     "会话名称来自 Telegram 本地缓存，可能已过时；缺失名称显示 ID。“类型待核验”表示尚未确定群组或频道类型，当前访问权限未联网验证。":
         "Chat names come from Telegram’s local cache and may be outdated; missing names show the ID. “Type unverified” means the group or channel type is not yet confirmed. Current access permissions have not been verified online.",
+});
+
+Object.assign(english, {
+    未知: "Unknown",
+    "默认隐藏已封禁会话；可选择“已封禁”或“全部”查看。机器人已退出或被移除的会话不再显示。活跃指未封禁且有已启用订阅和已启用订阅源的会话。":
+        "Blocked chats are hidden by default; choose Blocked or All to view them. Chats the bot has left or been removed from are not shown. Active chats are not blocked and have enabled subscriptions to enabled feeds.",
+    "会话名称来自 Telegram 本地缓存，可能已过时；缺失名称显示 ID。离线快照未记录的会话类型显示为“未知”；联网核验后会归入私聊、群组或频道。当前访问权限未联网验证。":
+        "Chat names come from Telegram’s local cache and may be outdated; missing names show the ID. Chat types absent from the offline snapshot are labeled Unknown. Online verification classifies them as private chats, groups, or channels. Current access permissions have not been verified online.",
+    "会话列表来自 RSStT 记录；名称、类型和权限在联网核验时更新。类型缺失时仅显示“未知”，核验后归入私聊、群组或频道。机器人需先在 Telegram 中加入频道或群组。":
+        "Chats come from RSStT records. Online verification updates names, types, and permissions. Missing types are labeled Unknown, then classified as private chats, groups, or channels after verification. Add the bot to a group or channel in Telegram first.",
+    "查看未封禁会话的订阅，按订阅源、会话或状态筛选。已封禁会话的订阅可从该会话的“管理订阅”查看。":
+        "View subscriptions from chats that are not blocked, filtered by feed, chat, or status. To inspect a blocked chat’s subscriptions, use Manage subscriptions from that chat.",
+    "未勾选的可选会话将取消对此订阅源的订阅。已封禁、机器人已退出或被移除的会话，其已有订阅保持不变；API 令牌范围外的订阅也保持不变。":
+        "Unchecked eligible chats will be unsubscribed from this feed. Existing subscriptions for blocked chats or chats the bot has left or been removed from are preserved. Subscriptions outside an API token’s scope are also preserved.",
+});
+
+Object.assign(english, {
+    "管理已接入机器人的会话，查看启用订阅并控制使用权限。":
+        "Manage chats connected to the bot, inspect enabled subscriptions, and control access.",
+    服务控制: "Service controls",
+    推送默认值: "Delivery defaults",
+    启用数未记录: "Enabled count not recorded",
+    有启用订阅: "Has enabled subscriptions",
+    尚无启用订阅: "No enabled subscriptions yet",
+    停止服务并封禁: "Stop service and block",
+    停止服务并封禁此会话: "Stop service and block this chat",
+    确认停止服务并封禁: "Confirm stop and block",
+    查看会话记录: "View chat activity",
+    会话操作记录: "Chat activity history",
+    仅添加接收会话: "Add receiving chats only",
+    "此会话已停止服务并封禁，订阅保持暂停。解除封禁后不会自动恢复订阅，请在管理订阅中手动恢复。":
+        "Service is stopped and this chat is blocked; its subscriptions remain paused. Unblocking does not resume them. Resume subscriptions manually in Manage subscriptions.",
+    "暂停该会话的全部订阅并拒绝其常规命令，保留已有订阅和设置；不会自动让机器人退出群组或频道。":
+        "Pause all subscriptions for this chat and reject its regular commands while preserving subscriptions and settings. This does not remove the bot from a group or channel.",
+    "以下默认值仅影响继承此会话设置的订阅；尚无启用订阅不等于不能使用机器人。":
+        "These defaults affect subscriptions that inherit this chat’s settings. Having no enabled subscriptions does not mean the chat cannot use the bot.",
+    "服务已停止并封禁，订阅已暂停。可切换到“已封禁”查看；解除封禁后需手动恢复订阅。":
+        "Service stopped and chat blocked; subscriptions are paused. Choose Blocked to view it. Unblocking still requires subscriptions to be resumed manually.",
+    新会话接入时通知我: "Notify me about new chat access attempts",
+    "用户首次私聊机器人，或机器人新加入群组、频道时通知；被拒绝的新使用尝试也会记录。发送通知需要同时开启自动通知总开关和至少一个通知渠道。":
+        "Notify on a user’s first private interaction or when the bot joins a new group or channel. Denied new access attempts are also recorded. Sending alerts requires automatic notifications and at least one notification channel to be enabled.",
+    "会话状态在启动核验和 Telegram 成员事件后更新。已加入不代表已确认发送权限；页面显示最近记录的状态，不会每次打开都实时查询 Telegram。类型缺失时仅显示“未知”，核验后归入私聊、群组或频道。":
+        "Chat state updates after startup checks and Telegram membership events. Joining does not verify sending access. This page shows the latest recorded state and does not query Telegram on every visit. Missing types are labeled Unknown until verification classifies them as private chats, groups, or channels.",
+    "已加入，发送权限待确认": "Joined; sending access unverified",
+    机器人加入会话: "Bot joined chat",
+});
+
+Object.assign(english, {
+    "仅记录本版本启用后的 Bot 命令、管理操作和设置变更，保留有限的近期记录。不记录普通聊天内容或密钥，升级前的日志无法补回。":
+        "Records include Bot commands, management actions, and setting changes since this version was enabled, with a limited recent history. Ordinary chat messages and secrets are not recorded; earlier logs cannot be recovered.",
+    "会话记录存储暂不可用，当前显示可能不完整。请检查服务日志后重试。":
+        "Chat activity storage is temporarily unavailable and this view may be incomplete. Check the service logs and try again.",
+    Bot: "Bot",
+    管理台: "Console",
+    API: "API",
+    已完成: "Completed",
+    已拒绝: "Denied",
+    执行失败: "Failed",
+    未记录发起人: "Actor not recorded",
+    设置项: "Setting",
+    变更前: "Before",
+    变更后: "After",
+    存在: "Present",
+    已移除: "Removed",
+    是: "Yes",
+    否: "No",
+    机器人已被移除: "Bot was removed",
+    已禁用: "Disabled",
+    "本条记录没有设置变更详情。": "This record has no setting-change details.",
+    "本条记录仅保留了部分变更详情。": "Only some change details were retained for this record.",
+    当前没有可显示的会话记录: "No chat activity can be displayed right now",
+    尚无此会话的操作记录: "No activity recorded for this chat yet",
+    "记录从本版本启用后开始；升级前的交互和设置变更无法从旧日志补回。":
+        "Recording starts when this version is enabled. Earlier interactions and setting changes cannot be reconstructed from old logs.",
+    "正在加载会话记录…": "Loading chat activity…",
+    重试加载记录: "Retry loading activity",
+    修改订阅设置: "Changed subscription settings",
+    查看订阅列表: "Viewed subscriptions",
+    导出订阅: "Exported subscriptions",
+    查看订阅设置: "Viewed subscription settings",
+    导入订阅: "Imported subscriptions",
+    重置订阅设置: "Reset subscription settings",
+    修改会话设置: "Changed chat settings",
+    查看会话设置: "Viewed chat settings",
+    "查看 Bot 用户角色": "Viewed Bot user role",
+    "修改 Bot 回复语言": "Changed Bot reply language",
+    "查看 Bot 回复语言": "Viewed Bot reply language",
+    修改接收会话: "Changed receiving chats",
+    修改会话推送默认值: "Changed chat delivery defaults",
+    核验会话信息: "Verified chat details",
+    登记已有会话: "Registered an existing chat",
+    "Bot 命令 /start": "Bot command /start",
+    "Bot 命令 /help": "Bot command /help",
+    "Bot 命令 /version": "Bot command /version",
+    "Bot 命令 /list": "Bot command /list",
+    "Bot 测试命令": "Bot test command",
+    "Bot 内联操作": "Bot inline interaction",
+    "Bot 按钮操作": "Bot button interaction",
+    "其他 Bot 操作": "Other Bot action",
+    机器人会话关系变更: "Bot chat membership changed",
+    订阅上限: "Subscription limit",
+    订阅显示名称: "Subscription display name",
+    "Telegraph 长度阈值": "Telegraph length threshold",
+    作者显示: "Author display",
+    标题显示: "Title display",
+    会话类型: "Chat type",
+    记录是否存在: "Record existence",
+    "订阅源 ID": "Feed ID",
+});
+
+Object.assign(english, {
+    "已在本地预览中模拟退出，订阅已暂停。": "Leaving was simulated in this local preview; subscriptions are paused.",
+});
+
+Object.assign(english, {
+    "RSS 到 Telegram": "RSS to Telegram",
+    工作空间: "Workspace",
+    实例模式: "Instance mode",
+    管理实例: "Managed instance",
+    管理台已登录: "Console signed in",
+    "订阅、会话与推送": "Feeds, chats, and deliveries",
+    "信息流，": "Your feeds,",
+    "尽在掌握。": "under control.",
+    "从订阅源到 Telegram，在同一个工作空间管理每一次抵达。": "Manage feeds and Telegram deliveries in one workspace.",
+    管理台登录: "Console sign-in",
+    欢迎回来: "Welcome back",
+    "输入密码，管理此实例的订阅和会话。": "Enter your password to manage this instance’s subscriptions and chats.",
+    "管理台访问需要此实例的管理员密码。": "Use this instance’s administrator password to access the console.",
+    订阅与推送: "Subscriptions & delivery",
+    检查间隔与订阅限制: "Check intervals and subscription limits",
+    故障与新会话提醒: "Feed failures and new chat alerts",
+    实例与数据: "Instance & data",
+    "连接、网络与系统参数": "Connections, network, and system settings",
+    导出数据与恢复备份: "Export data and restore backups",
+    连接状态与实例信息: "Connection status and instance details",
+    访问与安全: "Access & security",
+    "Agent 与外部应用授权": "Agent and application access",
+    密码与登录会话: "Password and browser sessions",
+    "管理订阅默认值、通知、运行配置和访问安全。":
+        "Manage subscription defaults, notifications, runtime settings, and access security.",
+    "每天发现的新文章，以及成功送达的篇次": "Daily new entries and successful deliveries",
+    页面可见时每分钟刷新: "Refreshes each minute while visible",
+    "所选时段 · 已记录合计": "Recorded totals · Selected period",
+    含未记录或不完整时段: "Includes missing or partial periods",
+    连续失败达到阈值的订阅: "Subscriptions at the consecutive-failure threshold",
+    "偶发失败会自动重试，连续失败达到阈值后显示。":
+        "Occasional failures retry automatically. Subscriptions appear here when consecutive failures reach the threshold.",
+    操作: "Actions",
+    "配置接收通知的服务，再发送测试通知确认连接。":
+        "Configure a notification service, then send a test to check its connection.",
 });

@@ -1,127 +1,185 @@
-> **RSStT Web fork (local development)** — 新增仪表盘、会话与频道、订阅管理和连接授权。查看[网页管理台文档](docs/web-console.md)，或运行 `.venv/bin/python -m src.management.demo` 预览。下方保留上游项目说明。
+<p align="center">
+  <img src="src/management/static/mark.svg" width="88" height="88" alt="RSStT Web">
+</p>
+
+<h1 align="center">RSStT Web</h1>
+
+<p align="center">Your feeds. Your destinations. One console.</p>
 
 <p align="center">
-<img src="docs/resources/RSStT_icon.svg" alt="RSS to Telegram Bot" width="100">
+  English · <a href="README.zh.md">简体中文</a> · <a href="docs/web-console.md">Documentation</a> · <a href="LICENSE">AGPLv3+</a>
 </p>
-<h1 align="center">RSS to Telegram Bot</h1>
 
-<p align="center"><b>A Telegram RSS bot that cares about your reading experience</b></p>
+![RSStT Web dashboard with demonstration data](docs/resources/console-overview.png)
 
-[![GitHub commit activity](https://img.shields.io/github/commit-activity/m/Rongronggg9/RSS-to-Telegram-Bot?logo=git&label=commit)](https://github.com/Rongronggg9/RSS-to-Telegram-Bot/commits)
-[![Translating status](https://img.shields.io/weblate/progress/rss-to-telegram-bot?logo=weblate&color=informational)](https://hosted.weblate.org/engage/rss-to-telegram-bot/)
-[![Code quality](https://img.shields.io/codefactor/grade/github/Rongronggg9/RSS-to-Telegram-Bot?logo=codefactor)](https://www.codefactor.io/repository/github/rongronggg9/rss-to-telegram-bot)
-[![GitHub stars](https://img.shields.io/github/stars/Rongronggg9/Rss-to-Telegram-Bot?style=social)](https://github.com/Rongronggg9/RSS-to-Telegram-Bot/stargazers)
-[![GitHub forks](https://img.shields.io/github/forks/Rongronggg9/RSS-to-Telegram-Bot?style=social)](https://github.com/Rongronggg9/RSS-to-Telegram-Bot/fork)
+RSStT Web is a self-hosted Telegram RSS bot with a web console for subscriptions, destinations, access control, and operations. It builds on [RSS-to-Telegram-Bot](https://github.com/Rongronggg9/RSS-to-Telegram-Bot), preserving its Telegram commands, feed fetching, rich-text formatting, media handling, and shared delivery pipeline.
 
-[![Telegram bot](https://img.shields.io/badge/Telegram%20Bot-%40RSStT__Bot-229ed9?logo=telegram&style=for-the-badge)](https://t.me/RSStT_Bot)
-[![Telegram group](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.swo.moe%2Fstats%2Ftelegram%2FRSStT_Group&query=count&color=2CA5E0&label=Telegram%20Group&logo=telegram&cacheSeconds=3600&style=for-the-badge)](https://t.me/RSStT_Group)
-[![Telegram channel](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.swo.moe%2Fstats%2Ftelegram%2FRSStT_Channel&query=count&color=2CA5E0&label=Telegram%20Channel&logo=telegram&cacheSeconds=3600&style=for-the-badge)](https://t.me/RSStT_Channel)
+The console runs alongside the bot in one Python process. Its frontend uses static HTML, CSS, and JavaScript; production needs no Node.js service or frontend build step.
 
-| [简体中文 README] | [CHANGELOG] | [FAQ] | [Documentation] | [Channels Using RSStT] |
-|:-------------:|:-----------:|:-----:|-----------------|:----------------------:|
+> This repository contains the Web fork. The upstream public bot, `rongronggg9/rss-to-telegram` images, and upstream PyPI installation instructions do not install this console. Build this checkout with the Compose file below. The console manages its own running instance, rather than attaching to a separate, unmodified bot.
 
-[简体中文 README]: README.zh.md
+## What you can manage
 
-[CHANGELOG]: docs/CHANGELOG.md
+| Area               | Capabilities                                                                                                                                                                                                                                                                                                                   |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Dashboard          | Known and active destinations, subscriptions and unique feeds, confirmed delivery totals, hourly and daily trends, and sources needing attention.                                                                                                                                                                              |
+| Chats and channels | Search and filter destinations, set user roles and subscription limits, stop service, leave groups or channels, and inspect membership status. Banned destinations are hidden by default and can be viewed through filters. Departed destinations stay out of the chat list; the current interface has no filter to show them. |
+| Subscriptions      | Search and filter by destination or state; pause, resume, and edit delivery options; add or replace recipients; import and export OPML. Multiple destinations share one feed fetch.                                                                                                                                            |
+| Feed requests      | Set a User-Agent for an individual feed source without changing the global default.                                                                                                                                                                                                                                            |
+| Notifications      | Configure repeated-fetch-failure, recovery, and new-destination alerts through Bark, Telegram, Webhook, or ntfy. Thresholds and cooldowns control repeated alerts; notifications start disabled.                                                                                                                               |
+| Settings           | Manage Bot languages, formatting defaults, subscription limits, and supported runtime configuration. Settings that require a restart are marked explicitly.                                                                                                                                                                    |
+| Agent access       | Issue revocable, destination-scoped read or write tokens; use the authenticated OpenAPI contract and a Python CLI with writes previewed by default.                                                                                                                                                                            |
+| Backups            | Export, preflight, and stage SQLite backups for restore on restart. Choose whether to include or overwrite login credentials, Agent tokens, runtime configuration, and notification credentials.                                                                                                                               |
+| Operation history  | View per-destination Bot, Web, and API actions, actors, outcomes, and observed setting changes. History is bounded and excludes ordinary chat text and raw credentials.                                                                                                                                                        |
+| Interface          | English and Simplified Chinese, light and dark appearance, responsive layouts, and keyboard-accessible controls. Bot languages continue to use the upstream translations.                                                                                                                                                      |
 
-[FAQ]: docs/FAQ.md
+Statistics begin when this version records them; old delivery history cannot be reconstructed. Operation history retains up to 100 entries per destination and 2,000 across the instance. See [chat service control and history](docs/chat-service-control.md) for status definitions and retention details.
 
-[Documentation]: docs
+## Quick start with Docker Compose
 
-[Channels Using RSStT]: docs/channels-using-rsstt.md
+You need Docker with the Compose plugin, a Telegram Bot Token from [BotFather](https://t.me/BotFather), and your numeric Telegram user ID for `MANAGER`.
 
-<table>
-    <tr>
-        <td><img src="docs/resources/example5.png" alt="Screenshot"></td>
-        <td rowspan="2"><img src="docs/resources/example7.png" alt="Screenshot"></td>
-        <td rowspan="2"><img src="docs/resources/example8.png" alt="Screenshot"></td>
-    </tr>
-    <tr>
-        <td><img src="docs/resources/example6.png" alt="Screenshot"></td>
-    </tr>
-</table>
+```sh
+git clone https://github.com/Jaaayden/rsstt-web.git
+cd rsstt-web
+```
 
-## Highlights
+Create a private `.env` next to `compose.console.yaml`, replacing the placeholders:
 
-- Multi-user
-- I18n
-    - English, Chinese, Cantonese, Italian, and [more](docs/translation-guide.md)!
-- The content of the posts of an RSS feed will be sent to Telegram
-    - Keep rich-text format
-    - Keep media (customizable)
-        - Images, Videos, and Audio both in the post content and enclosure; Documents in the post enclosure
-        - Long images will be sent as files to prevent Telegram from compressing the image and making it unreadable
-        - Drop annoying icons, they break the reading experience
-    - Automatically replace emoji shortcodes with emoji
-    - Automatically replace emoji images with emoji or its description text
-    - Automatically determine whether the title of the RSS feed is auto-filled, if so, omit the title (customizable)
-    - Automatically show the author-name (customizable)
-    - Automatically split too-long messages
-    - Messages can be sent as Telegraph posts (customizable)
-- [Various customizable formatting settings](docs/formatting-settings.md)
-    - Hashtags, custom title, etc.
-- Individual proxy settings for Telegram and RSS feeds
-- OPML importing and exporting (keep custom title)
-- Optimized performance (see also the [FAQ](docs/FAQ.md#q-how-is-the-performance-of-the-bot))
-- User-friendly
-- HTTP Caching
+```dotenv
+TOKEN=replace-with-your-botfather-token
+MANAGER=123456789
+WEB_PASSWORD=replace-with-a-private-random-password
+WEB_ORIGIN=http://127.0.0.1:8730
+```
 
-## Deployment
+`WEB_PASSWORD` must contain 16–512 characters. You can generate a random value with `openssl rand -hex 24`. `MANAGER` identifies a Telegram administrator; it is separate from the console login. Existing `API_ID` and `API_HASH` settings can also be supplied through `.env`.
 
-[![dockeri.co](https://dockerico.blankenship.io/image/rongronggg9/rss-to-telegram)](https://hub.docker.com/r/rongronggg9/rss-to-telegram)\
-[![Build status (master)](https://img.shields.io/github/actions/workflow/status/Rongronggg9/RSS-to-Telegram-Bot/publish-docker-image.yml?branch=master&label=build&logo=docker)](https://github.com/Rongronggg9/RSS-to-Telegram-Bot/actions/workflows/publish-docker-image.yml?query=branch%3Amaster)
-[![Build status (dev)](https://img.shields.io/github/actions/workflow/status/Rongronggg9/RSS-to-Telegram-Bot/publish-docker-image.yml?branch=dev&label=build%20%28dev%29&logo=docker)](https://github.com/Rongronggg9/RSS-to-Telegram-Bot/actions/workflows/publish-docker-image.yml?query=branch%3Adev)
+```sh
+chmod 600 .env
+docker compose -f compose.console.yaml up -d --build
+docker compose -f compose.console.yaml logs -f --tail=100 rsstt
+```
 
-[![PyPI](https://img.shields.io/pypi/v/rsstt?logo=pypi&logoColor=white&label=PyPI)](https://pypi.org/project/rsstt/)
-[![TestPyPI](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Ftest.pypi.org%2Fpypi%2Frsstt%2Fjson&query=%24.info.version&prefix=v&logo=pypi&logoColor=white&label=TestPyPI)](https://test.pypi.org/project/rsstt/)
-[![PyPI - Python Version](https://img.shields.io/pypi/pyversions/rsstt?logo=python&label=&labelColor=white)](https://www.python.org)\
-[![PyPI publish status](https://img.shields.io/github/actions/workflow/status/Rongronggg9/RSS-to-Telegram-Bot/publish-to-pypi.yml?label=publish&logo=pypi&logoColor=white)](https://github.com/Rongronggg9/RSS-to-Telegram-Bot/actions/workflows/publish-to-pypi.yml)
-[![TestPyPI publish status](https://img.shields.io/github/actions/workflow/status/Rongronggg9/RSS-to-Telegram-Bot/publish-to-test-pypi.yml?label=publish%20(TestPyPI)&logo=pypi&logoColor=white)](https://github.com/Rongronggg9/RSS-to-Telegram-Bot/actions/workflows/publish-to-test-pypi.yml)
-[![PyPI - Downloads](https://img.shields.io/pypi/dm/rsstt?logo=pypi&logoColor=white)](https://pypi.org/project/rsstt/)
+Open **http://127.0.0.1:8730** and sign in with your initial console password. The login form requires only the password. The production console account is named `admin`.
 
-It is quite easy to deploy your RSStT instance. The most recommended way to deploy RSStT is Docker Compose: it is suitable for virtually all VPS. [Railway.app](https://railway.app) (a PaaS platform) is also officially supported. You may also install RSStT from [PyPI](https://pypi.org/project/rsstt/) (tracking `master` branch) or [TestPyPI](https://test.pypi.org/project/rsstt/) (tracking `dev` branch, which is always up-to-date) using pip. For developers or experienced users, dirty run from source is also an option.
+The supplied Compose file builds `rsstt-web:local`, enables the console, and persists `./config` at `/app/config`. Inside the container the console listens on `0.0.0.0`; the published host port is bound only to `127.0.0.1`.
 
-<a href="docs/deployment-guide.md#option-2-railwayapp"><img src="https://railway.app/button.svg" height="30" alt="Deploy on Railway"></a>
+For a remote server, a local SSH tunnel preserves this setup:
 
-For more details, refer to the [deployment guide](docs/deployment-guide.md).
+```sh
+ssh -L 8730:127.0.0.1:8730 user@server
+```
 
-## Translation
+For a host-based HTTPS reverse proxy, set `WEB_ORIGIN` to the exact address used by the browser, such as `https://rss.example.org`, and proxy to the loopback port. Keep the console at the origin root. Use the environment section in `compose.console.yaml` for additional deployment settings; supported application settings can also be saved in the console.
 
-Read the translation guide [here](docs/translation-guide.md).
+**Upgrading an existing bot:** back up its data and stop the old process before replacing it with this build. Keep the existing Token, Telegram session, and data directory. Run one bot process per session/database; starting another copy next to the existing bot is not an upgrade. The upstream `docker-compose.yml.sample` is retained as an upstream reference, not the Web deployment entry point.
 
-You can help to translate the bot using [Hosted Weblate](https://hosted.weblate.org/projects/rss-to-telegram-bot/). Special thanks to their free hosting service for libre projects!
+## Run from source
 
-<a href="https://hosted.weblate.org/engage/rss-to-telegram-bot/"><img src="https://hosted.weblate.org/widgets/rss-to-telegram-bot/-/glossary/multi-auto.svg" width = "500" alt="" /></a>
+Use Python 3.12 or 3.13 for the console. The Dockerfile uses Python 3.13.
 
-## Using the public bot
+```sh
+python3.12 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+```
 
-The [public bot](https://t.me/RSStT_Bot) comes with absolutely no warranty. I will try my best to maintain it, but I cannot guarantee that it will always work perfectly. Meanwhile, you should "fair use" the bot, avoid subscribing to too many RSS feeds.\
-If you use the [public bot](https://t.me/RSStT_Bot) in your Channel, consider mentioning the bot (or this project) in your channel description (or pinned message) to let more people know about it. That's not a compulsion.
+With the `.env` above and any required upstream network settings in place, start the original entry point with the console enabled:
 
-## Known channels using RSStT
+```sh
+WEB_ENABLED=1 WEB_HOST=127.0.0.1 WEB_PORT=8730 \
+  .venv/bin/python telegramRSSbot.py -c ./config
+```
 
-Want to preview what the messages sent by RSStT look like? Here is a [list of channels using RSStT](docs/channels-using-rsstt.md).
+`WEB_ENABLED` is off by default. See the [console guide](docs/web-console.md) for source deployment, authentication, reverse proxies, and snapshot previews, and the [upstream deployment guide](docs/deployment-guide.md) for Bot dependencies and Telegram configuration.
 
-## Licensing
+## Try the interface without a bot
 
-<img src="https://www.gnu.org/graphics/agplv3-with-text-162x68.png" alt="AGPLv3 logo" width="100" align="right">
+The local demo uses sample data and offline RSS/Telegram substitutes. It binds to loopback, requires a private login password, and saves its independent databases in `.demo/`.
 
-This project is licensed under [AGPLv3+](LICENSE). Closed-source distribution or bot-hosting are strictly prohibited. If you distribute or host it with code modifications, make sure the source code is available to anyone who can use the bot (by editing the repo URL in [`src/i18n/__init__.py`](src/i18n/__init__.py)).
+After creating the virtual environment:
 
-    RSS to Telegram Bot
-    Copyright (C) 2020-2024  Rongrong <i@rong.moe>
+```sh
+export WEB_PASSWORD="$(.venv/bin/python -c 'import getpass; print(getpass.getpass("Initial console password: "))')"
+.venv/bin/python -m src.management.demo
+```
 
-    This program is free software: you can redistribute it and/or modify
-    it under the terms of the GNU Affero General Public License as
-    published by the Free Software Foundation, either version 3 of the
-    License, or (at your option) any later version.
+Open **http://127.0.0.1:8730**. Stop the demo with `Ctrl+C`. Use `WEB_PORT` and `WEB_DEMO_CONFIG` to choose a different port and an independent work directory. An existing demo keeps its stored password; entering a new environment value does not reset it.
 
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU Affero General Public License for more details.
+For testing with an existing bot's SQLite data, the [offline snapshot workflow](docs/web-console.md#用线上真实数据做离线测试) creates an independent local working copy. It does not log in to Telegram or fetch RSS. Treat snapshots as private data and keep them out of Git, screenshots, and public artifacts.
 
-    You should have received a copy of the GNU Affero General Public License
-    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+## Data, login, and recovery
 
-The repository was forked from [BoKKeR/RSS-to-Telegram-Bot](https://github.com/BoKKeR/RSS-to-Telegram-Bot) in 2020. Since some time in 2021, they share no common codebase and should be considered as completely different projects.
+- Persist the whole `config` directory. It contains the original Bot data and Telegram session, the additive `console.sqlite3` management database, and saved `runtime-config.json` overrides when configured. The upstream Bot tables retain their existing schema and migration path.
+- `WEB_PASSWORD` initializes an empty console account once. Later changes belong in **Settings → Account security**. Changing the environment variable does not replace the stored password. A restart or password change revokes browser sessions; Agent tokens remain subject to their own expiry and revocation.
+- Runtime settings marked **Restart required** are saved for the next process start. Saving does not restart the bot or prove that external credentials and services work. Manager identity, database locations, listener configuration, and process options remain deployment settings.
+- The Bot database can use SQLite or PostgreSQL. Web backup/export and automatic restore support **file-based SQLite**; automatic restore requires a POSIX host. PostgreSQL maintenance uses the separate documented database procedure.
+- Backup exports exclude login credentials and Agent tokens unless explicitly selected. Restore preserves the destination's existing credentials by default. The main Bot Token, Telegram session, deployment environment, and browser sessions are never included in the logical backup.
+
+Read [backup and restore](docs/pr-06-backups.md) before restoring data. A logical backup is not a substitute for protecting the deployment directory and Telegram session.
+
+## Connect an Agent
+
+In **Settings → API access tokens**, create a named token with read-only or subscription read/write permission, choose its destinations, and set its lifetime. The complete token is displayed once. It can be revoked immediately.
+
+The API uses `Authorization: Bearer <token>`. The authenticated contract is available at `/api/openapi.json`; `/api/session` reports the token's scope. Subscription write access does not grant console administration, credential management, backup, or private interaction-history access.
+
+The included CLI accepts a private token file, an environment variable, or standard input. For example, with a token stored in a file owned by you with mode `0600`:
+
+```sh
+.venv/bin/python -m src.management.agent_cli \
+  --url http://127.0.0.1:8730 \
+  --token-file /path/to/private/token-file \
+  /api/session
+```
+
+Writes print a local plan unless `--apply` is supplied; deletion and recipient replacement also require `--confirm-delete`. See [authentication and Agent access](docs/pr-01-auth-agent.md) for the full contract and examples.
+
+## Development and verification
+
+Use Python 3.12/3.13 and Node.js 22 for browser tests. Node.js is only a development dependency.
+
+```sh
+.venv/bin/python -m pip install -r requirements-dev.txt
+.venv/bin/python -m pytest -q
+npm ci
+npx playwright install --with-deps chromium
+npm run test:e2e
+```
+
+Browser tests create their own demo database and password. The CI also checks Bot compatibility, legacy database migrations, installed-wheel resources and startup, Docker isolation, bounded-resource workloads, and Python/JavaScript CodeQL. See [CI coverage](docs/ci.md) for the matrix and its limits.
+
+## Documentation
+
+- [Web console and offline snapshots](docs/web-console.md)
+- [Chat service control, membership status, and history](docs/chat-service-control.md)
+- [User roles and runtime settings](docs/pr-02-users-settings.md)
+- [Subscription filters, recipients, export, and per-feed UA](docs/pr-03-subscriptions.md)
+- [Usage and hourly statistics](docs/pr-04-statistics.md)
+- [Notifications](docs/pr-05-notifications.md)
+- [Backup and restore](docs/pr-06-backups.md)
+- [Upstream message formatting](docs/formatting-settings.md) · [Advanced Bot settings](docs/advanced-settings.md) · [Translation guide](docs/translation-guide.md)
+
+## Upstream and license
+
+RSStT Web builds on the work of **Rongrong and the RSS-to-Telegram-Bot contributors**. The upstream project originated as a fork of [BoKKeR/RSS-to-Telegram-Bot](https://github.com/BoKKeR/RSS-to-Telegram-Bot) in 2020 and subsequently developed a separate codebase. Upstream's [public bot](https://t.me/RSStT_Bot) and community are separate from this fork; they are not a hosted demo or support service for this console.
+
+This project remains licensed under **[GNU AGPLv3 or later](LICENSE)**. Preserve the copyright and license notices, follow the license's source-availability requirements, and make a modified deployment's source link point to the corresponding code. The original notice is retained below.
+
+```text
+RSS to Telegram Bot
+Copyright (C) 2020-2024  Rongrong <i@rong.moe>
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+```

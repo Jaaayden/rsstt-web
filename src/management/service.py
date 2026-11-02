@@ -134,6 +134,7 @@ class Service:
         ids = [u.id for u in users]
         metadata = await self.store.target_map(ids)
         counts = {str(r['user_id']): r['n'] for r in await db.Sub.filter(user_id__in=ids).group_by('user_id').annotate(n=Count('id')).values('user_id', 'n')}
+        active = {str(r['user_id']): r['n'] for r in await db.Sub.filter(user_id__in=ids, state=1, feed__state=1).group_by('user_id').annotate(n=Count('id')).values('user_id', 'n')}
         attention = {str(r['user_id']): r['n'] for r in await db.Sub.filter(user_id__in=ids, state=1, feed__error_count__gte=await self.threshold()).group_by('user_id').annotate(n=Count('id')).values('user_id', 'n')}
         return [dict(id=str(u.id), title=metadata.get(str(u.id), {}).get('title') or f'会话 {u.id}',
                      kind=metadata.get(str(u.id), {}).get('kind', kind(u)),
@@ -144,10 +145,16 @@ class Service:
                      role=('manager' if u.id in env.MANAGER else 'banned' if u.state == -1 else
                            'admin' if u.id > 0 and u.state == 100 else 'guest' if u.state == 0 else 'user'),
                      role_protected=u.id in env.MANAGER, subscriptions=counts.get(str(u.id), 0),
+                     active_subscriptions=active.get(str(u.id), 0),
                      attention=attention.get(str(u.id), 0), options=options(u)) for u in users]
 
     async def targets(self, principal, query):
         qs = self.scope(db.User.all(), principal, 'id')
+        include_departed = query.get('include_departed', 'false')
+        if include_departed not in ('true', 'false'):
+            raise Problem('include_departed 必须为 true 或 false。')
+        if include_departed != 'true':
+            qs = qs.exclude(id__in=await self.store.departed_ids())
         # Keep the API default inclusive for existing Agent clients and pickers.
         # The console list explicitly requests "unbanned" by default.
         visibility = query.get('visibility', 'all')
@@ -190,12 +197,14 @@ class Service:
     def pagination(query):
         return integer(query.get('page', 1), '页码', 1, 100000), integer(query.get('size', 20), '每页数量', 1, 100)
 
-    def sub_query(self, principal, query):
+    async def sub_query(self, principal, query):
         qs = self.scope(db.Sub.all(), principal)
         if query.get('target'):
             ident = chat_id(query['target'])
             self.allowed(principal, ident)
             qs = qs.filter(user_id=ident)
+        else:
+            qs = qs.exclude(user__state=-1).exclude(user_id__in=await self.store.departed_ids())
         if query.get('q'):
             search = query['q'].strip()[:200]
             qs = qs.filter(Q(title__icontains=search) | Q(feed__title__icontains=search) | Q(feed__link__icontains=search))
@@ -213,7 +222,7 @@ class Service:
                      options=options(s)) for s in subs]
 
     async def subscriptions(self, principal, query):
-        qs = self.sub_query(principal, query)
+        qs = await self.sub_query(principal, query)
         if query.get('attention') == '1':
             qs = qs.filter(state=1, feed__error_count__gte=await self.threshold())
         page, size = self.pagination(query)

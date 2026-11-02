@@ -50,9 +50,7 @@ test("complete English copy distinguishes filters, receiving chats, token scope,
     await expect(page.getByRole("dialog")).toContainText("This page does not restart the service.");
     await page.keyboard.press("Escape");
     await page.goto("/#settings?section=notifications");
-    await expect(
-        page.getByLabel("Notify me when a new user, group, or channel starts using the bot", { exact: true }),
-    ).toBeVisible();
+    await expect(page.getByLabel("Notify me about new chat access attempts", { exact: true })).toBeVisible();
     await expect(page.getByLabel("Minimum interval between repeat alerts (seconds)", { exact: true })).toBeVisible();
     await page.goto("/#settings?section=backups");
     await expect(

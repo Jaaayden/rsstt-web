@@ -41,6 +41,7 @@ from . import inner
 from .types import *
 from ..errors_collection import UserBlockedErrors
 from ..compat import cached_async
+from ..management import chat_audit
 
 logger = log.getLogger('RSStT.command')
 
@@ -291,6 +292,9 @@ def command_gatekeeper(
         chat_title: Optional[str] = None
         participant_type: Optional[str] = None
         sender_id: Optional[int] = None
+        audit_started = False
+        audit_relevant = False
+        audit_outcome = 'denied'
 
         chat_id = event.chat_id
         flood_lock = locks.user_flood_lock(chat_id)
@@ -359,6 +363,7 @@ def command_gatekeeper(
                 raise events.StopPropagation
 
         async def execute():
+            nonlocal audit_started, audit_outcome
             callback_msg_id = event.message_id if is_callback else None
             log_level = log.DEBUG if quiet else log.INFO
             # skip if already executing a callback for this msg
@@ -379,14 +384,38 @@ def command_gatekeeper(
                 from ..management.notifications import user_seen
                 for ident in {sender_id, chat_id} - {None}:
                     await user_seen(ident)
-                await asyncio.wait_for(
-                    func(event, *args, lang=lang, chat_id=chat_id, **kwargs),  # execute the command!
-                    timeout=timeout,
-                )
+                audit_started = True
+                audit_call = None
+                audit_outcome = 'error'
+                if chat_audit.active_store is not None:
+                    try:
+                        audit_action, audit_subs, audit_target = chat_audit.describe(
+                            event, getattr(func, '__name__', ''), chat_id, is_callback=is_callback)
+                        audit_call = await chat_audit.begin(audit_target, audit_action, source='bot',
+                                                            actor=sender_id, subscription_ids=audit_subs)
+                    except Exception:
+                        chat_audit.mark_degraded()
+                try:
+                    await asyncio.wait_for(
+                        func(event, *args, lang=lang, chat_id=chat_id, **kwargs),  # execute the command!
+                        timeout=timeout,
+                    )
+                except events.StopPropagation:
+                    audit_outcome = 'denied'
+                    raise
+                else:
+                    audit_outcome = 'completed'
+                finally:
+                    try:
+                        await chat_audit.finish(audit_call, audit_outcome)
+                    except Exception:
+                        chat_audit.mark_degraded()
             except locks.ContextTimeoutError:
+                audit_outcome = 'error'
                 logger.error(f'Cancel {command} for {describe_user()} due to flood wait timeout ({timeout}s)')
                 # await respond_or_answer(event, 'ERROR: ' + i18n[lang]['flood_wait_prompt'])
             except asyncio.TimeoutError as _e:
+                audit_outcome = 'error'
                 logger.error(f'Cancel {command} for {describe_user()} due to timeout ({timeout}s)', exc_info=_e)
                 await respond_or_answer(event, 'ERROR: ' + i18n[lang]['operation_timeout_error'])
             finally:
@@ -410,6 +439,7 @@ def command_gatekeeper(
                 mention = command_header.split('@')[-1]
                 if mention != env.bot_peer.username:
                     raise events.StopPropagation  # none of my business!
+            audit_relevant = True
 
             if is_chat_action and event.action_message:  # service message
                 action_message: MessageService = event.action_message
@@ -651,6 +681,7 @@ def command_gatekeeper(
         except events.StopPropagation as e:
             raise e
         except Exception as e:
+            audit_outcome = 'error'
             logger.error(
                 ''.join((
                     f'Uncaught error occurred when {sender_fullname} ({sender_id}',
@@ -684,6 +715,15 @@ def command_gatekeeper(
                 logger.error('Uncaught error occurred when dealing with another uncaught error', exc_info=e)
             finally:
                 raise events.StopPropagation
+        finally:
+            if audit_relevant and not audit_started and chat_audit.active_store is not None:
+                try:
+                    audit_action, _, audit_target = chat_audit.describe(
+                        event, getattr(func, '__name__', ''), chat_id, is_callback=is_callback)
+                    await chat_audit.record(audit_target, audit_action, source='bot', actor=sender_id,
+                                            outcome=audit_outcome)
+                except Exception:
+                    chat_audit.mark_degraded()
 
     return wrapper
 
