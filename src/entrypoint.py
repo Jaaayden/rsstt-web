@@ -30,6 +30,8 @@ log.init()
 
 import os
 import signal
+import faulthandler
+from contextlib import suppress
 import asyncio
 from functools import partial
 from itertools import chain
@@ -307,7 +309,12 @@ async def post():
 
 def force_quit(*_):
     logger.critical('Force quitting...', stack_info=True)
-    os.kill(os.getpid(), signal.SIGKILL)
+    # Show which thread kept the interpreter from exiting.
+    with suppress(Exception):
+        faulthandler.dump_traceback(all_threads=True)
+    # As PID 1 of a container the process cannot SIGKILL itself (the kernel ignores it), so it would hang forever
+    # and Docker would never restart it. _exit works everywhere and a non-zero code lets the restart policy act.
+    os._exit(128 + signal.SIGKILL)
 
 
 def sig_handler(signum, *_, **__):
