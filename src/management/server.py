@@ -17,6 +17,7 @@ from aiohttp import web
 from .. import db, env
 from ..command import inner
 from . import articles, diagnostics, metrics, notifications
+from . import version as web_version
 from .statistics import usage
 from .service import Problem, Service, chat_id, integer, BANNED_RESUME_MESSAGE
 from .store import Store
@@ -453,7 +454,8 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
         admin(request)
         return web.json_response({'options': db.EffectiveOptions.options, 'console': await store.settings(),
                                   'bot': service.gateway.status(), 'origin': origin, 'demo': demo,
-                                  'database': env.DATABASE_URL.split(':', 1)[0], 'version': env.VERSION,
+                                  'database': env.DATABASE_URL.split(':', 1)[0], 'version': web_version.WEB_VERSION,
+                                  'build': web_version.build(), 'upstream_version': env.VERSION,
                                   'restart': {'supported': not demo, 'container': in_container()}})
 
     @routes.post('/api/system/restart')
@@ -783,7 +785,8 @@ async def start():
     except BaseException:
         await stop()
         raise
-    LOGGER.info('RSStT web console listening on %s:%s', host, port)
+    LOGGER.info('%s web console listening on %s:%s (bot core RSS-to-Telegram-Bot %s)',
+                web_version.label(), host, port, env.VERSION)
 
 
 async def stop():
