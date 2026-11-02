@@ -131,6 +131,20 @@ async def main():
         await journal.record('fetch', 'info', 'fetch.recovered', '订阅源抓取已恢复。',
                              feed_id=demo_feeds[5].id,
                              context={'http_status': 200, 'duration_ms': 326, 'failures': 0})
+        for i, feed in enumerate(demo_feeds):
+            for n in range(6):  # newest group last; consecutive identical checks share a row
+                failed = i == 4 and n >= 4
+                updated = n == 2
+                first = now - timedelta(hours=(6 - n) * 3 + i)
+                checks = 1 if updated else 30 + n * 7
+                await store.db.execute(
+                    'INSERT INTO fetch_runs(at,last_at,count,feed_id,status,http_status,entries,new_entries,manual,detail,ms_min,ms_max,ms_sum) '
+                    'VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                    (first.isoformat(), (first + timedelta(hours=2, minutes=50)).isoformat(), checks, str(feed.id),
+                     'failed' if failed else 'updated' if updated else 'unchanged', 403 if failed else None,
+                     None if failed else 20 + i + n, 2 if updated else 0, 0, 'status code error' if failed else '',
+                     780 + i * 40, 1400 + n * 90, (1000 + i * 40) * checks))
+        await store.db.commit()
         await journal.flush()
     await seed_article_examples(store)
     gateway = DemoGateway()

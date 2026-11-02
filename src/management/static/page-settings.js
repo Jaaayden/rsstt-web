@@ -178,7 +178,11 @@ function General() {
     const { data, error, reload } = useAsync(() => api("/settings"), []);
     const [draft, setDraft] = useState(null);
     const [busy, setBusy] = useState(false);
-    const base = data && { ...data.options, attention_threshold: Number(data.console.attention_threshold) };
+    const base = data && {
+        ...data.options,
+        attention_threshold: Number(data.console.attention_threshold),
+        fetch_run_rows: Number(data.console.fetch_run_rows) || 20,
+    };
     useEffect(() => base && setDraft(base), [data]);
     if (error) return html`<${Notice} tone="error">${error.message}<//>`;
     if (!draft) return html`<${Spinner} />`;
@@ -243,6 +247,15 @@ function General() {
                 )}
             >
                 <${Input} type="number" min="1" max="100" value=${draft.attention_threshold} onInput=${num("attention_threshold")} />
+            <//>
+            <${Field}
+                label=${L("每个订阅源保留的抓取记录", "Fetch-run rows kept per feed")}
+                hint=${L(
+                    "结果相同的连续检查合并成一行，所以 20 行通常能覆盖很长时间。5–200。",
+                    "Identical consecutive checks share a row, so 20 rows usually cover a long time. 5–200.",
+                )}
+            >
+                <${Input} type="number" min="5" max="200" value=${draft.fetch_run_rows} onInput=${num("fetch_run_rows")} />
             <//>
         </div>
     <//>`;

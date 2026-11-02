@@ -184,6 +184,24 @@ test("batch bar: fetch now, interval and copy URLs", async ({ page, context }) =
     await expect(page.locator(".modal")).toHaveCount(0);
 });
 
+test("fetch runs: every check is listed with time, duration and counts", async ({ page }) => {
+    await signIn(page, "/#subscriptions");
+    await page.locator("tbody tr .cell-title").first().click();
+    const drawer = page.locator(".drawer");
+    await drawer.getByRole("tab", { name: /日志/ }).click();
+    await expect(drawer.locator(".run").first()).toContainText("耗时");
+    await expect(drawer.locator(".run").first()).toContainText(/有效 \d+ 条|HTTP|内容没有变化/);
+    await drawer.getByRole("radio", { name: "事件与推送" }).click();
+    await expect(drawer.locator(".timeline, .empty").first()).toBeVisible();
+    await drawer.getByRole("radio", { name: "抓取记录" }).click();
+    await drawer.getByRole("button", { name: "关闭" }).click();
+    // The global page has the same view with a status filter.
+    await page.goto("/#logs?view=runs");
+    await expect(page.locator(".run").first()).toBeVisible();
+    await page.locator(".toolbar select").first().selectOption("failed");
+    await expect(page.locator(".run .badge-red").first()).toBeVisible();
+});
+
 test("add subscriptions shows per-URL results", async ({ page }) => {
     await signIn(page, "/#subscriptions?add=1");
     const modal = page.locator(".modal");

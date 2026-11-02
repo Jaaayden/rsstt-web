@@ -497,7 +497,7 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
     async def patch_settings(request):
         admin(request)
         values = await body(request)
-        if not values or set(values) - (set(db.EffectiveOptions.options) | {'attention_threshold'}):
+        if not values or set(values) - (set(db.EffectiveOptions.options) | {'attention_threshold', 'fetch_run_rows'}):
             raise Problem('包含不支持的设置项。')
         clean = {}
         for key, value in values.items():
@@ -505,6 +505,8 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
                 if not isinstance(value, str) or len(value) > 2000:
                     raise Problem('订阅上限提示最多 2000 个字符。')
                 clean[key] = value
+            elif key == 'fetch_run_rows':
+                clean[key] = integer(value, key, *diagnostics.RUN_ROWS_RANGE)
             else:
                 clean[key] = integer(value, key, -1 if key.endswith('sub_limit') else 1, 100 if key == 'attention_threshold' else 32767)
         merged = {**db.EffectiveOptions.options, **clean}
@@ -512,7 +514,10 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
             raise Problem('默认更新间隔不能小于最短更新间隔。')
         async with service.mutation:
             for key, value in clean.items():
-                if key == 'attention_threshold':
+                if key == 'fetch_run_rows':
+                    await store.set_setting(key, value)
+                    store.diagnostics.run_rows = value  # trimmed on each feed's next check
+                elif key == 'attention_threshold':
                     await store.set_setting(key, value)
                 else:
                     await db.EffectiveOptions.set(key, value)

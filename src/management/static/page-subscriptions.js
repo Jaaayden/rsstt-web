@@ -12,6 +12,7 @@ import {
     Input,
     Textarea,
     Select,
+    Segmented,
     SearchInput,
     Spinner,
     Empty,
@@ -27,7 +28,7 @@ import {
 } from "./ui.js";
 import { L, api, qs, num, ago, dateTime, readRoute, setParams, toast, download, host, minutes, app } from "./core.js";
 import { OptionsForm, IntervalField } from "./options.js";
-import { EventRow } from "./page-logs.js";
+import { EventRow, RunsPanel, RUN_FILTERS } from "./page-logs.js";
 import { ProxyField, ProxyTestResult, emptyProxy, proxyValue, proxyChanged, proxyReady, savedText } from "./proxy.js";
 
 const STATUS = () => [
@@ -1290,6 +1291,40 @@ function Fetching({ sub, onChanged }) {
 }
 
 function FeedLogs({ sub }) {
+    const [view, setView] = useState("runs");
+    const [status, setStatus] = useState("");
+    const [runPage, setRunPage] = useState(1);
+    return html`
+        <div class="toolbar" style="margin-bottom:8px">
+            <${Segmented}
+                value=${view}
+                onChange=${setView}
+                options=${[
+                    ["runs", L("抓取记录", "Fetch runs")],
+                    ["events", L("事件与推送", "Events & delivery")],
+                ]}
+            />
+            ${view === "runs"
+                ? html`<${Select}
+                      value=${status}
+                      onChange=${(v) => (setStatus(v), setRunPage(1))}
+                      options=${RUN_FILTERS()}
+                  />`
+                : null}
+        </div>
+        ${view === "runs"
+            ? html`<p class="muted" style="margin-bottom:8px">
+                      ${L(
+                          "每次抓取的结果：什么时候、耗时多久、读到多少篇文章、其中有多少篇是新的。结果完全相同的连续检查会合并成一行。",
+                          "The result of every check: when, how long, how many posts came back and how many were new. Identical consecutive checks share one row.",
+                      )}
+                  </p>
+                  <${RunsPanel} feedId=${sub.feed_id} status=${status} page=${runPage} onPage=${setRunPage} />`
+            : html`<${FeedEvents} sub=${sub} />`}
+    `;
+}
+
+function FeedEvents({ sub }) {
     const [page, setPage] = useState(1);
     const { data, error } = useAsync(() => api(`/feeds/${sub.feed_id}/diagnostics` + qs({ page, size: 20 })), [sub.feed_id, page]);
     if (error) return html`<${Notice} tone="error">${error.message}<//>`;
@@ -1312,8 +1347,8 @@ function FeedLogs({ sub }) {
                   >${app.info.snapshot
                       ? L("离线副本不运行抓取，所以没有日志。", "The offline copy doesn't fetch, so there are no logs.")
                       : L(
-                            "还没有失败或更新的记录。没有新文章的正常检查不会逐条记录。",
-                            "No failures or updates yet. Routine checks with nothing new aren't logged.",
+                            "还没有失败、更新或推送的事件。每次抓取的结果在“抓取记录”里。",
+                            "No failures, updates or deliveries yet. Every check is listed under Fetch runs.",
                         )}<//
               >`
             : html`<div class="timeline" style="margin-top:8px">${data.items.map((e) => html`<${EventRow} event=${e} hideFeed />`)}</div>

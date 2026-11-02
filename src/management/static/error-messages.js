@@ -914,6 +914,7 @@ const fields = new Map([
     ["user_sub_limit", ["私聊订阅上限", "Private-chat subscription limit"]],
     ["channel_or_group_sub_limit", ["频道／群组订阅上限", "Channel/group subscription limit"]],
     ["attention_threshold", ["提醒失败次数", "Failure reminder threshold"]],
+    ["fetch_run_rows", ["抓取记录保留行数", "Fetch-run rows kept"]],
 ]);
 const configHints = new Map([
     ["API_ID", ["API_ID 必须是 1–2147483647 之间的整数。", "API_ID must be an integer from 1 to 2,147,483,647."]],

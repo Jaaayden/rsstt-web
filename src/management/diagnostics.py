@@ -13,7 +13,13 @@ LOGGER = logging.getLogger('RSStT.management.diagnostics')
 CATEGORIES = ('fetch', 'delivery', 'notification', 'system')
 LEVELS = ('info', 'warning', 'error')
 RETENTION = dict(days=30, max_entries=5000, per_feed=100)
+# The run log keeps every check, but consecutive identical results share one row (first and last time, how many
+# times), so hours of "5 posts, 0 new" cost a single line. Kept apart from events so it cannot push out failures.
+RUN_RETENTION = dict(days=30, per_feed=20)  # per_feed is the default; the console setting `fetch_run_rows` overrides it
+RUN_ROWS_RANGE = (5, 200)
+RUN_STATUSES = ('updated', 'unchanged', 'not_modified', 'empty', 'failed', 'exception')
 MAX_PENDING = 256
+MAX_PENDING_RUNS = 2048
 _active = None
 _URL = re.compile(r'(?:https?|ftp)://[^\s<>\"\']+', re.I)
 _HEADER = re.compile(r'(?im)\b(authorization|proxy-authorization|cookie|set-cookie)\b[\"\']?\s*[:=][^\n]*')
@@ -138,11 +144,25 @@ async def initialize(store):
         CREATE INDEX IF NOT EXISTS diagnostic_events_target ON diagnostic_events(target_id,id DESC);
         CREATE INDEX IF NOT EXISTS diagnostic_events_category ON diagnostic_events(category,level,id DESC);
         CREATE INDEX IF NOT EXISTS diagnostic_events_at ON diagnostic_events(at);
+        CREATE TABLE IF NOT EXISTS fetch_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, last_at TEXT NOT NULL, count INTEGER NOT NULL DEFAULT 1,
+            feed_id TEXT NOT NULL, status TEXT NOT NULL, http_status INTEGER, entries INTEGER,
+            new_entries INTEGER NOT NULL DEFAULT 0, manual INTEGER NOT NULL DEFAULT 0, detail TEXT NOT NULL DEFAULT '',
+            ms_min INTEGER NOT NULL DEFAULT 0, ms_max INTEGER NOT NULL DEFAULT 0, ms_sum INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS fetch_runs_feed ON fetch_runs(feed_id,id DESC);
+        CREATE INDEX IF NOT EXISTS fetch_runs_at ON fetch_runs(last_at);
     ''')
     await store.db.execute('INSERT OR IGNORE INTO meta VALUES (?,?)',
                            ('diagnostics_started_at', datetime.now(timezone.utc).isoformat()))
     await store.db.commit()
     store.diagnostics = Journal(store)
+    try:
+        rows = int((await store.settings()).get('fetch_run_rows', ''))
+        if RUN_ROWS_RANGE[0] <= rows <= RUN_ROWS_RANGE[1]:
+            store.diagnostics.run_rows = rows
+    except ValueError:
+        pass
     return store.diagnostics
 
 
@@ -191,6 +211,14 @@ def emit(category, level, code, message, *, detail='', feed_id=None, target_id=N
     return False
 
 
+def run(feed_id, status, *, http_status=None, duration_ms=None, entries=None, new_entries=0, manual=False, detail=''):
+    """One line per fetch: when, how long, what came back. Never blocks the monitor."""
+    if _active:
+        return _active.emit_run(feed_id, status, http_status=http_status, duration_ms=duration_ms, entries=entries,
+                                new_entries=new_entries, manual=manual, detail=detail)
+    return False
+
+
 async def record(category, level, code, message, *, detail='', feed_id=None, target_id=None, context=None):
     return emit(category, level, code, message, detail=detail, feed_id=feed_id,
                 target_id=target_id, context=context)
@@ -200,6 +228,8 @@ class Journal:
     def __init__(self, store):
         self.store = store
         self.pending = deque()
+        self.pending_runs = deque(maxlen=MAX_PENDING_RUNS)
+        self.run_rows = RUN_RETENTION['per_feed']
         self.wakeup = asyncio.Event()
         self.lock = asyncio.Lock()
         self.closed = False
@@ -226,6 +256,25 @@ class Journal:
             self.dropped += 1
             return False
 
+    def emit_run(self, feed_id, status, *, http_status=None, duration_ms=None, entries=None, new_entries=0,
+                 manual=False, detail=''):
+        try:
+            key = ident(feed_id)
+            if self.closed or key is None or status not in RUN_STATUSES:
+                return False
+
+            def count(value, upper=10 ** 9):
+                return int(value) if type(value) in (int, float) and 0 <= value <= upper else None
+            self.pending_runs.append((datetime.now(timezone.utc).isoformat(), key, status,
+                                      count(http_status, 599), count(duration_ms, 10 ** 12), count(entries),
+                                      count(new_entries) or 0, 1 if manual else 0, text(detail, 300)))
+            self.wakeup.set()
+            return True
+        except Exception:
+            self.degraded = True
+            self.dropped += 1
+            return False
+
     async def record(self, *args, **kwargs):
         return self.emit(*args, **kwargs)
 
@@ -238,38 +287,104 @@ class Journal:
 
     async def flush(self):
         async with self.lock:
-            if not self.pending:
+            if not self.pending and not self.pending_runs:
                 self.wakeup.clear()
                 return
             batch = list(self.pending)
+            runs = list(self.pending_runs)
             self.pending.clear()
+            self.pending_runs.clear()
             self.wakeup.clear()
             try:
                 async with self.store.lock:
                     try:
-                        await self.store.db.executemany(
-                            'INSERT INTO diagnostic_events(at,category,level,code,message,detail,feed_id,target_id,context) VALUES (?,?,?,?,?,?,?,?,?)', batch)
-                        await self.store.db.execute('DELETE FROM diagnostic_events WHERE at<?',
-                                                    ((datetime.now(timezone.utc) - timedelta(days=RETENTION['days'])).isoformat(),))
-                        for feed in {row[6] for row in batch if row[6] is not None}:
-                            await self.store.db.execute('DELETE FROM diagnostic_events WHERE feed_id=? AND id NOT IN '
-                                                        '(SELECT id FROM diagnostic_events WHERE feed_id=? ORDER BY id DESC LIMIT ?)',
-                                                        (feed, feed, RETENTION['per_feed']))
-                        await self.store.db.execute('DELETE FROM diagnostic_events WHERE id NOT IN '
-                                                    '(SELECT id FROM diagnostic_events ORDER BY id DESC LIMIT ?)', (RETENTION['max_entries'],))
+                        if batch:
+                            await self.store.db.executemany(
+                                'INSERT INTO diagnostic_events(at,category,level,code,message,detail,feed_id,target_id,context) VALUES (?,?,?,?,?,?,?,?,?)', batch)
+                            await self.store.db.execute('DELETE FROM diagnostic_events WHERE at<?',
+                                                        ((datetime.now(timezone.utc) - timedelta(days=RETENTION['days'])).isoformat(),))
+                            for feed in {row[6] for row in batch if row[6] is not None}:
+                                await self.store.db.execute('DELETE FROM diagnostic_events WHERE feed_id=? AND id NOT IN '
+                                                            '(SELECT id FROM diagnostic_events WHERE feed_id=? ORDER BY id DESC LIMIT ?)',
+                                                            (feed, feed, RETENTION['per_feed']))
+                            await self.store.db.execute('DELETE FROM diagnostic_events WHERE id NOT IN '
+                                                        '(SELECT id FROM diagnostic_events ORDER BY id DESC LIMIT ?)', (RETENTION['max_entries'],))
+                        if runs:
+                            await self._write_runs(runs)
                         await self.store.db.commit()
                     except BaseException:
                         await self.store.db.rollback()
                         raise
                 self.degraded = False
             except asyncio.CancelledError:
-                self.dropped += len(batch)
+                self.dropped += len(batch) + len(runs)
                 raise
             except Exception:
                 self.degraded = True
-                self.dropped += len(batch)
+                self.dropped += len(batch) + len(runs)
                 # Never interpolate an exception which may contain input or credentials.
                 LOGGER.warning('Operational history storage failed; recent events could not be saved')
+
+    async def _write_runs(self, runs):
+        """Fold each check into the feed's newest row when the result is the same, else start a new row."""
+        db, newest = self.store.db, {}
+        for at, feed, status, http_status, duration, entries, new, manual, detail in runs:
+            duration = duration or 0
+            if feed not in newest:
+                rows = await db.execute_fetchall(
+                    'SELECT id,status,http_status,entries,new_entries,manual,detail FROM fetch_runs WHERE feed_id=? ORDER BY id DESC LIMIT 1', (feed,))
+                newest[feed] = tuple(rows[0]) if rows else None
+            same = (status, http_status, entries, new, manual, detail)
+            if newest[feed] and newest[feed][1:] == same:
+                await db.execute('UPDATE fetch_runs SET last_at=?, count=count+1, ms_min=MIN(ms_min,?), ms_max=MAX(ms_max,?), '
+                                 'ms_sum=ms_sum+? WHERE id=?', (at, duration, duration, duration, newest[feed][0]))
+            else:
+                cursor = await db.execute(
+                    'INSERT INTO fetch_runs(at,last_at,feed_id,status,http_status,entries,new_entries,manual,detail,ms_min,ms_max,ms_sum) '
+                    'VALUES (?,?,?,?,?,?,?,?,?,?,?,?)', (at, at, feed, status, http_status, entries, new, manual, detail,
+                                                          duration, duration, duration))
+                newest[feed] = (cursor.lastrowid, *same)
+        await db.execute('DELETE FROM fetch_runs WHERE last_at<?',
+                         ((datetime.now(timezone.utc) - timedelta(days=RUN_RETENTION['days'])).isoformat(),))
+        for feed in newest:
+            await db.execute('DELETE FROM fetch_runs WHERE feed_id=? AND id NOT IN '
+                             '(SELECT id FROM fetch_runs WHERE feed_id=? ORDER BY id DESC LIMIT ?)',
+                             (feed, feed, self.run_rows))
+
+    async def runs(self, query):
+        from .service import Problem, integer
+        if set(query) - {'feed_id', 'status', 'page', 'size'}:
+            raise Problem('日志筛选字段无效。')
+        page = integer(query.get('page', 1), '页码', 1, 100000)
+        size = integer(query.get('size', 30), '每页条数', 1, 100)
+        clauses, args = ['last_at>=?'], [(datetime.now(timezone.utc) - timedelta(days=RUN_RETENTION['days'])).isoformat()]
+        if query.get('feed_id'):
+            if ident(query['feed_id']) is None:
+                raise Problem('日志关联 ID 无效。')
+            clauses.append('feed_id=?')
+            args.append(str(query['feed_id']))
+        status = query.get('status')
+        if status:
+            groups = {'ok': ('updated', 'unchanged', 'not_modified', 'empty'), 'failed': ('failed', 'exception'),
+                      'updated': ('updated',)}
+            if status not in groups:
+                raise Problem('日志状态筛选无效。')
+            clauses.append('status IN (%s)' % ','.join('?' * len(groups[status])))
+            args.extend(groups[status])
+        await self.flush()
+        where = ' WHERE ' + ' AND '.join(clauses)
+        rows = await self.store.rows('SELECT * FROM fetch_runs' + where + ' ORDER BY id DESC LIMIT ? OFFSET ?',
+                                     (*args, size, (page - 1) * size))
+        total = (await self.store.rows('SELECT COUNT(*) AS n FROM fetch_runs' + where, args))[0]['n']
+        for row in rows:
+            row['manual'] = bool(row['manual'])
+            row['detail'] = text(row['detail'], 300)
+            row['duration_ms'] = round(row['ms_sum'] / row['count']) if row['count'] else None  # average
+            row['duration_min'], row['duration_max'] = row.pop('ms_min'), row.pop('ms_max')
+            del row['ms_sum']
+        settings = await self.store.settings()
+        return dict(items=rows, total=total, page=page, size=size, retention={**RUN_RETENTION, 'per_feed': self.run_rows},
+                    started_at=settings.get('diagnostics_started_at'))
 
     async def history(self, query):
         from .service import Problem, integer
