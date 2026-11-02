@@ -28,6 +28,7 @@ import {
 import { L, api, qs, num, ago, dateTime, readRoute, setParams, toast, download, host, minutes, app } from "./core.js";
 import { OptionsForm, IntervalField } from "./options.js";
 import { EventRow } from "./page-logs.js";
+import { ProxyField, ProxyTestResult, emptyProxy, proxyValue, proxyChanged, proxyReady, savedText } from "./proxy.js";
 
 const STATUS = () => [
     ["", L("全部状态", "Any status")],
@@ -85,6 +86,7 @@ export function Subscriptions() {
     const page = Number(params.page || 1);
     const [selected, setSelected] = useState(new Set());
     const [busy, setBusy] = useState("");
+    const [proxyDialog, setProxyDialog] = useState(false);
     const query = { q, target, ...statusQuery(status) };
     const { data, error, loading, reload } = useAsync(
         () => api("/subscriptions" + qs({ ...query, page, size: 30 })),
@@ -232,7 +234,9 @@ export function Subscriptions() {
                                                           >
                                                           <div>
                                                               <span class="cell-title">${s.title}</span
-                                                              ><span class="cell-sub">${host(s.url)}${s.tags ? " · " + hashtags(s.tags) : ""}</span>
+                                                              ><span class="cell-sub"
+                                                                  >${host(s.url)}${s.tags ? " · " + hashtags(s.tags) : ""}</span
+                                                              >
                                                           </div>
                                                       </div>
                                                   </td>
@@ -263,12 +267,20 @@ export function Subscriptions() {
                   <span>${L(`已选 ${selected.size} 个`, `${selected.size} selected`)}</span>
                   <${Button} size="sm" icon="pause" loading=${busy === "pause"} onClick=${() => batch("pause")}>${L("暂停", "Pause")}<//>
                   <${Button} size="sm" icon="play" loading=${busy === "resume"} onClick=${() => batch("resume")}>${L("恢复", "Resume")}<//>
+                  <${Button} size="sm" icon="globe" onClick=${() => setProxyDialog(true)}>${L("代理", "Proxy")}<//>
                   <${Button} size="sm" icon="download" onClick=${exportOpml}>${L("导出", "Export")}<//>
                   <${Button} size="sm" icon="trash" kind="danger" loading=${busy === "delete"} onClick=${() => batch("delete")}
                       >${L("取消订阅", "Unsubscribe")}<//
                   >
                   <${IconButton} icon="close" label=${L("取消选择", "Clear selection")} onClick=${() => setSelected(new Set())} />
               </div>`
+            : null}
+        ${proxyDialog
+            ? html`<${BatchProxy}
+                  feedIds=${[...new Set(items.filter((s) => selected.has(s.id)).map((s) => s.feed_id))]}
+                  onClose=${() => setProxyDialog(false)}
+                  onDone=${() => (setProxyDialog(false), setSelected(new Set()), reload(true))}
+              />`
             : null}
         ${open
             ? html`<${SubDrawer}
@@ -284,6 +296,45 @@ export function Subscriptions() {
     `;
 }
 
+/* ---------------- batch proxy ---------------- */
+
+function BatchProxy({ feedIds, onClose, onDone }) {
+    const [draft, setDraft] = useState(emptyProxy());
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState("");
+    const value = draft.mode === "inherit" ? null : draft.mode === "direct" ? "direct" : draft.url.trim();
+    async function submit() {
+        setBusy(true);
+        setError("");
+        try {
+            const result = await api("/feeds/fetch-options/batch", { method: "POST", body: { feeds: feedIds, proxy: value } });
+            toast(L(`已更新 ${result.updated} 个订阅源，下次抓取生效`, `${result.updated} feeds updated; applies from their next fetch`));
+            onDone();
+        } catch (err) {
+            setError(err.message);
+        } finally {
+            setBusy(false);
+        }
+    }
+    return html`<${Modal}
+        title=${L("设置代理", "Set proxy")}
+        onClose=${onClose}
+        footer=${html`<${Button} onClick=${onClose}>${L("取消", "Cancel")}<//>
+            <${Button} kind="primary" loading=${busy} disabled=${draft.mode === "custom" && !draft.url.trim()} onClick=${submit}
+                >${L("应用", "Apply")}<//
+            >`}
+    >
+        <p class="confirm-body">
+            ${L(
+                `把下面的设置应用到所选订阅涉及的 ${feedIds.length} 个订阅源（同一个源被多个会话订阅时只算一个）。这是各个源自己的设置，不影响其他订阅，也不改变全局代理。`,
+                `Applies to the ${feedIds.length} feeds behind your selection (a feed shared by several chats counts once). These are per-feed settings; other feeds and the global proxy are untouched.`,
+            )}
+        </p>
+        <${ProxyField} draft=${draft} onChange=${setDraft} />
+        ${error ? html`<${Notice} tone="error">${error}<//>` : null}
+    <//>`;
+}
+
 /* ---------------- add ---------------- */
 
 function AddSubscription({ target, onClose, onDone }) {
@@ -292,6 +343,7 @@ function AddSubscription({ target, onClose, onDone }) {
     const [busy, setBusy] = useState(false);
     const [results, setResults] = useState(null);
     const [error, setError] = useState("");
+    const [proxy, setProxy] = useState(emptyProxy());
     const urls = text
         .split(/\s+/)
         .map((u) => u.trim())
@@ -300,7 +352,10 @@ function AddSubscription({ target, onClose, onDone }) {
         setBusy(true);
         setError("");
         try {
-            const result = await api("/subscriptions", { method: "POST", body: { target: chat, urls } });
+            const body = { target: chat, urls };
+            if (proxy.mode === "direct") body.proxy = "direct";
+            else if (proxy.mode === "custom" && proxy.url.trim()) body.proxy = proxy.url.trim();
+            const result = await api("/subscriptions", { method: "POST", body });
             setResults(result.results);
             const created = result.results.filter((r) => r.status === "created").length;
             if (created) onDone();
@@ -341,6 +396,16 @@ function AddSubscription({ target, onClose, onDone }) {
         >
             <${Textarea} rows="5" class="mono" placeholder="https://example.com/feed.xml" value=${text} onInput=${setText} />
         <//>
+        <details class="adv" open=${proxy.mode !== "inherit"}>
+            <summary>${L("这些地址需要通过代理访问？（可选）", "Do these URLs need a proxy? (optional)")}</summary>
+            <p class="muted" style="font-size:12.5px;margin:6px 0 10px">
+                ${L(
+                    "服务器直接连不上时，先用这里的代理验证并订阅；设置会保存为这些订阅源自己的代理，验证失败则不保存。",
+                    "If the server can't reach them directly, they're verified through this proxy and it's saved for these feeds; nothing is kept if verification fails.",
+                )}
+            </p>
+            <${ProxyField} draft=${proxy} onChange=${setProxy} />
+        </details>
         ${app.info.snapshot
             ? html`<${Notice} tone="warn"
                   >${L(
@@ -800,12 +865,17 @@ function Fetching({ sub, onChanged }) {
     );
     const ua = useAsync(() => api(`/feeds/${sub.feed_id}/fetch-options`), [sub.feed_id]);
     const [agent, setAgent] = useState(null);
+    const [proxy, setProxy] = useState(emptyProxy());
+    const [proxyResult, setProxyResult] = useState(null);
     const [job, setJob] = useState(null);
     const [busy, setBusy] = useState("");
     const timer = useRef();
     useEffect(() => () => clearTimeout(timer.current), []);
     useEffect(() => {
-        if (ua.data && agent === null) setAgent(ua.data.user_agent || "");
+        if (ua.data && agent === null) {
+            setAgent(ua.data.user_agent || "");
+            setProxy({ mode: ua.data.proxy.mode, url: "" }); // start from what is saved
+        }
     }, [ua.data]);
     async function poll(id) {
         try {
@@ -842,6 +912,37 @@ function Fetching({ sub, onChanged }) {
             const created = await api(`/subscriptions/${sub.id}/fetch-now`, { method: "POST", body: { mode, confirm: true } });
             setJob(created);
             poll(created.id);
+        } catch (err) {
+            toast(err.message, "error");
+        } finally {
+            setBusy("");
+        }
+    }
+    const savedProxy = ua.data?.proxy;
+    async function saveProxy() {
+        setBusy("proxy");
+        try {
+            const next = await api(`/feeds/${sub.feed_id}/fetch-options`, {
+                method: "PATCH",
+                body: { proxy: proxyValue(proxy, savedProxy) },
+            });
+            ua.setData(next);
+            setProxy({ mode: next.proxy.mode, url: "" });
+            setProxyResult(null);
+            toast(L("已保存，下次抓取生效", "Saved; applies from the next fetch"));
+        } catch (err) {
+            toast(err.message, "error");
+        } finally {
+            setBusy("");
+        }
+    }
+    async function testProxy() {
+        setBusy("proxy-test");
+        setProxyResult(null);
+        try {
+            const value = proxyValue(proxy, savedProxy);
+            const body = value === undefined || value === null ? {} : { proxy: value };
+            setProxyResult(await api(`/feeds/${sub.feed_id}/proxy-test`, { method: "POST", body }));
         } catch (err) {
             toast(err.message, "error");
         } finally {
@@ -949,6 +1050,45 @@ function Fetching({ sub, onChanged }) {
 
         <div class="section-title" style="margin-top:28px">
             <div>
+                <h3>${L("代理", "Proxy")}</h3>
+                <p>
+                    ${L(
+                        "只对这个 RSS 源生效。服务器连不上这个网站（例如海外服务器访问只部署在国内的网站）时，可以让它单独走一个代理，其他订阅源不受影响。",
+                        "Applies to this feed only. When the server can't reach the site (say, a server abroad and a site hosted only in China), route just this feed through a proxy.",
+                    )}
+                </p>
+            </div>
+        </div>
+        ${!ua.data
+            ? html`<${Spinner} />`
+            : html`<div class="stack" style="gap:12px">
+                  <div class="muted" style="font-size:13px">
+                      ${L("当前：", "Currently: ")}<b style="color:var(--text)">${savedText(savedProxy)}</b>
+                  </div>
+                  <${ProxyField} draft=${proxy} onChange=${(next) => (setProxy(next), setProxyResult(null))} saved=${savedProxy} />
+                  <div class="row" style="justify-content:flex-end">
+                      <${Button}
+                          size="sm"
+                          icon="zap"
+                          disabled=${!app.info.features.manual_fetch || !proxyReady(proxy, savedProxy)}
+                          loading=${busy === "proxy-test"}
+                          onClick=${testProxy}
+                          >${L("测试这个设置", "Test this setting")}<//
+                      >
+                      <${Button}
+                          size="sm"
+                          kind="primary"
+                          disabled=${!proxyChanged(proxy, savedProxy) || !proxyReady(proxy, savedProxy)}
+                          loading=${busy === "proxy"}
+                          onClick=${saveProxy}
+                          >${L("保存", "Save")}<//
+                      >
+                  </div>
+                  <${ProxyTestResult} result=${proxyResult} />
+              </div>`}
+
+        <div class="section-title" style="margin-top:28px">
+            <div>
                 <h3>User-Agent</h3>
                 <p>
                     ${L(
@@ -1010,7 +1150,10 @@ function FeedLogs({ sub }) {
             ? html`<${Empty} icon="logs" title=${L("还没有日志", "No logs yet")}
                   >${app.info.snapshot
                       ? L("离线副本不运行抓取，所以没有日志。", "The offline copy doesn't fetch, so there are no logs.")
-                      : L("还没有失败或更新的记录。没有新文章的正常检查不会逐条记录。", "No failures or updates yet. Routine checks with nothing new aren't logged.")}<//
+                      : L(
+                            "还没有失败或更新的记录。没有新文章的正常检查不会逐条记录。",
+                            "No failures or updates yet. Routine checks with nothing new aren't logged.",
+                        )}<//
               >`
             : html`<div class="timeline" style="margin-top:8px">${data.items.map((e) => html`<${EventRow} event=${e} hideFeed />`)}</div>
                   <${Pager} page=${page} size=${data.size} total=${data.total} onPage=${setPage} />`}

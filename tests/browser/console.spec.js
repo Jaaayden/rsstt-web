@@ -135,6 +135,35 @@ test("manual fetch reports a result", async ({ page }) => {
     await expect(page.locator(".drawer .notice")).toContainText("完成");
 });
 
+test("per-feed proxy: save, keep the credentials hidden, batch apply", async ({ page }) => {
+    await signIn(page, "/#subscriptions?q=机器之心");
+    await page.locator("tbody tr .cell-title").first().click();
+    const drawer = page.locator(".drawer");
+    await drawer.getByRole("tab", { name: "抓取" }).click();
+    await expect(drawer.getByText("跟随全局设置")).toBeVisible();
+    await drawer.getByRole("radio", { name: "使用代理" }).click();
+    await drawer.locator('input[type="password"]').fill("socks5://e2e-user:e2e-secret@proxy.example.net:1080");
+    await drawer.getByRole("button", { name: "保存" }).first().click();
+    await expect(drawer.getByText("使用代理 socks5://proxy.example.net:1080")).toBeVisible();
+    // The password is never shown again, neither on the page nor in the API.
+    await expect(page.locator("body")).not.toContainText("e2e-secret");
+    const api = await page.request.get("/api/feeds/" + (await page.evaluate(() => location.hash.match(/sub=(\d+)/)[1])) + "/fetch-options");
+    expect(JSON.stringify(await api.json())).not.toContain("e2e-secret");
+    // The control starts from what is saved, and "Direct" is a separate, explicit choice.
+    await expect(drawer.getByRole("radio", { name: "使用代理" })).toHaveAttribute("aria-checked", "true");
+    await drawer.getByRole("radio", { name: "直连" }).click();
+    await drawer.getByRole("button", { name: "保存" }).first().click();
+    await expect(drawer.getByText("直连（不使用代理）")).toBeVisible();
+    await drawer.getByRole("button", { name: "关闭" }).click();
+    // Batch: select every row of the filtered list and set one proxy for their feeds.
+    await page.getByRole("checkbox", { name: "全选" }).check();
+    await page.locator(".batchbar").getByRole("button", { name: "代理" }).click();
+    await expect(page.locator(".modal")).toContainText("个订阅源");
+    await page.locator(".modal").getByRole("radio", { name: "跟随全局" }).click();
+    await page.locator(".modal").getByRole("button", { name: "应用" }).click();
+    await expect(page.locator(".toast", { hasText: "个订阅源，下次抓取生效" })).toBeVisible();
+});
+
 test("add subscriptions shows per-URL results", async ({ page }) => {
     await signIn(page, "/#subscriptions?add=1");
     const modal = page.locator(".modal");

@@ -57,6 +57,28 @@ export function Chats() {
         [q, kind, visibility, page],
     );
     const [adding, setAdding] = useState(false);
+    const [naming, setNaming] = useState(false);
+    const unnamed = data?.items.some((chat) => chat.named === false);
+    async function completeNames() {
+        setNaming(true);
+        try {
+            const result = await api("/targets/names", { method: "POST", body: {} });
+            toast(
+                result.busy
+                    ? L("正在补全，请稍后刷新", "Already running; refresh in a moment")
+                    : L(
+                          `补全了 ${result.named} 个名称${result.missing ? `，另有 ${result.missing} 个暂时查不到（机器人没和对方说过话，对方发来消息后会自动记录）` : ""}`,
+                          `Named ${result.named}${result.missing ? `; ${result.missing} not found (the bot has never talked to them; they're named when they write)` : ""}`,
+                      ),
+                result.named ? "ok" : "error",
+            );
+            reload(true);
+        } catch (err) {
+            toast(err.message, "error");
+        } finally {
+            setNaming(false);
+        }
+    }
     const open = params.chat;
     return html`
         <div class="page-head">
@@ -91,6 +113,16 @@ export function Chats() {
                     ]}
                 />
                 <${Select} value=${visibility} onChange=${(v) => setParams({ visibility: v, page: "" })} options=${VISIBILITY()} />
+                ${unnamed && !app.info.demo
+                    ? html`<${Button}
+                          size="sm"
+                          icon="refresh"
+                          loading=${naming}
+                          onClick=${completeNames}
+                          title=${L("向 Telegram 查询还没有名称的用户", "Ask Telegram for the users that have no name yet")}
+                          >${L("补全名称", "Complete names")}<//
+                      >`
+                    : null}
                 <span class="total">${data ? L(`${data.total} 个会话`, `${data.total} chats`) : ""}</span>
             </div>
             ${error

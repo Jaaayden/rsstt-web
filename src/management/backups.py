@@ -28,12 +28,13 @@ COMPONENTS = {
     'admin_credentials': ('console_admin',),
     'runtime_config': (),
     'notification_secrets': ('notify_config',),
+    'feed_proxies': ('feed_proxies',),  # proxy addresses may contain credentials
 }
 EXTENSION_DATA = ('metrics_hourly', 'notify_seen', 'feed_fetch_options', 'chat_events', 'diagnostic_events')
 META_KEYS = ('started_at', 'attention_threshold', 'hourly_started_at', 'diagnostics_started_at')
 OPTION_KEYS = ('default_interval', 'minimal_interval', 'user_sub_limit',
                'channel_or_group_sub_limit', 'sub_limit_reached_message')
-SENSITIVE = ('agent_tokens', 'admin_credentials', 'runtime_config', 'notification_secrets')
+SENSITIVE = ('agent_tokens', 'admin_credentials', 'runtime_config', 'notification_secrets', 'feed_proxies')
 
 
 class BackupError(ValueError):

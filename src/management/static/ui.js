@@ -177,7 +177,7 @@ export const Notice = ({ tone = "info", title, children, action }) =>
 export function ChatAvatar({ chat, size = 32 }) {
     const kind = kindOf(chat);
     const title = chat.title || chat.target_title || "?";
-    const glyph = [...title.trim()][0]?.toUpperCase() || "#";
+    const glyph = chat.named === false ? "?" : [...title.trim()][0]?.toUpperCase() || "#";
     return html`<span class="avatar avatar-${kind}" style=${`--s:${size}px`} aria-hidden="true">${glyph}</span>`;
 }
 

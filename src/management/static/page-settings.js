@@ -983,6 +983,10 @@ const COMPONENTS = {
         () => L("恢复后用备份里的密码登录。", "After restore, sign in with the backup's password."),
     ],
     agent_tokens: [() => L("API 访问令牌", "API tokens"), () => L("外部程序用的访问令牌。", "Tokens used by external programs.")],
+    feed_proxies: [
+        () => L("订阅源的单独代理", "Per-feed proxies"),
+        () => L("为单个订阅源设置的代理地址，可能含用户名和密码。", "Proxy addresses set for individual feeds; may contain credentials."),
+    ],
     notification_secrets: [() => L("通知渠道配置", "Notification channels"), () => L("包含通知渠道的密钥。", "Includes channel secrets.")],
     runtime_config: [
         () => L("运行配置", "Runtime configuration"),
@@ -1487,7 +1491,12 @@ function Account() {
                 : html`<dl class="kv" style="margin:0">
                           <dt>${L("版本", "Version")}</dt>
                           <dd>
-                              <a href=${`https://github.com/Jaaayden/rsstt-web/releases/tag/web-v${s.version}`} target="_blank" rel="noopener">RSStT Web ${s.version}</a>
+                              <a
+                                  href=${`https://github.com/Jaaayden/rsstt-web/releases/tag/web-v${s.version}`}
+                                  target="_blank"
+                                  rel="noopener"
+                                  >RSStT Web ${s.version}</a
+                              >
                               ${s.build ? html` <span class="muted mono">(${s.build})</span>` : null}
                           </dd>
                           <dt>${L("机器人核心", "Bot core")}</dt>

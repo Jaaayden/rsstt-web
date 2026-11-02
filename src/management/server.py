@@ -18,6 +18,7 @@ from .. import db, env
 from ..command import inner
 from . import articles, diagnostics, metrics, notifications
 from . import version as web_version
+from . import feed_options
 from .statistics import usage
 from .service import Problem, Service, chat_id, integer, BANNED_RESUME_MESSAGE
 from .store import Store
@@ -320,6 +321,14 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
         await store.audit(request['principal']['name'], '登记会话', result['title'])
         return web.json_response(result, status=201)
 
+    @routes.post('/api/targets/names')
+    async def complete_names(request):
+        admin(request)
+        if demo:
+            raise Problem('离线预览和演示实例没有连接 Telegram，无法补全名称。', 409, code='OFFLINE')
+        from . import chat_lifecycle
+        return web.json_response(await chat_lifecycle.resolve_names())
+
     @routes.post('/api/targets/{id}/refresh')
     async def refresh(request):
         if snapshot:
@@ -392,8 +401,15 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
     @routes.post('/api/subscriptions')
     async def add(request):
         values = await body(request)
+        proxy = values.get('proxy')
+        if proxy is not None:
+            admin(request)  # proxy settings are administrator-only, like every other fetch option
+            try:
+                proxy = feed_options.check(proxy)
+            except ValueError:
+                raise Problem(feed_options.INVALID, code='INVALID_PROXY') from None
         async with service.mutation:
-            result = await service.add(values.get('target'), values.get('urls'), request['principal'])
+            result = await service.add(values.get('target'), values.get('urls'), request['principal'], proxy=proxy)
         await store.audit(request['principal']['name'], '添加订阅', f"{values['target']} · {sum(r['status']=='created' for r in result['results'])} 个新增")
         return web.json_response(result)
 
@@ -780,8 +796,10 @@ async def start():
         from . import chat_audit, chat_lifecycle
         chat_audit.install(_store)
         await chat_lifecycle.start(_store)
-        from . import feed_options
         feed_options.store = _store
+        await feed_options.load(_store)
+        from ..web import req as web_req
+        web_req.proxy_override = feed_options.proxy_for
     except BaseException:
         await stop()
         raise
@@ -800,8 +818,10 @@ async def stop():
     articles.uninstall(_store)
     notifications.active = None
     metrics.store = None
-    from . import feed_options
     feed_options.store = None
+    feed_options._proxies.clear()
+    from ..web import req as web_req
+    web_req.proxy_override = None
     if _runner:
         await _runner.cleanup()
         _runner = None

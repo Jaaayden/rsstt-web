@@ -45,6 +45,8 @@ class Store:
             PRAGMA synchronous=FULL;
             PRAGMA busy_timeout=5000;
             CREATE TABLE IF NOT EXISTS feed_fetch_options (url TEXT PRIMARY KEY, user_agent TEXT NOT NULL);
+            -- Proxy per feed URL: 'direct' or a proxy URL (may contain credentials, hence a sensitive backup component).
+            CREATE TABLE IF NOT EXISTS feed_proxies (url TEXT PRIMARY KEY, proxy TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS targets (
                 id TEXT PRIMARY KEY, title TEXT NOT NULL, username TEXT,

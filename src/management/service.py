@@ -10,6 +10,7 @@ from tortoise.functions import Count
 
 from .. import db, env
 from ..command import inner
+from . import feed_options
 from ..command.inner.customization import SUB_OPTIONS_EXHAUSTIVE_VALUES
 
 
@@ -48,6 +49,14 @@ def feed_url(value):
     except ValueError:
         raise Problem('订阅地址只支持不含用户名、密码的 HTTP / HTTPS 网址。')
     return value
+
+
+def display_title(meta, ident):
+    """The name to show for a chat; an honest placeholder when Telegram never told us."""
+    title = (meta or {}).get('title')
+    if title and title not in (str(ident), f'会话 {ident}'):
+        return title, True
+    return (f'用户 {ident}' if int(ident) > 0 else f'会话 {ident}'), False
 
 
 def kind(user):
@@ -136,7 +145,8 @@ class Service:
         counts = {str(r['user_id']): r['n'] for r in await db.Sub.filter(user_id__in=ids).group_by('user_id').annotate(n=Count('id')).values('user_id', 'n')}
         active = {str(r['user_id']): r['n'] for r in await db.Sub.filter(user_id__in=ids, state=1, feed__state=1).group_by('user_id').annotate(n=Count('id')).values('user_id', 'n')}
         attention = {str(r['user_id']): r['n'] for r in await db.Sub.filter(user_id__in=ids, state=1, feed__error_count__gte=await self.threshold()).group_by('user_id').annotate(n=Count('id')).values('user_id', 'n')}
-        return [dict(id=str(u.id), title=metadata.get(str(u.id), {}).get('title') or f'会话 {u.id}',
+        return [dict(id=str(u.id), title=display_title(metadata.get(str(u.id)), u.id)[0],
+                     named=display_title(metadata.get(str(u.id)), u.id)[1],
                      kind=metadata.get(str(u.id), {}).get('kind', kind(u)),
                      membership=metadata.get(str(u.id), {}).get('membership', 'unknown'),
                      username=metadata.get(str(u.id), {}).get('username'),
@@ -150,6 +160,8 @@ class Service:
 
     async def targets(self, principal, query):
         qs = self.scope(db.User.all(), principal, 'id')
+        if type(getattr(env, 'bot_id', None)) is int:
+            qs = qs.exclude(id=env.bot_id)  # the bot's own account is not a chat
         include_departed = query.get('include_departed', 'false')
         if include_departed not in ('true', 'false'):
             raise Problem('include_departed 必须为 true 或 false。')
@@ -214,7 +226,7 @@ class Service:
 
     async def sub_data(self, subs):
         metadata = await self.store.target_map(list({s.user_id for s in subs}))
-        return [dict(id=s.id, feed_id=s.feed_id, target=str(s.user_id), target_title=metadata.get(str(s.user_id), {}).get('title') or str(s.user_id),
+        return [dict(id=s.id, feed_id=s.feed_id, target=str(s.user_id), target_title=display_title(metadata.get(str(s.user_id)), s.user_id)[0],
                      title=s.title or s.feed.title, custom_title=s.title, url=s.feed.link, state=s.state,
                      tags=s.tags, errors=s.feed.error_count, feed_state=s.feed.state,
                      updated_at=s.feed.updated_at.isoformat(), next_check=s.feed.next_check_time.isoformat() if s.feed.next_check_time else None,
@@ -244,7 +256,7 @@ class Service:
         await self.store.target(ident, data['title'], data['username'], data['kind'], data['membership'])
         return (await self.target_data([user]))[0]
 
-    async def add(self, ident, urls, principal):
+    async def add(self, ident, urls, principal, proxy=None):
         user = await self.user(ident, principal)
         if user.state == -1:
             raise Problem(BANNED_ADD_MESSAGE, 409, code='TARGET_BANNED')
@@ -262,7 +274,18 @@ class Service:
             if reached:
                 results.append({'url': url, 'status': 'failed', 'message': '已达到此会话的订阅数量上限。'})
                 continue
-            result = await inner.sub.sub(user.id, url, lang=user.lang)
+            # A feed the server can only reach through a proxy must be validated through it too.
+            previous = feed_options._proxies.get(url)
+            if proxy is not None:
+                await feed_options.save_proxy(self.store, url, proxy)
+            try:
+                result = await inner.sub.sub(user.id, url, lang=user.lang)
+            except BaseException:
+                if proxy is not None:
+                    await feed_options.save_proxy(self.store, url, previous)
+                raise
+            if proxy is not None and not result['sub']:
+                await feed_options.save_proxy(self.store, url, previous)  # failed: leave no setting behind
             results.append({'url': url, 'status': 'created', 'id': result['sub'].id} if result['sub'] else
                            {'url': url, 'status': 'failed', 'message': str(result['msg'] or '无法读取订阅源。')})
         return {'results': results}

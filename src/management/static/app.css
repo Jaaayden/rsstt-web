@@ -2275,3 +2275,19 @@ button.list-row:hover {
 .rt-control .segmented {
     flex-wrap: wrap;
 }
+
+/* collapsible "advanced" block in dialogs */
+.adv {
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface-2);
+}
+.adv summary {
+    cursor: pointer;
+    font-weight: 550;
+    font-size: 13.5px;
+}
+.adv[open] summary {
+    margin-bottom: 4px;
+}

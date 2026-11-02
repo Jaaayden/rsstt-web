@@ -282,3 +282,20 @@ async def test_chat_history_backup_and_legacy_restore(files):
         del package['data']['console.chat_events']
     backups.restore(main, console, changed(raw, legacy))
     assert rows(console, 'SELECT COUNT(*) FROM chat_events') == [(0,)]
+
+
+async def test_feed_proxies_are_a_sensitive_backup_component(files):
+    main, console = files
+    with sql(console) as c:
+        c.execute("INSERT INTO feed_proxies VALUES ('https://fixture.invalid/rss', ?)", ('socks5://proxy-user:very-secret@proxy.example.net:1080',))
+    default = backups.export(main, console)
+    assert 'very-secret' not in default.decode() and 'console.feed_proxies' not in json.loads(default)['data']
+    full = backups.export(main, console, {'feed_proxies': True})
+    assert 'very-secret' in full.decode() and 'console.feed_proxies' in json.loads(full)['data']
+    assert rows(console, 'SELECT count(*) FROM feed_proxies') == [(1,)]
+    with sql(console) as c:
+        c.execute('DELETE FROM feed_proxies')
+    backups.restore(main, console, default)                       # default restore leaves proxies alone
+    assert rows(console, 'SELECT count(*) FROM feed_proxies') == [(0,)]
+    backups.restore(main, console, full, {'feed_proxies': True})  # opt-in restores them
+    assert rows(console, 'SELECT proxy FROM feed_proxies') == [('socks5://proxy-user:very-secret@proxy.example.net:1080',)]
