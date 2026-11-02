@@ -268,6 +268,15 @@ async def test_settings_report_the_web_version_and_the_bot_core(logged, tmp_path
 SECRET_PROXY = 'socks5://proxy-user:very-secret@proxy.example.net:1080'
 
 
+def test_fetch_tls_context_leaves_out_finite_field_dhe():
+    """A server that picks a small DH group would otherwise fail the handshake (DH_KEY_TOO_SMALL) at random."""
+    from src.web import req
+    names = [cipher['name'] for cipher in req._fetch_ssl_context().get_ciphers()]
+    assert names and not [name for name in names if name.startswith('DHE-')]
+    assert any(name.startswith('ECDHE-') for name in names)
+    assert any(name.startswith('TLS_') for name in names)  # TLS 1.3 stays
+
+
 def test_proxy_resolution_order(monkeypatch):
     """explicit argument > per-URL setting > global R_PROXY (with its bypass rules)."""
     from src.web import req

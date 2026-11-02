@@ -20,6 +20,7 @@ from typing_extensions import Final
 from collections.abc import Callable
 
 import re
+import ssl
 import asyncio
 import aiohttp
 import aiohttp.hdrs
@@ -42,7 +43,17 @@ from .utils import YummyCookieJar, WebResponse, proxy_filter, logger, sentinel
 
 # Reuse SSLContext as aiohttp does:
 # https://github.com/aio-libs/aiohttp/blob/f1e4213fb06634584f8d7a1eb90f5397736a18cc/aiohttp/connector.py#L959
-__SSL_CONTEXT: Final = ssl_create_default_context() if env.VERIFY_TLS else False
+def _fetch_ssl_context():
+    context = ssl_create_default_context()
+    # Some servers (e.g. sspai.com behind certain CDN nodes) still choose finite-field DHE with a small DH group, which
+    # OpenSSL refuses (DH_KEY_TOO_SMALL), so fetches fail at random. ECDHE and TLS 1.3 are unaffected: leave DHE out.
+    names = [cipher['name'] for cipher in context.get_ciphers() if not cipher['name'].startswith('DHE-')]
+    with suppress(ssl.SSLError):
+        context.set_ciphers(':'.join(names))
+    return context
+
+
+__SSL_CONTEXT: Final = _fetch_ssl_context() if env.VERIFY_TLS else False
 
 DEFAULT_READ_BUFFER_SIZE: Final = 2 ** 16
 
