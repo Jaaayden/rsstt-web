@@ -1,0 +1,14 @@
+# RSStT Web
+
+> Self-hosted Telegram RSS bot (fork of RSS-to-Telegram-Bot) with a built-in web console. One Docker image: ghcr.io/jaaayden/rsstt-web. Keeps every upstream bot command; data stays compatible with the original bot.
+
+## For AI agents
+
+- [Deployment instructions for AI agents](https://jaaayden.github.io/rsstt-web/deploy.md): step-by-step install, migration from an existing RSStT without duplicate posts, HTTPS, verification, rollback and upgrade.
+
+## Documentation
+
+- [Quick start (Chinese)](https://jaaayden.github.io/rsstt-web/guide/deployment.html)
+- [Quick start (English)](https://jaaayden.github.io/rsstt-web/en/guide/deployment.html)
+- [Configuration reference](https://jaaayden.github.io/rsstt-web/guide/configuration.html)
+- [Source code](https://github.com/Jaaayden/rsstt-web)

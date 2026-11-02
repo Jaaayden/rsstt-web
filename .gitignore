@@ -251,3 +251,8 @@ node_modules/
 test-results/
 playwright-report/
 !compose.console.yaml
+
+# documentation site
+website/node_modules/
+website/.vitepress/dist/
+website/.vitepress/cache/

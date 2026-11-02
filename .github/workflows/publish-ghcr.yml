@@ -2,11 +2,11 @@ name: Publish image to GHCR
 # One self-contained image (bot + web console): ghcr.io/jaaayden/rsstt-web
 #   main            -> :latest, :main, :sha-<short>
 #   other branches  -> :<branch>, :sha-<short>   (preview builds)
-#   tags v1.2.3     -> :1.2.3, :1.2
+#   tags web-v1.2.3 -> :1.2.3, :1.2, :1   (RSStT Web releases)
 on:
   push:
     branches: [main, 'refactor/**', 'release/**']
-    tags: ['v*']
+    tags: ['web-v*']
     paths-ignore:
       - 'docs/**'
       - '**.md'
@@ -44,8 +44,9 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
             type=ref,event=branch
             type=sha,format=short
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+            type=match,pattern=web-v(\d+\.\d+\.\d+)$,group=1
+            type=match,pattern=web-v(\d+\.\d+)\.\d+$,group=1
+            type=match,pattern=web-v(\d+)\.\d+\.\d+$,group=1
           labels: |
             org.opencontainers.image.title=RSStT Web
             org.opencontainers.image.description=RSS-to-Telegram bot with a web console
