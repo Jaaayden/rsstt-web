@@ -1,0 +1,75 @@
+name: Publish image to GHCR
+# One self-contained image (bot + web console): ghcr.io/jaaayden/rsstt-web
+#   main            -> :latest, :main, :sha-<short>
+#   other branches  -> :<branch>, :sha-<short>   (preview builds)
+#   tags v1.2.3     -> :1.2.3, :1.2
+on:
+  push:
+    branches: [main, 'refactor/**', 'release/**']
+    tags: ['v*']
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+      - '**.sample'
+      - 'tests/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: write
+concurrency:
+  group: ghcr-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  publish:
+    name: Build and push amd64 image
+    if: github.repository == 'Jaaayden/rsstt-web'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/jaaayden/rsstt-web
+          flavor: latest=false
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=branch
+            type=sha,format=short
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+          labels: |
+            org.opencontainers.image.title=RSStT Web
+            org.opencontainers.image.description=RSS-to-Telegram bot with a web console
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64
+          # The Dockerfile records "<sha>@<branch>" as the version shown by the bot and console.
+          build-args: |
+            RAILWAY_GIT_COMMIT_SHA=${{ github.sha }}
+            RAILWAY_GIT_BRANCH=${{ github.ref_name }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Reuse layers already built by the Docker test workflow.
+          cache-from: |
+            type=gha,scope=ghcr
+            type=gha,scope=console-docker
+          cache-to: type=gha,scope=ghcr,mode=max
+      - name: Summary
+        run: |
+          {
+            echo "### Published"
+            echo '```'
+            echo "${{ steps.meta.outputs.tags }}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

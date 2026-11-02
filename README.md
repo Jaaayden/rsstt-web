@@ -10,36 +10,30 @@
   English · <a href="README.zh.md">简体中文</a> · <a href="docs/web-console.md">Documentation</a> · <a href="LICENSE">AGPLv3+</a>
 </p>
 
-![RSStT Web dashboard with demonstration data](docs/resources/console-overview.png)
+![RSStT Web overview with demonstration data](docs/resources/console-overview.png)
 
-RSStT Web is a self-hosted Telegram RSS bot with a web console for subscriptions, destinations, access control, and operations. It builds on [RSS-to-Telegram-Bot](https://github.com/Rongronggg9/RSS-to-Telegram-Bot), preserving its Telegram commands, feed fetching, rich-text formatting, media handling, and shared delivery pipeline.
+RSStT Web is a self-hosted Telegram RSS bot with a web console. It builds on [RSS-to-Telegram-Bot](https://github.com/Rongronggg9/RSS-to-Telegram-Bot) and keeps every upstream Telegram command, fetcher, formatter and delivery path — everything you can do in the bot still works; the web console is an extra way in.
 
-The console runs alongside the bot in one Python process. Its frontend uses static HTML, CSS, and JavaScript; production needs no Node.js service or frontend build step.
+The console runs in the same Python process as the bot. The front end is build-free static files (Preact + htm, ~13 KB), so no Node.js service is needed and it stays light on small servers.
 
-> This repository contains the Web fork. The upstream public bot, `rongronggg9/rss-to-telegram` images, and upstream PyPI installation instructions do not install this console. Build this checkout with the Compose file below. The console manages its own running instance, rather than attaching to a separate, unmodified bot.
+> This repository is the web fork. The upstream public bot, the `rongronggg9/rss-to-telegram` image and the upstream PyPI package don't include this console; build from this repository with the Compose file below.
 
-## What you can manage
+## What you can do
 
-| Area               | Capabilities                                                                                                                                                                                                                                                                                                                   |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Dashboard          | Known and active destinations, subscriptions and unique feeds, confirmed delivery totals, hourly and daily trends, and sources needing attention.                                                                                                                                                                              |
-| Chats and channels | Search and filter destinations, set user roles and subscription limits, stop service, leave groups or channels, and inspect membership status. Banned destinations are hidden by default and can be viewed through filters. Departed destinations stay out of the chat list; the current interface has no filter to show them. |
-| Subscriptions      | Search and filter by destination or state; pause, resume, and edit delivery options; add or replace recipients; import and export OPML. Multiple destinations share one feed fetch.                                                                                                                                            |
-| Feed requests      | Set a User-Agent for an individual feed source without changing the global default.                                                                                                                                                                                                                                            |
-| Notifications      | Configure repeated-fetch-failure, recovery, and new-destination alerts through Bark, Telegram, Webhook, or ntfy. Thresholds and cooldowns control repeated alerts; notifications start disabled.                                                                                                                               |
-| Settings           | Manage Bot languages, formatting defaults, subscription limits, and supported runtime configuration. Settings that require a restart are marked explicitly.                                                                                                                                                                    |
-| Agent access       | Issue revocable, destination-scoped read or write tokens; use the authenticated OpenAPI contract and a Python CLI with writes previewed by default.                                                                                                                                                                            |
-| Backups            | Export, preflight, and stage SQLite backups for restore on restart. Choose whether to include or overwrite login credentials, Agent tokens, runtime configuration, and notification credentials.                                                                                                                               |
-| Operation history  | View per-destination Bot, Web, and API actions, actors, outcomes, and observed setting changes. History is bounded and excludes ordinary chat text and raw credentials.                                                                                                                                                        |
-| Interface          | English and Simplified Chinese, light and dark appearance, responsive layouts, and keyboard-accessible controls. Bot languages continue to use the upstream translations.                                                                                                                                                      |
+| Page          | Features                                                                                                                                                                         |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Overview      | Private chats, groups and channels being served; active and paused subscriptions; total deliveries and new posts; hourly/daily trend; the feeds failing most.                  |
+| Chats         | Search and filter chats; set roles (admin/user/guest/blocked), block strangers, make the bot leave groups or channels; edit delivery defaults; see the activity history.       |
+| Subscriptions | Filter by chat or status, pause/resume/unsubscribe in bulk, add feeds, import/export OPML. Each subscription lets you edit formatting, recipients, recent posts and fetch now. |
+| Logs          | Every fetch failure, delivery problem, notification and system event, with the cause spelled out (e.g. “HTTP 403 · access denied”, “timed out”).                               |
+| Settings      | Global subscription rules, notifications (DM via this bot, or Telegram/Bark/ntfy/Webhook), runtime configuration, backup & restore, API tokens, account security.               |
 
-Statistics begin when this version records them; old delivery history cannot be reconstructed. Operation history retains up to 100 entries per destination and 2,000 across the instance. See [chat service control and history](docs/chat-service-control.md) for status definitions and retention details.
+<p align="center">
+  <img src="docs/resources/console-chats.png" width="49%" alt="Chat management">
+  <img src="docs/resources/console-subscription.png" width="49%" alt="Subscription recipients (dark)">
+</p>
 
-**Runtime logs** help investigate feed fetching, Telegram delivery, notification transport, and console failures by feed or destination. Available details include the actual error, HTTP status, duration, and retry schedule. Logs retain up to 30 days and 5,000 entries, with at most 100 per feed; errors that older versions did not record cannot be reconstructed. See [runtime logs](docs/web-console.md#运行日志).
-
-Subscription settings can check for updates immediately or explicitly send the latest article again to the current recipient as a test. For live acceptance while the original bot keeps running, use the [separate test bot deployment](docs/online-testing.md).
-
-Recent articles retain up to 20 fetched articles and text summaries per feed, with delivery status tracked separately for each recipient. Unrecorded historical delivery cannot be reconstructed, and queued messages are not marked as delivered.
+A feed subscribed by several chats is fetched once and delivered to each. Add or remove chats under a subscription's “Recipients” instead of `/unsub` + `/sub` in the bot. Statistics, logs, recent posts and activity history start accumulating once the console is enabled; older history can't be recovered.
 
 ## Quick start with Docker Compose
 
@@ -63,13 +57,14 @@ WEB_ORIGIN=http://127.0.0.1:8730
 
 ```sh
 chmod 600 .env
-docker compose -f compose.console.yaml up -d --build
+docker compose -f compose.console.yaml pull
+docker compose -f compose.console.yaml up -d
 docker compose -f compose.console.yaml logs -f --tail=100 rsstt
 ```
 
 Open **http://127.0.0.1:8730** and sign in with your initial console password. The login form requires only the password. The production console account is named `admin`.
 
-The supplied Compose file builds `rsstt-web:local`, enables the console, and persists `./config` at `/app/config`. Inside the container the console listens on `0.0.0.0`; the published host port is bound only to `127.0.0.1`.
+The supplied Compose file pulls the prebuilt image `ghcr.io/jaaayden/rsstt-web` (bot and console in one image, built by GitHub Actions — nothing is compiled on your server), enables the console, and persists `./config` at `/app/config`. Inside the container the console listens on `0.0.0.0`; the published host port is bound only to `127.0.0.1`.
 
 For a remote server, a local SSH tunnel preserves this setup:
 
@@ -117,7 +112,7 @@ For testing with an existing bot's SQLite data, the [offline snapshot workflow](
 ## Data, login, and recovery
 
 - Persist the whole `config` directory. It contains the original Bot data and Telegram session, the additive `console.sqlite3` management database, and saved `runtime-config.json` overrides when configured. The upstream Bot tables retain their existing schema and migration path.
-- `WEB_PASSWORD` initializes an empty console account once. Later changes belong in **Settings → Account security**. Changing the environment variable does not replace the stored password. A restart or password change revokes browser sessions; Agent tokens remain subject to their own expiry and revocation.
+- `WEB_PASSWORD` initializes an empty console account once. Later changes belong in **Settings → Account**. Changing the environment variable does not replace the stored password. A restart or password change revokes browser sessions; Agent tokens remain subject to their own expiry and revocation.
 - Runtime settings marked **Restart required** are saved for the next process start. Saving does not restart the bot or prove that external credentials and services work. Manager identity, database locations, listener configuration, and process options remain deployment settings.
 - The Bot database can use SQLite or PostgreSQL. Web backup/export and automatic restore support **file-based SQLite**; automatic restore requires a POSIX host. PostgreSQL maintenance uses the separate documented database procedure.
 - Backup exports exclude login credentials and Agent tokens unless explicitly selected. Restore preserves the destination's existing credentials by default. The main Bot Token, Telegram session, deployment environment, and browser sessions are never included in the logical backup.
@@ -126,7 +121,7 @@ Read [backup and restore](docs/pr-06-backups.md) before restoring data. A logica
 
 ## Connect an Agent
 
-In **Settings → API access tokens**, create a named token with read-only or subscription read/write permission, choose its destinations, and set its lifetime. The complete token is displayed once. It can be revoked immediately.
+In **Settings → API access**, create a named token with read-only or subscription read/write permission, choose its destinations, and set its lifetime. The complete token is displayed once. It can be revoked immediately.
 
 The API uses `Authorization: Bearer <token>`. The authenticated contract is available at `/api/openapi.json`; `/api/session` reports the token's scope. Subscription write access does not grant console administration, credential management, backup, or private interaction-history access.
 

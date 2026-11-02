@@ -17,11 +17,11 @@ chmod 600 .env.testing
 
 ```sh
 docker compose -p rsstt-web-test --env-file .env.testing -f compose.testing.yaml config --quiet
-docker compose -p rsstt-web-test --env-file .env.testing -f compose.testing.yaml up -d --build
+docker compose -p rsstt-web-test --env-file .env.testing -f compose.testing.yaml up -d
 docker compose -p rsstt-web-test --env-file .env.testing -f compose.testing.yaml logs --tail=100 rsstt-test
 ```
 
-这份文件使用独立镜像 `rsstt-web:testing`、服务 `rsstt-test` 和项目内的数据卷。宿主机只在 `127.0.0.1:8735` 提供管理台。Compose 项目名用于隔离容器、网络和数据卷；`-p rsstt-web-test` 应在每次命令中保持一致，参见 [Docker 项目名说明](https://docs.docker.com/compose/how-tos/project-name/)。不要把本文件叠加到生产 Compose 文件上。
+这份文件使用预构建镜像（可用 `TEST_IMAGE` 指定版本）、服务 `rsstt-test` 和项目内的数据卷。宿主机只在 `127.0.0.1:8735` 提供管理台。Compose 项目名用于隔离容器、网络和数据卷；`-p rsstt-web-test` 应在每次命令中保持一致，参见 [Docker 项目名说明](https://docs.docker.com/compose/how-tos/project-name/)。不要把本文件叠加到生产 Compose 文件上。
 
 `MULTIUSER=0` 关闭陌生人的默认使用权限。管理者以及显式授予用户／会话权限的对象仍可使用；不要把测试频道授权给陌生人。
 
@@ -31,7 +31,7 @@ docker compose -p rsstt-web-test --env-file .env.testing -f compose.testing.yaml
 ssh -N -L 8735:127.0.0.1:8735 -p PORT USER@HOST
 ```
 
-打开 `http://127.0.0.1:8735`，使用测试管理台密码登录。这里需要保持默认 `TEST_WEB_ORIGIN=http://127.0.0.1:8735`。SSH 隧道断开后网页不可达，但测试机器人继续运行。
+打开 `http://127.0.0.1:8735`（用 `localhost:8735` 也可以），使用测试管理台密码登录。如果之后改用域名加 HTTPS 反向代理访问，把 `TEST_WEB_ORIGIN` 改成那个地址。SSH 隧道断开后网页不可达，但测试机器人继续运行。
 
 ## 按顺序验收
 
@@ -40,7 +40,8 @@ ssh -N -L 8735:127.0.0.1:8735 -p PORT USER@HOST
 3. 在订阅设置中执行“检查更新并推送”。该动作按同一来源共享抓取和去重，有新文章才向启用的接收会话推送；没有新文章时不发送旧文章。
 4. 执行“测试推送最新一篇”，确认当前测试会话收到内容。它可能重复已收到的最新文章，只用于当前接收会话，不修改定时抓取的去重基线。
 5. 打开“最近文章”，检查标题、摘要和当前测试会话的推送状态。把同一个来源订阅到第二个测试会话，确认两个会话的发送结果分别记录；只有 Telegram 确认完整发送才显示已推送。查看抓取和推送日志，再用一个可控的无效 RSS 地址验证失败说明。检查权限不足、暂停／恢复、封禁、新会话通知、手机返回操作。外部通知测试会真实发送，请使用测试渠道。
-6. 重启一次测试容器，确认订阅、日志和密码保留；浏览器需要重新登录是正常的会话撤销行为。
+6. 在“设置 → 通知”打开总开关并启用“通过本机器人发给我”，点“发送测试”，确认测试机器人私聊你。再用另一个 Telegram 账号私聊测试机器人发 `/start`，确认收到写有对方名字和管理台链接的“新会话”通知（`MULTIUSER=0` 时对方会被拒绝，但仍会通知）。机器人只能给按过 `/start` 的人发私信。
+7. 重启一次测试容器，确认订阅、日志和密码保留；浏览器需要重新登录是正常的会话撤销行为。
 
 页面显示“推送已提交”时，仅表示抓取流程已安排发送；以测试会话实际收到内容、运行日志和确认的推送统计判断送达。离线快照不执行真实抓取或推送，纯示例模式的模拟结果也不代表联网验收成功。
 

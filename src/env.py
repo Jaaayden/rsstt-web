@@ -195,6 +195,8 @@ _backup_early_startup(DATABASE_URL, config_folder_path)
 
 # Load saved overrides before deriving any client, proxy or scheduler settings.
 from .runtime_config import load_startup, KEYS as _RUNTIME_KEYS
+# What the deployment itself provides, before any web override is applied.
+RUNTIME_CONFIG_DEPLOYMENT = {key: os.environ.get(key) for key in _RUNTIME_KEYS}
 RUNTIME_CONFIG_OVERRIDES = load_startup(config_folder_path, os.environ)
 RUNTIME_CONFIG_ENVIRONMENT = {key: os.environ.get(key) for key in _RUNTIME_KEYS}
 

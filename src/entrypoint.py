@@ -123,7 +123,12 @@ async def pre():
     await asyncio.gather(*pre_tasks)
 
     from .management import server as management_server
-    await management_server.start()
+    try:
+        await management_server.start()
+    except Exception as e:
+        # The console is an add-on: a misconfiguration (short WEB_PASSWORD, busy port...)
+        # must not take the bot and its RSS deliveries down with it.
+        logger.critical('Web console failed to start; the bot keeps running without it: %s', e, exc_info=e)
 
     bare_target_matcher = r'(?P<target>@\w{4,}|(-100|\+)\d+)'
     target_matcher = rf'(\s+{bare_target_matcher})?'

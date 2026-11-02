@@ -25,6 +25,26 @@ STRINGS = ('TOKEN', 'API_HASH', 'TELEGRAPH_TOKEN', 'ERROR_LOGGING_CHAT',
            'PROXY_BYPASS_DOMAINS', 'USER_AGENT', 'IMG_RELAY_SERVER', 'IMAGES_WESERV_NL', *PROXIES)
 SECRETS = frozenset(('TOKEN', 'API_HASH', 'TELEGRAPH_TOKEN', *PROXIES))
 KEYS = frozenset((*BOOLS, *INTS, *STRINGS))
+# Upstream defaults when neither the deployment nor the web sets a value.
+DEFAULTS = {'MULTIUSER': True, 'VERIFY_TLS': True, 'PROXY_BYPASS_PRIVATE': False, 'IPV6_PRIOR': False,
+            'TABLE_TO_IMAGE': False, 'TRAFFIC_SAVING': False, 'LAZY_MEDIA_VALIDATION': False,
+            'CRON_SECOND': 0, 'HTTP_TIMEOUT': 12, 'HTTP_CONCURRENCY': 1024, 'HTTP_CONCURRENCY_PER_HOST': 16,
+            'HTTP_MAX_LINE_SIZE': 16384, 'HTTP_MAX_FIELD_SIZE': 16384,
+            'IMG_RELAY_SERVER': 'https://rsstt-img-relay.rongrong.workers.dev/', 'IMAGES_WESERV_NL': 'https://wsrv.nl/'}
+
+
+def parse_bool(value, default=False):
+    """Same rules as the upstream environment parser."""
+    if not value:
+        return default
+    if value.lstrip('-').isdecimal():
+        return int(value) > 0
+    upper = value.upper()
+    if upper in ('FALSE', 'NONE', 'NULL', 'NO', 'NOT', 'DISABLE', 'DISABLED', 'INACTIVE', 'DEACTIVATED', 'OFF'):
+        return False
+    if upper in ('TRUE', 'YES', 'OK', 'ENABLE', 'ENABLED', 'ACTIVE', 'ACTIVATED', 'ON'):
+        return True
+    return default
 
 
 class ConfigError(ValueError):
@@ -75,10 +95,11 @@ def validate(values):
 class RuntimeConfig:
     filename = 'runtime-config.json'
 
-    def __init__(self, folder, applied=None, environment=None):
+    def __init__(self, folder, applied=None, environment=None, deployment=None):
         self.path = Path(folder) / self.filename
         self.applied = dict(applied or {})
         self.environment = dict(environment or {})
+        self.deployment = dict(deployment or {})
 
     def _read(self):
         if not self.path.exists():
@@ -134,9 +155,18 @@ class RuntimeConfig:
                        type='boolean' if key in BOOLS else 'integer' if key in INTS else 'string')
             if key in INTS:
                 row.update(min=INTS[key][0], max=INTS[key][1])
+            deployed = self.deployment.get(key)
+            row['deployment_set'] = bool(deployed)
+            row['default'] = DEFAULTS.get(key)
             if key not in SECRETS:
                 row['value'] = saved.get(key)
                 row['effective_value'] = self.environment.get(key)
+                if deployed:
+                    try:
+                        row['deployment_value'] = (parse_bool(deployed, DEFAULTS.get(key, False)) if key in BOOLS
+                                                   else int(deployed) if key in INTS else deployed)
+                    except ValueError:
+                        row['deployment_value'] = None
             items.append(row)
         return {'items': items, 'pending_restart': any(r['pending_restart'] for r in items),
                 'deployment_only': list(DEPLOYMENT)}

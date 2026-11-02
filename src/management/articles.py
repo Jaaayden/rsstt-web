@@ -187,6 +187,7 @@ class Journal:
         self.pending_articles = OrderedDict()
         self.pending_deliveries = OrderedDict()
         self.known = OrderedDict()
+        self.fingerprints = OrderedDict()
         self.wakeup = asyncio.Event()
         self.lock = asyncio.Lock()
         self.closed = False
@@ -201,6 +202,11 @@ class Journal:
         while len(self.known) > RETENTION['max_entries']:
             self.known.popitem(last=False)
 
+    def _forget(self):
+        """Lost writes must be retried: the next fetch re-parses and re-queues everything."""
+        self.known.clear()
+        self.fingerprints.clear()
+
     def _queue_article(self, article):
         identity = article[:2]
         old = self.pending_articles.get(identity)
@@ -209,7 +215,9 @@ class Journal:
             self.pending_articles[identity] = article
             self.pending_articles.move_to_end(identity)
         if len(self.pending_articles) > MAX_PENDING_ARTICLES:
-            self.pending_articles.popitem(last=False)
+            lost, _ = self.pending_articles.popitem(last=False)
+            self.known.pop(lost, None)
+            self.fingerprints.pop(lost[0], None)
             self.dropped += 1
         self._remember(identity)
 
@@ -218,9 +226,19 @@ class Journal:
             feed_id = ident(feed_id)
             if self.closed or feed_id is None:
                 return False
+            window = list(islice(entries, RETENTION['per_feed']))
+            keys = tuple(article_key(entry) for entry in window)
+            if self.fingerprints.get(feed_id) == keys:
+                return True  # Same latest entries as last time: nothing to parse or write.
+            self.fingerprints[feed_id] = keys
+            self.fingerprints.move_to_end(feed_id)
+            while len(self.fingerprints) > RETENTION['max_entries']:
+                self.fingerprints.popitem(last=False)
             at = datetime.now(timezone.utc).isoformat()
             observed = time.time_ns()
-            for index, entry in enumerate(islice(entries, RETENTION['per_feed'])):
+            for index, (entry, key) in enumerate(zip(window, keys)):
+                if key is None or (feed_id, key) in self.known:
+                    continue  # Already stored; only newly seen entries are parsed and written.
                 article = _article(feed_id, entry, observed=observed - index, at=at)
                 if article:
                     self._queue_article(article)
@@ -313,10 +331,12 @@ class Journal:
                 self.degraded = False
             except asyncio.CancelledError:
                 self.dropped += len(articles) + len(deliveries)
+                self._forget()
                 raise
             except Exception:
                 self.degraded = True
                 self.dropped += len(articles) + len(deliveries)
+                self._forget()
                 LOGGER.warning('Recent article cache storage failed; recent delivery evidence may be incomplete')
 
     async def history(self, feed_id, target_id):

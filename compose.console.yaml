@@ -1,7 +1,9 @@
+# Prebuilt image from GitHub Actions; no build on the server.
+# Pin a version for production, e.g. RSSTT_WEB_IMAGE=ghcr.io/jaaayden/rsstt-web:sha-abc1234
+# To build locally instead: docker build -t rsstt-web:local . && RSSTT_WEB_IMAGE=rsstt-web:local
 services:
   rsstt:
-    build: .
-    image: rsstt-web:local
+    image: ${RSSTT_WEB_IMAGE:-ghcr.io/jaaayden/rsstt-web:latest}
     restart: unless-stopped
     environment:
       TOKEN: ${TOKEN:?Set the Telegram bot TOKEN}

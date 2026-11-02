@@ -1,9 +1,8 @@
 # Online acceptance with a separate bot and a new, project-scoped data volume.
-# Run with: docker compose -p rsstt-web-test --env-file .env.testing -f compose.testing.yaml up -d --build
+# Run with: docker compose -p rsstt-web-test --env-file .env.testing -f compose.testing.yaml up -d
 services:
   rsstt-test:
-    build: .
-    image: rsstt-web:testing
+    image: ${TEST_IMAGE:-ghcr.io/jaaayden/rsstt-web:latest}
     restart: unless-stopped
     environment:
       TOKEN: ${TEST_BOT_TOKEN:?Set a separate Telegram test bot token}

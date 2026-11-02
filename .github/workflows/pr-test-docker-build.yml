@@ -102,8 +102,12 @@ jobs:
       - name: Offline 1 CPU / 512 MiB resource probe
         if: steps.resource.outputs.available == 'true'
         env:
-          RESOURCE_STABLE_ROUNDS: ${{ inputs.stable_rounds || '60' }}
-        run: python scripts/ci_resource_probe.py --stable-rounds "$RESOURCE_STABLE_ROUNDS"
+          # Quick 20-round probe on pull requests; the full 60-round probe on main and manual runs.
+          RESOURCE_STABLE_ROUNDS: ${{ github.event_name == 'pull_request' && '20' || inputs.stable_rounds || '60' }}
+          RESOURCE_CHURN_ROUNDS: ${{ github.event_name == 'pull_request' && '20' || '60' }}
+        run: >-
+          python scripts/ci_resource_probe.py
+          --stable-rounds "$RESOURCE_STABLE_ROUNDS" --churn-rounds "$RESOURCE_CHURN_ROUNDS"
       - name: Upload resource evidence (including failed runs)
         if: always() && steps.resource.outputs.available == 'true'
         uses: actions/upload-artifact@v6

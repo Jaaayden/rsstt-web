@@ -1,8 +1,12 @@
 """Authenticated, same-origin API and dependency-free static web application."""
 import asyncio
+import gzip
 import json
 import logging
 import os
+import secrets
+import signal
+import re
 import time
 from datetime import datetime
 from pathlib import Path
@@ -22,6 +26,7 @@ from .agent_contract import authorize_agent, openapi
 LOGGER = logging.getLogger('RSStT.management')
 STATIC = Path(__file__).parent / 'static'
 SAFE = {'GET', 'HEAD', 'OPTIONS'}
+ASSET = re.compile(r'[a-z0-9-]+\.(?:js|css|svg|png)')
 NOTIFICATIONS_KEY = web.AppKey('notifications', notifications.Notifications)
 
 
@@ -51,6 +56,7 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
         raise ValueError('Snapshot preview requires local offline demo mode')
     # Cookies are shared across ports; keep parallel local previews independent.
     cookie_name = f'rsstt_session_{parsed.port}' if demo else 'rsstt_session'
+    boot = secrets.token_hex(6)  # changes on every start; lets the page notice a restart
     service = Service(store, gateway, demo)
     await diagnostics.observe_restore(store)
     from . import chat_audit
@@ -58,10 +64,60 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
     from ..runtime_config import RuntimeConfig, ConfigError
     runtime = RuntimeConfig(store.path.parent,
                             applied=getattr(env, 'RUNTIME_CONFIG_OVERRIDES', {}),
-                            environment=getattr(env, 'RUNTIME_CONFIG_ENVIRONMENT', {}))
+                            environment=getattr(env, 'RUNTIME_CONFIG_ENVIRONMENT', {}),
+                            deployment=getattr(env, 'RUNTIME_CONFIG_DEPLOYMENT', {}))
+
+    def running_values():
+        """What this process actually uses right now (secrets only as set / count)."""
+        current = {}
+        for key in ('MULTIUSER', 'VERIFY_TLS', 'PROXY_BYPASS_PRIVATE', 'IPV6_PRIOR', 'TABLE_TO_IMAGE',
+                    'TRAFFIC_SAVING', 'LAZY_MEDIA_VALIDATION', 'CRON_SECOND', 'HTTP_TIMEOUT', 'HTTP_CONCURRENCY',
+                    'HTTP_CONCURRENCY_PER_HOST', 'HTTP_MAX_LINE_SIZE', 'HTTP_MAX_FIELD_SIZE', 'USER_AGENT',
+                    'IMG_RELAY_SERVER', 'IMAGES_WESERV_NL', 'API_ID', 'ERROR_LOGGING_CHAT'):
+            if hasattr(env, key):
+                value = getattr(env, key)
+                current[key] = str(value) if key == 'ERROR_LOGGING_CHAT' and value is not None else value
+        current['PROXY_BYPASS_DOMAINS'] = ' '.join(getattr(env, 'PROXY_BYPASS_DOMAINS', []) or []) or None
+        current['TELEGRAPH_TOKEN'] = len(getattr(env, 'TELEGRAPH_TOKEN', []) or [])
+        current['TOKEN'] = bool(getattr(env, 'TOKEN', None))
+        current['API_HASH'] = bool(getattr(env, 'API_HASH', None))
+        current['T_PROXY'] = bool(getattr(env, 'TELEGRAM_PROXY', None))
+        current['R_PROXY'] = bool(getattr(env, 'R_PROXY', None))
+        for key in ('SOCKS_PROXY', 'HTTP_PROXY', 'HTTPS_PROXY'):
+            current[key] = bool(getattr(env, 'RUNTIME_CONFIG_ENVIRONMENT', {}).get(key))
+        return current
+
+    def describe_runtime():
+        result = runtime.describe()
+        current = running_values()
+        for row in result['items']:
+            if row['key'] in current:
+                row['current'] = current[row['key']]
+            row['current_source'] = ('web' if row['key'] in runtime.applied else
+                                     'deployment' if row['deployment_set'] else 'default')
+        return result
     auth = await Auth.load(store, password, "preview-admin" if demo else "admin")
     # Re-authenticate after restart/password rotation; integration tokens persist.
     await revoke_browser_sessions(store)
+
+    def same_origin(request):
+        """Accept the configured origin, or the origin the browser actually used for this host.
+
+        Opening the console via localhost, an IP or a second domain used to make
+        sign-in fail. Cookies are SameSite=Strict, so matching the Host header
+        is still a sound CSRF check.
+        """
+        sent = request.headers.get('Origin')
+        if not sent:
+            return False
+        if sent.rstrip('/') == origin:
+            return True
+        try:
+            parts = urlsplit(sent)
+        except ValueError:
+            return False
+        forwarded = request.headers.get('X-Forwarded-Host', '').split(',')[0].strip()
+        return parts.scheme in ('http', 'https') and parts.netloc in {request.host, forwarded} - {''}
 
     @web.middleware
     async def boundary(request, handler):
@@ -79,10 +135,10 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
                     if request.method not in SAFE:
                         if principal['permission'] == 'read':
                             raise Problem('这个连接授权只有读取权限。', 403)
-                        if not bearer and request.headers.get('Origin') != origin:
+                        if not bearer and not same_origin(request):
                             raise Problem('请求来源不匹配，请通过配置的管理台地址访问。', 403)
-                elif request.path == '/api/login' and request.headers.get('Origin') != origin:
-                    raise Problem('登录来源与 WEB_ORIGIN 不匹配。', 403)
+                elif request.path == '/api/login' and not same_origin(request):
+                    raise Problem('登录请求来源与当前访问地址不一致，请直接打开管理台地址后重试。', 403)
             from .web_audit import trace
             async with trace(request, service, store):
                 response = await handler(request)
@@ -100,8 +156,10 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
             response = web.json_response({'error': '操作未完成，请查看服务日志后重试。', 'code': 'INTERNAL_ERROR'}, status=500)
         if request.get('principal', {}).get('kind') == 'token':
             await store.audit(request['principal']['id'], 'agent_request', f"{request.method} {request.match_info.route.resource.canonical if request.match_info.route.resource else '/unknown'} {response.status}")
+        if not request.path.startswith('/assets/'):
+            response.headers['Cache-Control'] = 'no-store'
         response.headers.update({
-            'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
+            'X-Content-Type-Options': 'nosniff',
             'Referrer-Policy': 'no-referrer', 'X-Frame-Options': 'DENY',
             'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
         })
@@ -123,7 +181,7 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
             'manual_fetch': '/api/subscriptions/{id}/fetch-now',
             'articles': '/api/subscriptions/{id}/articles',
         }.items()}
-        return web.json_response({'demo': demo, 'snapshot': snapshot, 'features': features})
+        return web.json_response({'demo': demo, 'snapshot': snapshot, 'features': features, 'boot': boot})
 
     @routes.post('/api/login')
     async def login(request):
@@ -141,7 +199,7 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
         await store.audit(auth.username, 'login', 'success')
         store.diagnostics.emit('system', 'info', 'auth.signed_in', '管理员已登录网页管理台。')
         response = web.json_response({'ok': True})
-        response.set_cookie(cookie_name, secret, httponly=True, secure=parsed.scheme == 'https', samesite='Strict', max_age=28800, path='/')
+        response.set_cookie(cookie_name, secret, httponly=True, secure=parsed.scheme == 'https' or request.secure or request.headers.get('X-Forwarded-Proto') == 'https', samesite='Strict', max_age=28800, path='/')
         return response
 
     @routes.get('/api/session')
@@ -216,8 +274,19 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
             'bot': service.gateway.status(), 'uptime_seconds': round((datetime.now(service.started.tzinfo) - service.started).total_seconds()),
             'threshold': threshold, 'metrics_error': metrics.last_error,
             'activity': await store.rows('SELECT * FROM activity ORDER BY id DESC LIMIT 8'),
-            'attention': (await service.subscriptions(request['principal'], {'attention': '1', 'size': '5'}))['items'],
+            'attention': await service.sub_data(
+                await (await service.sub_query(request['principal'], {})).filter(state=1, feed__error_count__gte=threshold)
+                .select_related('feed', 'user').order_by('-feed__error_count', 'feed_id').limit(30)),
         })
+
+    @routes.get('/api/status')
+    async def status(request):
+        admin(request)
+        threshold = await service.threshold()
+        attention = await (await service.sub_query(request['principal'], {})).filter(
+            state=1, feed__error_count__gte=threshold).count()
+        return web.json_response({'bot': service.gateway.status(), 'attention': attention,
+                                  'uptime_seconds': round((datetime.now(service.started.tzinfo) - service.started).total_seconds())})
 
     @routes.get('/api/statistics')
     async def statistics_window(request):
@@ -327,6 +396,11 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
         await store.audit(request['principal']['name'], '添加订阅', f"{values['target']} · {sum(r['status']=='created' for r in result['results'])} 个新增")
         return web.json_response(result)
 
+    @routes.get('/api/subscriptions/{id:\\d+}')
+    async def subscription_detail(request):
+        sub = await service.subscription(request.match_info['id'], request['principal'])
+        return web.json_response((await service.sub_data([sub]))[0])
+
     @routes.patch('/api/subscriptions/{id}')
     async def patch_subscription(request):
         values = await body(request)
@@ -379,7 +453,23 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
         admin(request)
         return web.json_response({'options': db.EffectiveOptions.options, 'console': await store.settings(),
                                   'bot': service.gateway.status(), 'origin': origin, 'demo': demo,
-                                  'database': env.DATABASE_URL.split(':', 1)[0], 'version': env.VERSION})
+                                  'database': env.DATABASE_URL.split(':', 1)[0], 'version': env.VERSION,
+                                  'restart': {'supported': not demo, 'container': in_container()}})
+
+    @routes.post('/api/system/restart')
+    async def restart(request):
+        """Graceful exit, exactly like `docker restart`; the container's restart policy starts it again."""
+        admin(request)
+        values = await body(request)
+        if values != {'confirm': True}:
+            raise Problem('请确认重启。')
+        if demo:
+            raise Problem('演示和离线实例不能从网页重启。', 409, code='RESTART_UNAVAILABLE')
+        await store.audit(request['principal']['name'], '重启机器人', 'web')
+        await store.diagnostics.record('system', 'warning', 'system.restart_requested', '管理员从网页重启了机器人。',
+                                       context={'stage': 'restart'})
+        asyncio.get_running_loop().call_later(1.0, request_restart)
+        return web.json_response({'ok': True, 'container': in_container()}, status=202)
 
     @routes.patch('/api/settings')
     async def patch_settings(request):
@@ -414,7 +504,7 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
     async def runtime_config(request):
         admin(request)
         try:
-            return web.json_response(runtime.describe())
+            return web.json_response(describe_runtime())
         except ConfigError as error:
             store.diagnostics.emit('system', 'error', 'runtime_config.read_failed', '无法读取运行配置，请检查配置文件。',
                                    detail=str(error), context={'stage': 'configuration', 'exception_type': type(error).__name__})
@@ -428,7 +518,8 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
             raise Problem('没有可保存的运行配置。')
         async with service.mutation:
             try:
-                result = runtime.save(values)
+                runtime.save(values)
+                result = describe_runtime()
             except ConfigError as error:
                 store.diagnostics.emit('system', 'warning', 'runtime_config.rejected', '运行配置未保存，请检查配置项。',
                                        detail=str(error), context={'stage': 'configuration', 'exception_type': type(error).__name__})
@@ -437,6 +528,28 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
         store.diagnostics.emit('system', 'info', 'runtime_config.saved', '运行配置已保存，等待重启生效。',
                                context={'stage': 'configuration'})
         return web.json_response(result)
+
+    @routes.post('/api/runtime-config/telegraph-tokens')
+    async def telegraph_tokens(request):
+        """Create Telegraph accounts (no sign-in needed) and save their tokens; applies on restart."""
+        admin(request)
+        values = await body(request)
+        count = integer(values.get('count', 5), '数量', 1, 10)
+        if demo:
+            raise Problem('演示和离线实例不连接外网，无法自动获取 Telegraph Token。', 409, code='OFFLINE')
+        tokens = await create_telegraph_tokens(count)
+        from ..runtime_config import ConfigError as _ConfigError
+        existing = runtime._read().get('TELEGRAPH_TOKEN') or ' '.join(getattr(env, 'TELEGRAPH_TOKEN', []) or [])
+        merged = list(dict.fromkeys([*existing.split(), *tokens]))[:50]
+        async with service.mutation:
+            try:
+                runtime.save({'TELEGRAPH_TOKEN': ' '.join(merged)})
+            except _ConfigError as error:
+                raise Problem(str(error)) from None
+        await store.audit(request['principal']['name'], '自动获取 Telegraph Token（待重启）', f'{len(tokens)} 个')
+        store.diagnostics.emit('system', 'info', 'runtime_config.saved', '运行配置已保存，等待重启生效。',
+                               context={'stage': 'configuration'})
+        return web.json_response({'added': len(tokens), 'total': len(merged), **describe_runtime()})
 
     @routes.get('/api/tokens')
     async def tokens(request):
@@ -481,16 +594,33 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
     async def index(request):
         return web.FileResponse(STATIC / 'index.html')
 
+    asset_cache = {}
+
     @routes.get('/assets/{name}')
     async def assets(request):
         name = request.match_info['name']
-        if name not in ('app.js', 'app.css', 'mark.svg', 'i18n.js', 'messages.js', 'error-messages.js'):
+        path = STATIC / name
+        if not ASSET.fullmatch(name) or not path.is_file():
             raise web.HTTPNotFound()
-        return web.FileResponse(STATIC / name)
+        stat = path.stat()
+        key = (name, stat.st_mtime_ns, stat.st_size)
+        cached = asset_cache.get(name)
+        if not cached or cached[0] != key:
+            raw = path.read_bytes()
+            cached = asset_cache[name] = (key, raw, gzip.compress(raw, 9), f'"{stat.st_mtime_ns:x}-{stat.st_size:x}"')
+        _, raw, packed, etag = cached
+        headers = {'ETag': etag, 'Cache-Control': 'no-cache', 'Vary': 'Accept-Encoding'}
+        if request.headers.get('If-None-Match') == etag:
+            return web.Response(status=304, headers=headers)
+        content_type = {'.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png'}[path.suffix]
+        if 'gzip' in request.headers.get('Accept-Encoding', '') and path.suffix != '.png':
+            return web.Response(body=packed, content_type=content_type, charset=None if path.suffix == '.png' else 'utf-8',
+                                headers={**headers, 'Content-Encoding': 'gzip'})
+        return web.Response(body=raw, content_type=content_type, charset=None if path.suffix == '.png' else 'utf-8', headers=headers)
 
     from .backup_api import install as install_backups
     install_backups(routes, service, env.DATABASE_URL, admin, body)
-    notifier = await notifications.Notifications(store, offline=demo or bool(snapshot)).open()
+    notifier = await notifications.Notifications(store, offline=demo or bool(snapshot), origin=origin).open()
 
     async def notification_start(app):
         notifier.start()
@@ -536,6 +666,46 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
     app.on_cleanup.append(close_manual_fetch)
     app.add_routes(routes)
     return app
+
+
+def in_container():
+    return Path('/.dockerenv').exists() or Path('/run/.containerenv').exists() or bool(os.environ.get('container'))
+
+
+def request_restart():
+    """Same graceful shutdown path as SIGTERM from `docker restart` / `docker stop`."""
+    LOGGER.warning('Restart requested from the web console')
+    os.kill(os.getpid(), signal.SIGTERM)
+
+
+async def create_telegraph_tokens(count):
+    """Telegraph's createAccount needs no credentials; each call returns one access token."""
+    import aiohttp
+    connector = None
+    proxy = getattr(env, 'TELEGRAM_PROXY', None)
+    if proxy:
+        from aiohttp_socks import ProxyConnector
+        connector = ProxyConnector.from_url(proxy.replace('socks5h', 'socks5'), rdns=True)
+    params = {'short_name': 'RSStT', 'author_name': 'Generated by RSStT',
+              'author_url': 'https://github.com/Rongronggg9/RSS-to-Telegram-Bot'}
+    tokens = []
+    try:
+        async with aiohttp.ClientSession(connector=connector, trust_env=False,
+                                         timeout=aiohttp.ClientTimeout(total=15)) as client:
+            for _ in range(count):
+                async with client.get('https://api.telegra.ph/createAccount', params=params) as response:
+                    data = await response.json(content_type=None)
+                token = (data.get('result') or {}).get('access_token') if isinstance(data, dict) else None
+                if not data.get('ok') or not isinstance(token, str) or not re.fullmatch(r'[0-9a-f]{20,128}', token):
+                    raise ValueError('unexpected Telegraph response')
+                tokens.append(token)
+    except Exception as error:
+        if tokens:
+            return tokens
+        LOGGER.warning('Telegraph token creation failed: %s', type(error).__name__)
+        raise Problem('无法连接 Telegraph（api.telegra.ph）。请检查服务器网络或 Telegram 代理设置后重试。', 502,
+                      code='TELEGRAPH_UNREACHABLE') from None
+    return tokens
 
 
 _runner = None
