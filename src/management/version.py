@@ -1,13 +1,23 @@
 """RSStT Web's own release version.
 
-The bot core keeps reporting the upstream RSS-to-Telegram-Bot version (env.VERSION);
-the console and logs show this one. Release tags must be web-v<WEB_VERSION>
+The console and logs show this version plus the upstream RSS-to-Telegram-Bot
+release it is based on (core()). Release tags must be web-v<WEB_VERSION>
 (checked by the publish workflow).
 """
 import re
 from pathlib import Path
 
-WEB_VERSION = '1.0.1'
+WEB_VERSION = '1.0.2'
+
+
+def core():
+    """The upstream RSS-to-Telegram-Bot release this build is based on.
+
+    env.VERSION is not used: upstream's parser returns the raw build string for
+    some commits and falls back to the package version for others.
+    """
+    from ..version import __version__
+    return f'v{__version__}'
 
 
 def build():
