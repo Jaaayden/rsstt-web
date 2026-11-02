@@ -51,7 +51,7 @@ test("every page renders", async ({ page }) => {
         await expect(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
     }
     await page.getByRole("radio", { name: "7 天" }).click();
-    await expect(page.locator(".chart svg")).toBeVisible();
+    await expect(page.locator(".chart-plot .bar").first()).toBeVisible();
 });
 
 test("blocking asks first and cancelling keeps the role", async ({ page }) => {

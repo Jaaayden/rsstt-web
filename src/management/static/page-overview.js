@@ -1,4 +1,4 @@
-import { html, useState, useAsync, useRef, Icon, Button, Segmented, Spinner, Empty, Notice, Badge } from "./ui.js";
+import { html, useState, useEffect, useAsync, useRef, Icon, Button, Segmented, Spinner, Empty, Notice, Badge } from "./ui.js";
 import { L, api, qs, num, compact, ago, dateTime, go, app, emit, locale } from "./core.js";
 
 const RANGES = {
@@ -18,104 +18,167 @@ function windowQuery(range) {
     return { granularity: "hour", start: iso(start), end: iso(end) };
 }
 
+const HOUR_GROUPS = [1, 2, 3, 4, 6, 8, 12, 24];
+const DAY_GROUPS = [1, 2, 3, 5, 6, 10, 15];
+const GROUP_PX = 22;
+
+// Merge neighbouring buckets so every column keeps room for its three bars on narrow screens.
+function groupBuckets(buckets, granularity, width) {
+    const n = buckets.length;
+    const sizes = granularity === "hour" ? HOUR_GROUPS : DAY_GROUPS;
+    const size = sizes.find((s) => n % s === 0 && width / (n / s) >= GROUP_PX) ?? [...sizes].reverse().find((s) => n % s === 0) ?? 1;
+    const groups = [];
+    for (let i = 0; i < n; i += size) {
+        const part = buckets.slice(i, i + size);
+        const known = part.filter((b) => b.availability !== "unavailable" && b.delivered != null);
+        const sum = (key) => known.reduce((total, b) => total + (b[key] || 0), 0);
+        groups.push({
+            start: part[0].start,
+            last: part[part.length - 1].start,
+            end: part[part.length - 1].end,
+            unavailable: !known.length,
+            partial: known.length > 0 && (known.length < part.length || known.some((b) => b.availability === "partial")),
+            delivered: sum("delivered"),
+            fetched: sum("fetched"),
+            failed: sum("failed"),
+        });
+    }
+    return { groups, size };
+}
+
+// 0, half and full scale on round numbers: 4, 6, 8, 10, 20, 40, 60 ...
+function niceCeiling(max) {
+    const magnitude = Math.pow(10, Math.floor(Math.log10(Math.max(1, max))));
+    for (const step of [2, 4, 6, 8, 10]) if (step * magnitude >= max && step * magnitude >= 4) return step * magnitude;
+    return 10 * magnitude;
+}
+
+const SERIES = [
+    ["delivered", () => L("成功推送", "Delivered"), "var(--blue)"],
+    ["fetched", () => L("新文章", "New entries"), "var(--accent)"],
+    ["failed", () => L("抓取失败", "Fetch failures"), "var(--red)"],
+];
+
 function Trend({ buckets, granularity }) {
     const [hover, setHover] = useState(null);
-    const box = useRef();
-    const W = 1000,
-        H = 200,
-        top = 10,
-        bottom = 22,
-        left = 0;
-    const max = Math.max(4, ...buckets.map((b) => Math.max(b.delivered || 0, b.fetched || 0)));
-    const nice = Math.pow(10, Math.floor(Math.log10(max)));
-    const ceiling = Math.ceil(max / nice) * nice;
-    const n = buckets.length;
-    const step = (W - left) / n;
-    const y = (v) => top + (H - top - bottom) * (1 - v / ceiling);
-    const fmt = new Intl.DateTimeFormat(
+    const [width, setWidth] = useState(640);
+    const plot = useRef();
+    useEffect(() => {
+        const node = plot.current;
+        if (!node || typeof ResizeObserver === "undefined") return;
+        const observer = new ResizeObserver((entries) => setWidth(entries[0].contentRect.width));
+        observer.observe(node);
+        return () => observer.disconnect();
+    }, []);
+    useEffect(() => setHover(null), [buckets]);
+    const { groups, size } = groupBuckets(buckets, granularity, width);
+    const n = groups.length;
+    const ceiling = niceCeiling(Math.max(0, ...groups.map((g) => Math.max(g.delivered, g.fetched, g.failed))));
+    const hourly = granularity === "hour";
+    const spansDays = hourly && buckets.length > 24;
+    const zone = hourly ? {} : { timeZone: "UTC" };
+    const axis = new Intl.DateTimeFormat(
         locale(),
-        granularity === "hour" ? { hour: "2-digit", minute: "2-digit", hour12: false } : { month: "numeric", day: "numeric" },
+        hourly
+            ? spansDays
+                ? { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }
+                : { hour: "2-digit", minute: "2-digit", hour12: false }
+            : { ...zone, month: "numeric", day: "numeric" },
     );
     const full = new Intl.DateTimeFormat(
         locale(),
-        granularity === "hour"
+        hourly
             ? { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }
-            : { year: "numeric", month: "short", day: "numeric" },
+            : { ...zone, year: "numeric", month: "short", day: "numeric" },
     );
-    const labelEvery = Math.ceil(n / 8);
-    const points = buckets
-        .map((b, i) => (b.availability === "unavailable" || b.fetched == null ? null : `${left + step * i + step / 2},${y(b.fetched)}`))
-        .filter(Boolean)
-        .join(" ");
-    function move(e) {
-        const rect = box.current.getBoundingClientRect();
-        const index = Math.min(n - 1, Math.max(0, Math.floor(((e.clientX - rect.left) / rect.width) * n)));
-        setHover(index);
-    }
-    const hb = hover != null ? buckets[hover] : null;
-    return html`<div class="chart" ref=${box} onMouseMove=${move} onMouseLeave=${() => setHover(null)}>
-        <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label=${L("推送趋势图", "Delivery trend chart")}>
-            ${[0, 0.5, 1].map(
-                (f) =>
-                    html`<line
-                        class="grid-line"
-                        x1="0"
-                        x2=${W}
-                        y1=${y(ceiling * f)}
-                        y2=${y(ceiling * f)}
-                        vector-effect="non-scaling-stroke"
-                    />`,
-            )}
-            ${hover != null
-                ? html`<rect class="hover-col" x=${left + step * hover} y=${top} width=${step} height=${H - top - bottom} />`
+    const clock = new Intl.DateTimeFormat(locale(), { hour: "2-digit", minute: "2-digit", hour12: false });
+    const labelEvery = Math.max(1, Math.ceil(n / Math.max(1, Math.floor(width / (spansDays ? 84 : hourly ? 56 : 48)))));
+    const pick = (event) => {
+        const rect = plot.current.getBoundingClientRect();
+        return Math.min(n - 1, Math.max(0, Math.floor(((event.clientX - rect.left) / rect.width) * n)));
+    };
+    const onKey = (event) => {
+        const move = { ArrowLeft: -1, ArrowRight: 1 }[event.key];
+        if (event.key === "Escape") return setHover(null);
+        if (event.key === "Home" || event.key === "End") setHover(event.key === "Home" ? 0 : n - 1);
+        else if (move) setHover(Math.min(n - 1, Math.max(0, (hover ?? (move > 0 ? -1 : n)) + move)));
+        else return;
+        event.preventDefault();
+    };
+    const g = hover != null ? groups[hover] : null;
+    const span = (group) =>
+        size === 1
+            ? full.format(new Date(group.start))
+            : hourly
+              ? `${full.format(new Date(group.start))} – ${clock.format(new Date(group.end))}`
+              : `${full.format(new Date(group.start))} – ${full.format(new Date(group.last))}`;
+    const percent = (v) => (v / ceiling) * 100;
+    return html`<div class="chart">
+        <div class="chart-y" aria-hidden="true">
+            ${[0, 0.5, 1].map((f) => html`<span style=${`bottom:${f * 100}%`}>${num(ceiling * f)}</span>`)}
+        </div>
+        <div
+            class="chart-plot"
+            ref=${plot}
+            tabindex="0"
+            role="img"
+            aria-label=${L("推送趋势图", "Delivery trend chart")}
+            onPointerMove=${(e) => e.pointerType === "mouse" && setHover(pick(e))}
+            onPointerDown=${(e) => e.pointerType !== "mouse" && setHover((cur) => (cur === pick(e) ? null : pick(e)))}
+            onPointerLeave=${(e) => e.pointerType === "mouse" && setHover(null)}
+            onKeyDown=${onKey}
+            onBlur=${() => setHover(null)}
+        >
+            ${[0, 0.5, 1].map((f) => html`<i class="grid-line" style=${`bottom:${f * 100}%`}></i>`)}
+            <div class="chart-cols" style=${`grid-template-columns:repeat(${n},minmax(0,1fr))`}>
+                ${groups.map(
+                    (group, i) => html`<div class="chart-col ${hover === i ? "on" : ""}">
+                        ${group.unavailable
+                            ? html`<i class="bar gap"></i>`
+                            : SERIES.map(
+                                  ([key, , color]) =>
+                                      html`<i
+                                          class="bar"
+                                          style=${`height:${group[key] ? `max(3px,${percent(group[key])}%)` : "0"};background:${color}`}
+                                      ></i>`,
+                              )}
+                    </div>`,
+                )}
+            </div>
+            ${g
+                ? html`<div class="chart-tip" style=${`left:${Math.min(86, Math.max(14, ((hover + 0.5) / n) * 100))}%`}>
+                      <b>${span(g)}</b>
+                      ${g.unavailable
+                          ? L("这段时间没有记录", "No data recorded for this period")
+                          : html`<div class="legend" style="display:grid;gap:3px">
+                                ${SERIES.filter(([key]) => key !== "failed" || g.failed).map(
+                                    ([key, label, color]) =>
+                                        html`<span><i style=${`background:${color}`}></i>${label()} <b>${num(g[key])}</b></span>`,
+                                )}
+                                ${g.partial ? html`<span class="muted">${L("本时段记录不完整", "Partial period")}</span>` : null}
+                            </div>`}
+                  </div>`
                 : null}
-            ${buckets.map((b, i) => {
-                const gap = b.availability === "unavailable" || b.delivered == null;
-                const v = gap ? 0 : b.delivered;
-                const h = gap ? 3 : Math.max(v ? 2 : 0, H - bottom - y(v));
-                return html`<rect
-                    class="bar ${gap ? "gap" : ""}"
-                    x=${left + step * i + step * 0.18}
-                    width=${step * 0.64}
-                    y=${H - bottom - h}
-                    height=${h}
-                    rx="1.5"
-                />`;
-            })}
-            ${points ? html`<polyline class="line" points=${points} vector-effect="non-scaling-stroke" />` : null}
-        </svg>
-        <div style="position:absolute;left:0;right:0;bottom:0;display:flex;justify-content:space-between" class="axis-labels">
-            ${buckets.map((b, i) =>
+        </div>
+        <div class="chart-x" aria-hidden="true">
+            ${groups.map((group, i) =>
                 i % labelEvery === 0
-                    ? html`<span
-                          class="muted"
-                          style=${`position:absolute;left:${((i + 0.5) / n) * 100}%;transform:translateX(-50%);font-size:11px`}
-                          >${fmt.format(new Date(b.start))}</span
-                      >`
+                    ? html`<span style=${`left:${((i + 0.5) / n) * 100}%`}>${axis.format(new Date(group.start))}</span>`
                     : null,
             )}
         </div>
-        <span class="muted" style="position:absolute;top:-4px;right:0;font-size:11px">${num(ceiling)}</span>
-        ${hb
-            ? html`<div class="chart-tip" style=${`left:${Math.min(88, Math.max(12, ((hover + 0.5) / n) * 100))}%`}>
-                  <b>${full.format(new Date(hb.start))}</b>
-                  ${hb.availability === "unavailable"
-                      ? L("这段时间没有记录", "No data recorded for this period")
-                      : html`<div class="legend" style="display:grid;gap:3px">
-                            <span><i style="background:var(--blue)"></i>${L("成功推送", "Delivered")} <b>${num(hb.delivered)}</b></span>
-                            <span><i style="background:var(--accent)"></i>${L("新文章", "New entries")} <b>${num(hb.fetched)}</b></span>
-                            ${hb.failed
-                                ? html`<span
-                                      ><i style="background:var(--red)"></i>${L("抓取失败", "Fetch failures")}
-                                      <b>${num(hb.failed)}</b></span
-                                  >`
-                                : null}
-                            ${hb.availability === "partial"
-                                ? html`<span class="muted">${L("本时段记录不完整", "Partial period")}</span>`
-                                : null}
-                        </div>`}
+        ${size > 1
+            ? html`<div class="chart-note muted">
+                  ${hourly
+                      ? L(`每 ${size} 小时合并为一列`, `Every ${size} hours are combined into one column`)
+                      : L(`每 ${size} 天合并为一列`, `Every ${size} days are combined into one column`)}
               </div>`
             : null}
+        <span class="visually-hidden" aria-live="polite"
+            >${g && !g.unavailable
+                ? `${span(g)}: ${SERIES.map(([key, label]) => `${label()} ${g[key]}`).join(", ")}`
+                : ""}</span
+        >
     </div>`;
 }
 

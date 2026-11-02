@@ -537,40 +537,97 @@ a.kpi:hover {
 /* chart */
 .chart {
     position: relative;
-    height: 220px;
+    padding: 6px 0 30px 38px;
 }
-.chart svg {
-    display: block;
-    width: 100%;
-    height: 100%;
-    overflow: visible;
+.chart-plot {
+    position: relative;
+    height: 176px;
+    border-radius: 6px;
+    outline-offset: 4px;
+    touch-action: pan-y;
+}
+.chart-y {
+    position: absolute;
+    left: 0;
+    top: 6px;
+    width: 32px;
+    height: 176px;
+    pointer-events: none;
+}
+.chart-y span {
+    position: absolute;
+    right: 0;
+    transform: translateY(50%);
+    color: var(--text-3);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
 }
 .chart .grid-line {
-    stroke: var(--line);
-    stroke-dasharray: 2 4;
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 0;
+    border-top: 1px dashed var(--line);
 }
-.chart .axis {
-    fill: var(--text-3);
-    font-size: 11px;
-    font-family: var(--font);
+.chart .grid-line:first-of-type {
+    border-top: 1px solid var(--line);
+}
+.chart-cols {
+    position: absolute;
+    inset: 0;
+    display: grid;
+}
+.chart-col {
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    gap: 2px;
+    padding: 0 12%;
+    border-radius: 6px 6px 0 0;
+}
+.chart-col.on {
+    background: color-mix(in srgb, var(--text) 5%, transparent);
 }
 .chart .bar {
-    fill: var(--blue);
-    opacity: 0.85;
+    display: block;
+    flex: 1 1 0;
+    max-width: 12px;
+    border-radius: 4px 4px 0 0;
 }
 .chart .bar.gap {
-    fill: var(--surface-3);
-    opacity: 1;
+    flex: 1 1 auto;
+    max-width: none;
+    height: 3px;
+    background: var(--surface-3);
 }
-.chart .line {
-    fill: none;
-    stroke: var(--accent);
-    stroke-width: 2;
-    stroke-linejoin: round;
+.chart-x {
+    position: absolute;
+    left: 38px;
+    right: 0;
+    bottom: 6px;
+    height: 16px;
 }
-.chart .hover-col {
-    fill: var(--text);
-    opacity: 0.04;
+.chart-x span {
+    position: absolute;
+    transform: translateX(-50%);
+    color: var(--text-3);
+    font-size: 11px;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+.chart-note {
+    position: absolute;
+    right: 0;
+    bottom: -14px;
+    font-size: 11px;
+}
+.visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
 }
 .chart-tip {
     position: absolute;
@@ -592,7 +649,8 @@ a.kpi:hover {
 }
 .chart-sum {
     display: flex;
-    gap: 22px;
+    flex-wrap: wrap;
+    gap: 8px 28px;
     margin-bottom: 14px;
 }
 .chart-sum div small {
@@ -2259,8 +2317,9 @@ button.list-row:hover {
     .drawer-foot {
         padding: 12px 16px;
     }
-    .chart {
-        height: 180px;
+    .chart-plot,
+    .chart-y {
+        height: 150px;
     }
 }
 @media (prefers-reduced-motion: reduce) {
