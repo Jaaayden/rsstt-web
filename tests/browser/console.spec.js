@@ -209,6 +209,30 @@ test("fetch runs: every check is listed with time, duration and counts", async (
     await expect(page.locator(".run .badge-red").first()).toBeVisible();
 });
 
+test("runtime settings: grouped, searchable, descriptions in a popover", async ({ page }) => {
+    await signIn(page, "/#settings?section=runtime");
+    const groups = page.locator(".rt-group");
+    await expect(groups.first()).toBeVisible();
+    expect(await groups.count()).toBeGreaterThan(3);
+    await expect(page.locator(".rt-row").first()).toBeVisible();
+    // Only the first group is open; the explanation is hidden until asked for.
+    const open = await page.locator(".rt-group-head[aria-expanded=true]").count();
+    expect(open).toBe(1);
+    await expect(page.locator(".hint-pop")).toHaveCount(0);
+    await page.locator(".hint-btn").first().click();
+    await expect(page.locator(".hint-pop")).toContainText("Token");
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".hint-pop")).toHaveCount(0);
+    // Searching opens every group that has a match.
+    await page.locator("input[type=search]").fill("HTTP_TIMEOUT");
+    await expect(page.locator(".rt-row")).toHaveCount(1);
+    await page.locator("input[type=search]").fill("");
+    await page.getByRole("button", { name: "全部展开" }).click();
+    await expect.poll(() => page.locator(".rt-row").count()).toBeGreaterThan(10);
+    await page.getByRole("button", { name: "全部收起" }).click();
+    await expect(page.locator(".rt-row")).toHaveCount(0);
+});
+
 test("add subscriptions shows per-URL results", async ({ page }) => {
     await signIn(page, "/#subscriptions?add=1");
     const modal = page.locator(".modal");

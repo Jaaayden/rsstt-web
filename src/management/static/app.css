@@ -2300,24 +2300,70 @@ button.list-row:hover {
 }
 
 /* runtime configuration rows */
+.rt-group {
+    margin-bottom: 12px;
+}
+.rt-group-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 14px 18px;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    border-radius: var(--radius-lg);
+}
+.rt-group-head:hover {
+    background: var(--surface-2);
+}
+.rt-group-head h2 {
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+}
+.rt-chev {
+    margin-left: auto;
+    display: inline-flex;
+    color: var(--text-3);
+    transition: transform 0.15s;
+}
+.rt-chev.open {
+    transform: rotate(180deg);
+}
+.rt-group .card-body {
+    padding-top: 0;
+    padding-bottom: 6px;
+    border-top: 1px solid var(--line);
+}
 .rt-list {
     display: grid;
 }
 .rt-row {
     display: grid;
-    gap: 6px;
-    padding: 16px 0;
+    grid-template-columns: minmax(0, 1fr) minmax(240px, 380px);
+    align-items: center;
+    gap: 8px 28px;
+    padding: 12px 0;
     border-top: 1px solid var(--line);
 }
 .rt-row:first-child {
     border-top: 0;
-    padding-top: 0;
+}
+.rt-row.is-dirty {
+    background: linear-gradient(90deg, var(--accent-soft, transparent), transparent 40%);
+}
+.rt-main {
+    min-width: 0;
 }
 .rt-head {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 6px 10px;
+    gap: 2px 8px;
 }
 .rt-head b {
     font-weight: 600;
@@ -2325,22 +2371,62 @@ button.list-row:hover {
 .rt-key {
     font-size: 11.5px;
 }
-.rt-help {
-    color: var(--text-2);
-    font-size: 13px;
-    line-height: 1.6;
-    max-width: 72ch;
-}
 .rt-current {
+    margin-top: 2px;
     font-size: 12.5px;
     color: var(--text-2);
 }
-.rt-control {
-    margin-top: 4px;
-    max-width: 560px;
-}
 .rt-control .segmented {
     flex-wrap: wrap;
+}
+.hint {
+    position: relative;
+    display: inline-flex;
+}
+.hint-btn {
+    display: inline-flex;
+    padding: 2px;
+    border: 0;
+    border-radius: 50%;
+    background: none;
+    color: var(--text-3);
+    cursor: pointer;
+}
+.hint-btn:hover,
+.hint-btn[aria-expanded="true"] {
+    color: var(--accent);
+}
+.hint-pop {
+    position: absolute;
+    z-index: 30;
+    top: calc(100% + 6px);
+    left: -8px;
+    width: max-content;
+    max-width: min(440px, 80vw);
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+    box-shadow: var(--shadow-lg);
+    color: var(--text-2);
+    font-size: 13px;
+    font-weight: 400;
+    line-height: 1.6;
+}
+@media (max-width: 720px) {
+    .rt-row {
+        grid-template-columns: minmax(0, 1fr);
+    }
+    /* A bottom sheet instead of a bubble, so it can never run off the screen. */
+    .hint-pop {
+        position: fixed;
+        top: auto;
+        right: 12px;
+        bottom: 12px;
+        left: 12px;
+        width: auto;
+        max-width: none;
+    }
 }
 
 /* collapsible "advanced" block in dialogs */

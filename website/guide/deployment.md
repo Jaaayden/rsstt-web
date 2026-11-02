@@ -38,7 +38,7 @@ MANAGER=你的Telegram数字ID
 WEB_PASSWORD=至少16个字符的随机密码
 ```
 
-可以用 `openssl rand -hex 24` 生成密码。`WEB_PASSWORD` 只在第一次启动时用来创建管理员，之后请在网页“设置 → 账户与安全”里修改。
+可以用 `openssl rand -hex 24` 生成密码。`WEB_PASSWORD` 只在第一次启动时用来创建管理员（账号是 `admin`），之后请在网页“设置 → 账户与安全”里修改账号和密码。
 
 ```sh
 docker compose up -d

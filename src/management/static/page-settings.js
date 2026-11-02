@@ -2,6 +2,7 @@ import {
     html,
     useState,
     useEffect,
+    useRef,
     useAsync,
     useRoute,
     Icon,
@@ -20,6 +21,7 @@ import {
     ChatPicker,
     confirm,
     Copy,
+    SearchInput,
 } from "./ui.js";
 import { L, api, qs, num, dateTime, readRoute, setParams, toast, download, app, emit } from "./core.js";
 
@@ -848,32 +850,71 @@ function RuntimeRow({ item, label, help, draft, set, unset, onTelegraph }) {
             onInput=${(v) => set(item.key, v === "" ? null : item.type === "integer" ? Number(v) : v)}
         />`;
     }
-    return html`<div class="rt-row">
-        <div class="rt-head">
-            <b>${label()}</b>
-            <span class="mono muted rt-key">${item.key}</span>
-            ${item.pending_restart ? html`<${Badge} tone="amber">${L("已保存，待重启", "Saved, restart needed")}<//>` : null}
-            ${pending ? html`<${Badge} tone="accent">${L("未保存", "Unsaved")}<//>` : null}
-        </div>
-        <p class="rt-help">${help()}</p>
-        <div class="rt-current">
-            ${L("当前生效：", "In effect: ")}<b>${currentText(item)}</b>
-            <span class="muted"> · ${SOURCE_LABEL[item.current_source]?.()}</span>
-            ${item.type !== "boolean" && !item.sensitive && item.default != null && item.current_source !== "default"
-                ? html`<span class="muted"> · ${L("默认", "default")} ${String(item.default)}</span>`
-                : null}
-            ${item.configured && !pending
-                ? html` ·
-                      <button class="link-btn" onClick=${() => set(item.key, null)}>${L("删除网页设置", "Remove web override")}</button>`
-                : null}
+    return html`<div class="rt-row ${pending ? "is-dirty" : ""}">
+        <div class="rt-main">
+            <div class="rt-head">
+                <b>${label()}</b>
+                <${Hint} text=${help()} />
+                <span class="mono muted rt-key">${item.key}</span>
+                ${item.pending_restart ? html`<${Badge} tone="amber">${L("已保存，待重启", "Saved, restart needed")}<//>` : null}
+                ${pending ? html`<${Badge} tone="accent">${L("未保存", "Unsaved")}<//>` : null}
+            </div>
+            <div class="rt-current">
+                ${L("当前：", "Now: ")}<b>${currentText(item)}</b>
+                <span class="muted"> · ${SOURCE_LABEL[item.current_source]?.()}</span>
+                ${item.type !== "boolean" && !item.sensitive && item.default != null && item.current_source !== "default"
+                    ? html`<span class="muted"> · ${L("默认", "default")} ${String(item.default)}</span>`
+                    : null}
+                ${item.configured && !pending
+                    ? html` ·
+                          <button class="link-btn" onClick=${() => set(item.key, null)}>${L("删除网页设置", "Remove web override")}</button>`
+                    : null}
+            </div>
         </div>
         <div class="rt-control">${control}</div>
     </div>`;
 }
 
+/** The long explanation lives behind an "i" button instead of taking up a paragraph per setting. */
+function Hint({ text }) {
+    const [open, setOpen] = useState(false);
+    const box = useRef();
+    useEffect(() => {
+        if (!open) return;
+        const away = (e) => box.current && !box.current.contains(e.target) && setOpen(false);
+        const esc = (e) => e.key === "Escape" && setOpen(false);
+        document.addEventListener("mousedown", away);
+        document.addEventListener("keydown", esc);
+        return () => (document.removeEventListener("mousedown", away), document.removeEventListener("keydown", esc));
+    }, [open]);
+    return html`<span class="hint" ref=${box} onKeyDown=${(e) => e.key === "Escape" && setOpen(false)}>
+        <button type="button" class="hint-btn" aria-expanded=${open} aria-label=${L("说明", "About this setting")} onClick=${() => setOpen(!open)}>
+            <${Icon} name="info" size=${15} />
+        </button>
+        ${open ? html`<div class="hint-pop" role="note">${text}</div>` : null}
+    </span>`;
+}
+
+/** One collapsible group of settings; `open` is forced while searching. */
+function RuntimeGroup({ title, rows, open, onToggle, forced }) {
+    const changed = rows.filter((r) => r.item.configured).length;
+    const shown = open || forced;
+    return html`<section class="card rt-group">
+        <button type="button" class="rt-group-head" aria-expanded=${shown} onClick=${onToggle}>
+            <h2>${title}</h2>
+            <span class="muted">${L(`${rows.length} 项`, `${rows.length} settings`)}</span>
+            ${changed ? html`<${Badge} tone="accent">${L(`${changed} 项来自网页设置`, `${changed} set on the web`)}<//>` : null}
+            <span class="rt-chev ${shown ? "open" : ""}"><${Icon} name="down" size=${16} /></span>
+        </button>
+        ${shown ? html`<div class="card-body rt-list">${rows.map((r) => r.node)}</div>` : null}
+    </section>`;
+}
+
 function Runtime() {
     const { data, error, setData } = useAsync(() => api("/runtime-config"), []);
     const [draft, setDraft] = useState({});
+    const [query, setQuery] = useState("");
+    const [opened, setOpened] = useState(new Set([0]));
     const [busy, setBusy] = useState(false);
     if (error) return html`<${Notice} tone="error">${error.message}<//>`;
     if (!data) return html`<${Spinner} />`;
@@ -932,6 +973,27 @@ function Runtime() {
         delete next[key];
         setDraft(next);
     };
+    const needle = query.trim().toLowerCase();
+    const groups = RUNTIME_GROUPS.map((g, index) => ({
+        index,
+        title: g.title(),
+        rows: Object.entries(g.keys)
+            .filter(([key]) => items[key])
+            .filter(([key, [label, help]]) => !needle || `${key} ${label()} ${help()}`.toLowerCase().includes(needle))
+            .map(([key, [label, help]]) => ({
+                item: items[key],
+                node: html`<${RuntimeRow}
+                    key=${key}
+                    item=${items[key]}
+                    label=${label}
+                    help=${help}
+                    draft=${draft}
+                    set=${set}
+                    unset=${unset}
+                    onTelegraph=${telegraph}
+                />`,
+            })),
+    })).filter((g) => g.rows.length);
     return html`
         <${Notice}
             action=${data.pending_restart ? html`<${RestartButton} size="sm" kind="primary" />` : null}
@@ -945,27 +1007,31 @@ function Runtime() {
                 "Values here override the same settings from the deployment (docker-compose or .env). Remove the web override and restart to go back to the deployment value. Saving needs a restart, e.g. docker restart <container> on the server.",
             )}
         <//>
-        ${RUNTIME_GROUPS.map(
-            (g) =>
-                html`<${Card} title=${g.title()}>
-                    <div class="rt-list">
-                        ${Object.entries(g.keys)
-                            .filter(([key]) => items[key])
-                            .map(
-                                ([key, [label, help]]) =>
-                                    html`<${RuntimeRow}
-                                        item=${items[key]}
-                                        label=${label}
-                                        help=${help}
-                                        draft=${draft}
-                                        set=${set}
-                                        unset=${unset}
-                                        onTelegraph=${telegraph}
-                                    />`,
-                            )}
-                    </div>
-                <//>`,
-        )}
+        <div class="toolbar" style="margin-bottom:12px">
+            <${SearchInput}
+                value=${query}
+                onInput=${setQuery}
+                placeholder=${L("搜索设置名、变量名或说明", "Search by name, variable or description")}
+            />
+            <${Button} size="sm" onClick=${() => setOpened(new Set(RUNTIME_GROUPS.map((_, i) => i)))}>${L("全部展开", "Expand all")}<//>
+            <${Button} size="sm" onClick=${() => setOpened(new Set())}>${L("全部收起", "Collapse all")}<//>
+        </div>
+        ${groups.length
+            ? groups.map(
+                  (g) =>
+                      html`<${RuntimeGroup}
+                          title=${g.title}
+                          rows=${g.rows}
+                          open=${opened.has(g.index) || g.rows.some((r) => r.item.key in draft)}
+                          forced=${!!needle}
+                          onToggle=${() => {
+                              const next = new Set(opened);
+                              next.has(g.index) ? next.delete(g.index) : next.add(g.index);
+                              setOpened(next);
+                          }}
+                      />`,
+              )
+            : html`<${Empty} icon="search" title=${L("没有匹配的设置", "No matching settings")} />`}
         <p class="muted" style="font-size:12.5px">
             ${L(
                 `所有者（${data.deployment_only.slice(0, 3).join("、")} 等）、数据库地址、网页登录密码和监听地址只能在部署环境里修改。`,
