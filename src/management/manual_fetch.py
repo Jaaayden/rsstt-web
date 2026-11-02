@@ -1,5 +1,6 @@
 """Bounded, explicit administrator checks using the running bot's pipeline."""
 import asyncio
+import logging
 import secrets
 import time
 import re
@@ -13,6 +14,8 @@ from ..monitor._monitor import Monitor, _fetch_failure
 from ..parsing.post import get_post_from_entry
 from .service import Problem
 from . import send_guard
+
+logger = logging.getLogger('RSStT.management.manual_fetch')
 
 ACTIVE_LIMIT = 3
 HISTORY_LIMIT = 100
@@ -35,6 +38,7 @@ class ManualFetch:
         self.feed_jobs = {}
         self.batches = OrderedDict()
         self.batch_task = None
+        self.initial_tasks = set()
         self.closed = False
         self.lock = asyncio.Lock()
 
@@ -91,11 +95,11 @@ class ManualFetch:
         if self.closed:
             raise Problem('实例正在停止，无法创建新的抓取任务。', 409, code='MANUAL_FETCH_STOPPING')
 
-    async def submit(self, ident, principal, values):
+    async def submit(self, ident, principal, values, *, initial=False):
         async with self.lock:
-            return await self._submit(ident, principal, values)
+            return await self._submit(ident, principal, values, initial=initial)
 
-    async def _submit(self, ident, principal, values):
+    async def _submit(self, ident, principal, values, *, initial=False):
         self.offline_check()
         if set(values) != {'mode', 'confirm'} or values.get('mode') not in MODES or values.get('confirm') is not True:
             raise Problem('请选择抓取方式，并明确确认推送范围。', code='MANUAL_FETCH_CONFIRM_REQUIRED')
@@ -117,7 +121,7 @@ class ManualFetch:
         job = dict(id=secrets.token_hex(12), status='queued', mode=values['mode'], feed_id=feed_id,
                    subscription_id=str(sub.id), target_id=str(sub.user_id), simulated=self.service.demo,
                    affected_recipients=len(await self.eligible(sub.feed_id)) if values['mode'] == 'updates' else 1,
-                   result=None, error=None, code=None, _updated=time.monotonic())
+                   result=None, error=None, code=None, _updated=time.monotonic(), _initial=initial)
         # No await between registration and task creation: repeated submissions
         # observe the same job before any transport can start.
         self.jobs[job['id']] = job
@@ -202,18 +206,42 @@ class ManualFetch:
         finally:
             batch['_updated'] = time.monotonic()
 
-    async def _submit_waiting(self, ident, principal):
+    def check_new(self, sub_ids, principal):
+        """Check just-subscribed feeds once right away, so their log and recent articles are not empty until the next round."""
+        if not sub_ids or self.snapshot or self.closed or self.service.demo:
+            return
+        task = asyncio.create_task(self._check_new(list(sub_ids), principal))
+        self.initial_tasks.add(task)
+        task.add_done_callback(self.initial_tasks.discard)
+
+    async def _check_new(self, sub_ids, principal):
+        for ident in sub_ids:
+            try:
+                job = await self._submit_waiting(ident, principal, initial=True)
+                task = self.tasks.get(job['id'])
+                if task:
+                    await asyncio.wait({task})
+            except Problem:
+                continue  # paused, banned, left ...: the scheduled run takes over
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.warning(f'First check of subscription {ident} did not run', exc_info=True)
+
+    async def _submit_waiting(self, ident, principal, *, initial=False):
         codes, seconds = BATCH_RETRY
         deadline = time.monotonic() + seconds
         while True:
             try:
-                return await self.submit(ident, principal, dict(mode='updates', confirm=True))
+                return await self.submit(ident, principal, dict(mode='updates', confirm=True), initial=initial)
             except Problem as error:
                 if error.code not in codes or time.monotonic() > deadline:
                     raise
             await asyncio.sleep(1)
 
     async def log(self, job, code, message, *, error=None):
+        if job.get('_initial') and not error:
+            return  # the first check after subscribing is routine; its result is in the fetch records
         context = {'stage': 'manual', 'status': job['status']}
         if error:
             context['exception_type'] = type(error).__name__
@@ -362,9 +390,12 @@ class ManualFetch:
 
     async def close(self):
         self.closed = True
-        if self.batch_task and not self.batch_task.done():
-            self.batch_task.cancel()
-            await asyncio.gather(self.batch_task, return_exceptions=True)
+        pending = [self.batch_task] if self.batch_task and not self.batch_task.done() else []
+        pending += list(self.initial_tasks)
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
         tasks = dict(self.tasks)
         if tasks:
             Monitor.get_instance().stop_manual_resubmission(
@@ -385,6 +416,7 @@ class ManualFetch:
 
 def install(routes, service, admin, body, *, snapshot=False):
     manager = ManualFetch(service, snapshot=bool(snapshot))
+    service.new_feed_check = manager.check_new
 
     @routes.get('/api/subscriptions/{id}/fetch-now')
     async def describe(request):

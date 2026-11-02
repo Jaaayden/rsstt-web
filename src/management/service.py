@@ -110,6 +110,7 @@ class Service:
         # Serializes web writes (including subscription limits and idempotent adds).
         # Telegram commands retain their own upstream safeguards and DB uniqueness.
         self.mutation = asyncio.Lock()
+        self.new_feed_check = None  # set by the manual fetch module: called with the ids of subscriptions on feeds seen for the first time
         self.started = datetime.now(timezone.utc)
 
     async def threshold(self):
@@ -265,6 +266,7 @@ class Service:
         urls = list(dict.fromkeys(feed_url(url) for url in urls))
         await self.refresh(user.id, principal)
         results = []
+        fresh = []
         for url in urls:
             existing = await db.Sub.filter(user_id=user.id, feed__link=url).first()
             if existing:
@@ -276,6 +278,7 @@ class Service:
                 continue
             # A feed the server can only reach through a proxy must be validated through it too.
             previous = feed_options._proxies.get(url)
+            watched = await db.Feed.filter(link=url, state=1).exists()
             if proxy is not None:
                 await feed_options.save_proxy(self.store, url, proxy)
             try:
@@ -286,8 +289,13 @@ class Service:
                 raise
             if proxy is not None and not result['sub']:
                 await feed_options.save_proxy(self.store, url, previous)  # failed: leave no setting behind
+            if result['sub'] and not watched:
+                fresh.append(result['sub'].id)
             results.append({'url': url, 'status': 'created', 'id': result['sub'].id} if result['sub'] else
                            {'url': url, 'status': 'failed', 'message': str(result['msg'] or '无法读取订阅源。')})
+        if fresh and self.new_feed_check:
+            # The read above only validated the address. Run a real check now so the log and recent articles are filled.
+            self.new_feed_check(fresh, principal)
         return {'results': results}
 
     async def patch(self, obj, values):

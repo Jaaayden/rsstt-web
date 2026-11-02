@@ -1,11 +1,13 @@
+import asyncio
 import importlib
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from feedparser import FeedParserDict
 
-from src import web
+from src import db, web
 from src.management import diagnostics
 from src.monitor._monitor import Monitor
 from src.monitor._notifier import Notifier
@@ -140,3 +142,42 @@ async def test_rows_kept_per_feed_is_a_setting_with_bounds(logged):
     data = await runs(logged)
     assert data['total'] == 6 and data['retention']['per_feed'] == 6
     assert (await (await logged.client.get('/api/settings')).json())['console']['fetch_run_rows'] == '6'
+
+
+async def test_a_new_subscription_is_checked_right_away(logged, monkeypatch):
+    url = 'https://new.example/feed'
+    entries = [FeedParserDict(guid=f'e{i}', title=f'Post {i}', link=f'{url}/{i}') for i in range(3)]
+    fetch = AsyncMock(return_value=reply(SimpleNamespace(link=url), entries))
+    monkeypatch.setattr(web, 'feed_get', fetch)
+    notify = AsyncMock()
+    monkeypatch.setattr(Notifier, 'notify_all', notify)
+    added = await logged.client.post('/api/subscriptions', json={'target': '-1001', 'urls': [url]}, headers={'Origin': ORIGIN})
+    created = (await added.json())['results'][0]
+    assert created['status'] == 'created'
+    feed = await db.Feed.get(link=url)
+    data = {'items': []}
+    for _ in range(300):
+        await logged.store.diagnostics.flush()
+        data = await (await logged.client.get(f'/api/feeds/{feed.id}/fetch-runs')).json()
+        if data['items']:
+            break
+        await asyncio.sleep(.01)
+    # The read made to validate the address is followed by a real check: not an hour of empty log.
+    assert fetch.await_count == 2
+    run = data['items'][0]
+    assert run['status'] == 'unchanged' and run['entries'] == 3 and run['new_entries'] == 0
+    notify.assert_not_awaited()  # what was already there is never pushed
+    await logged.store.articles.flush()
+    shown = await (await logged.client.get(f"/api/subscriptions/{created['id']}/articles")).json()
+    assert len(shown['items']) == 3
+    events = await (await logged.client.get('/api/diagnostics')).json()
+    assert not [e for e in events['items'] if e['code'].startswith('manual.')]
+
+
+async def test_adding_a_feed_that_is_already_watched_fetches_nothing_extra(logged, monkeypatch):
+    fetch = AsyncMock(return_value=reply(logged.feed, [FeedParserDict(guid='e', title='One', link='https://x.example/1')]))
+    monkeypatch.setattr(web, 'feed_get', fetch)
+    added = await logged.client.post('/api/subscriptions', json={'target': '2', 'urls': [logged.feed.link]}, headers={'Origin': ORIGIN})
+    assert (await added.json())['results'][0]['status'] == 'created'
+    await asyncio.sleep(.2)
+    assert fetch.await_count == 0
