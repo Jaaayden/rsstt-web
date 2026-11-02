@@ -190,13 +190,11 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
         values = await body(request)
         async with auth.change_lock:
             try:
-                await auth.verify(values.get('password'), client_ip(request))
+                await auth.verify(values.get('password'), client_ip(request), values.get('username'))
             except Problem:
-                store.diagnostics.emit('system', 'warning', 'auth.sign_in_failed', '管理台登录失败，请检查密码或稍后重试。')
+                store.diagnostics.emit('system', 'warning', 'auth.sign_in_failed', '管理台登录失败，请检查账号、密码或稍后重试。')
                 raise
             await store.execute("DELETE FROM credentials WHERE kind='session' AND id NOT IN (SELECT id FROM credentials WHERE kind='session' ORDER BY created_at DESC LIMIT 19)")
-            if values.get('username', auth.username) != auth.username:
-                raise Problem('登录凭据不正确。', 401, code='INVALID_CREDENTIALS')
             _, secret = await store.issue(auth.username, days=1 / 3)
         await store.audit(auth.username, 'login', 'success')
         store.diagnostics.emit('system', 'info', 'auth.signed_in', '管理员已登录网页管理台。')
@@ -226,9 +224,18 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
                     store.diagnostics.emit('system', 'warning', 'auth.password_change_rejected', '管理台密码未修改：当前密码不正确。')
                     raise Problem('当前密码不正确，密码未修改。', code='CURRENT_PASSWORD_INCORRECT') from None
                 raise
-            await auth.change(values.get('new_password'))
-        await store.audit(auth.username, 'password_changed', 'all browser sessions revoked')
-        store.diagnostics.emit('system', 'info', 'auth.password_changed', '管理台密码已修改，原有网页登录已失效。')
+            new_password, new_username = values.get('new_password'), values.get('username')
+            if new_username is not None and new_username == auth.username:
+                new_username = None
+            if new_password is None and new_username is None:
+                raise Problem('没有需要修改的内容。', code='NOTHING_TO_CHANGE')
+            await auth.change(new_password, new_username)
+        await store.audit(auth.username, 'password_changed' if new_password is not None else 'username_changed',
+                          'all browser sessions revoked')
+        if new_password is not None:
+            store.diagnostics.emit('system', 'info', 'auth.password_changed', '管理台密码已修改，原有网页登录已失效。')
+        else:
+            store.diagnostics.emit('system', 'info', 'auth.username_changed', '管理台账号已修改，原有网页登录已失效。')
         response = web.json_response({'ok': True})
         response.del_cookie(cookie_name)
         return response
@@ -497,7 +504,7 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
     async def patch_settings(request):
         admin(request)
         values = await body(request)
-        if not values or set(values) - (set(db.EffectiveOptions.options) | {'attention_threshold'}):
+        if not values or set(values) - (set(db.EffectiveOptions.options) | {'attention_threshold', 'fetch_run_rows'}):
             raise Problem('包含不支持的设置项。')
         clean = {}
         for key, value in values.items():
@@ -505,6 +512,8 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
                 if not isinstance(value, str) or len(value) > 2000:
                     raise Problem('订阅上限提示最多 2000 个字符。')
                 clean[key] = value
+            elif key == 'fetch_run_rows':
+                clean[key] = integer(value, key, *diagnostics.RUN_ROWS_RANGE)
             else:
                 clean[key] = integer(value, key, -1 if key.endswith('sub_limit') else 1, 100 if key == 'attention_threshold' else 32767)
         merged = {**db.EffectiveOptions.options, **clean}
@@ -512,7 +521,10 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
             raise Problem('默认更新间隔不能小于最短更新间隔。')
         async with service.mutation:
             for key, value in clean.items():
-                if key == 'attention_threshold':
+                if key == 'fetch_run_rows':
+                    await store.set_setting(key, value)
+                    store.diagnostics.run_rows = value  # trimmed on each feed's next check
+                elif key == 'attention_threshold':
                     await store.set_setting(key, value)
                 else:
                     await db.EffectiveOptions.set(key, value)

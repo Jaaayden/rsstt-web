@@ -40,6 +40,7 @@ const EN = {
     "auth.signed_in": "Administrator signed in.",
     "auth.sign_in_failed": "Sign-in failed.",
     "auth.password_changed": "Console password changed; other sessions signed out.",
+    "auth.username_changed": "Console account name changed; other sessions signed out.",
     "auth.password_change_rejected": "Password not changed: current password was wrong.",
     "auth.token_issued": "API token created.",
     "auth.token_revoked": "API token revoked.",
@@ -180,6 +181,109 @@ export function EventRow({ event: e, hideFeed }) {
     </div>`;
 }
 
+/* ---------------- fetch runs: one line per check ---------------- */
+
+function seconds(ms) {
+    return ms == null ? "—" : L(`${(ms / 1000).toFixed(ms < 10000 ? 2 : 1)} 秒`, `${(ms / 1000).toFixed(ms < 10000 ? 2 : 1)} s`);
+}
+
+const clock = (value, withSeconds) =>
+    new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", second: withSeconds ? "2-digit" : undefined, hour12: false }).format(new Date(value));
+
+/** "Nov 2, 04:47 – 09:12" for a stretch of identical checks; the end gets a date only when it is another day. */
+function span(from, to) {
+    if (new Date(from).toDateString() === new Date(to).toDateString()) return `${dateTime(from)} – ${clock(to)}`;
+    return `${dateTime(from)} – ${dateTime(to)}`;
+}
+
+export function RunRow({ run: r, hideFeed }) {
+    const failed = r.status === "failed" || r.status === "exception";
+    const many = r.count > 1;
+    const reason = failed ? reasonOf({ level: "error", context: { http_status: r.http_status }, detail: r.detail }) : "";
+    const badge = failed
+        ? html`<${Badge} tone="red">${L("失败", "Failed")}<//>`
+        : r.status === "updated"
+          ? html`<${Badge} tone="blue">${L("有新文章", "New posts")}<//>`
+          : html`<${Badge} tone="green">${L("成功", "OK")}<//>`;
+    const took = many
+        ? L(
+              `平均耗时 ${seconds(r.duration_ms)}（${seconds(r.duration_min)} – ${seconds(r.duration_max)}）`,
+              `Avg ${seconds(r.duration_ms)} (${seconds(r.duration_min)} – ${seconds(r.duration_max)})`,
+          )
+        : L(`耗时：${seconds(r.duration_ms)}`, `Took ${seconds(r.duration_ms)}`);
+    const parts = [];
+    if (many) parts.push(failed ? L(`连续失败 ${num(r.count)} 次`, `Failed ${num(r.count)} times in a row`) : L(`共 ${num(r.count)} 次检查`, `${num(r.count)} checks`));
+    parts.push(took);
+    if (failed) {
+        if (r.http_status) parts.push(`HTTP ${r.http_status}`);
+    } else if (r.status === "not_modified") {
+        parts.push(L("内容没有变化（使用缓存）", "unchanged (cached)"));
+    } else if (r.status === "empty") {
+        parts.push(L("订阅源里暂时没有文章", "the feed has no posts"));
+    } else {
+        if (r.entries != null) parts.push(L(`有效 ${num(r.entries)} 条`, `${num(r.entries)} valid`));
+        parts.push(L(`新增 ${num(r.new_entries)} 条`, `${num(r.new_entries)} new`));
+    }
+    return html`<div class="run">
+        <div>
+            <div class="run-head">
+                <b title=${dateTime(r.at, { seconds: true }) + (many ? " – " + dateTime(r.last_at, { seconds: true }) : "")}
+                    >${many ? span(r.at, r.last_at) : dateTime(r.at, { seconds: true })}</b
+                >
+                <span class="muted">${r.manual ? L("手动", "Manual") : L("定时", "Scheduled")}</span>
+                ${!hideFeed && r.feed_id
+                    ? html`<a class="link-btn" style="font-weight:450" href=${"#logs?view=runs&feed=" + r.feed_id}
+                          >${r.feed_title || L(`订阅源 #${r.feed_id}`, `Feed #${r.feed_id}`)}</a
+                      >`
+                    : null}
+            </div>
+            <div class="run-meta">${parts.join(" · ")}</div>
+            ${failed && reason ? html`<div class="run-meta" style="color:var(--red)">${reason}</div>` : null}
+        </div>
+        ${badge}
+    </div>`;
+}
+
+export const RUN_FILTERS = () => [
+    ["", L("全部状态", "All")],
+    ["updated", L("有新文章", "New posts")],
+    ["ok", L("成功", "Succeeded")],
+    ["failed", L("失败", "Failed")],
+];
+
+/** Every fetch of one feed (feedId) or of all feeds, newest first. Paging and filter live in the caller. */
+export function RunsPanel({ feedId, status, page, onPage }) {
+    const { data, error, loading } = useAsync(
+        () => api((feedId ? `/feeds/${feedId}/fetch-runs` : "/fetch-runs") + qs({ status, page, size: 30 })),
+        [feedId, status, page],
+    );
+    if (error) return html`<${Notice} tone="error">${error.message}<//>`;
+    if (!data) return html`<${Spinner} />`;
+    return html`
+        ${!data.items.length
+            ? html`<${Empty} icon="logs" title=${L("还没有抓取记录", "No fetches recorded yet")}>
+                  ${app.info.snapshot
+                      ? L("离线副本不运行抓取，所以没有记录。", "The offline copy doesn't fetch, so there are no records.")
+                      : status
+                        ? L("没有符合这个筛选条件的记录。", "Nothing matches this filter.")
+                        : L(
+                              `从 ${dateTime(data.started_at)} 起记录每次抓取；结果相同的连续检查合并成一行，有变化才新增一行。`,
+                              `Every fetch is counted from ${dateTime(data.started_at)} on; identical consecutive checks share a row, and a new row starts when something changes.`,
+                          )}<//
+              >`
+            : html`<div style=${loading ? "opacity:.6" : ""}>
+                      ${data.items.map((r) => html`<${RunRow} run=${r} key=${r.id} hideFeed=${!!feedId} />`)}
+                  </div>
+                  <${Pager} page=${page} size=${data.size} total=${data.total} onPage=${onPage} />
+                  <p class="muted" style="margin-top:10px;font-size:12.5px">
+                      ${L(
+                          `连续相同的结果合并成一行；每个订阅源保留最近 ${data.retention.per_feed} 行、不超过 ${data.retention.days} 天。`,
+                          `Identical consecutive checks share a row; the last ${data.retention.per_feed} rows per feed, at most ${data.retention.days} days.`,
+                      )}
+                  </p>`}
+    `;
+}
+
 export function Logs() {
     useRoute();
     const { params } = readRoute();
@@ -188,9 +292,13 @@ export function Logs() {
     const feed = params.feed || "";
     const target = params.target || "";
     const page = Number(params.page || 1);
+    const view = params.view === "runs" ? "runs" : "events";
     const { data, error, loading, reload } = useAsync(
-        () => api((feed ? `/feeds/${feed}/diagnostics` : "/diagnostics") + qs({ category, level, target_id: target, page, size: 40 })),
-        [category, level, feed, target, page],
+        () =>
+            view === "runs"
+                ? Promise.resolve(null)
+                : api((feed ? `/feeds/${feed}/diagnostics` : "/diagnostics") + qs({ category, level, target_id: target, page, size: 40 })),
+        [view, category, level, feed, target, page],
     );
     return html`
         <div class="page-head">
@@ -210,6 +318,30 @@ export function Logs() {
         <section class="card">
             <div class="toolbar">
                 <${Segmented}
+                    value=${view}
+                    onChange=${(v) => setParams({ view: v === "runs" ? "runs" : "", page: "", status: "" })}
+                    options=${[
+                        ["events", L("事件", "Events")],
+                        ["runs", L("抓取记录", "Fetch runs")],
+                    ]}
+                />
+                ${view === "runs"
+                    ? html`<${Select}
+                              value=${params.status || ""}
+                              onChange=${(v) => setParams({ status: v, page: "" })}
+                              options=${RUN_FILTERS()}
+                          />
+                          ${feed
+                              ? html`<span class="chip" style="height:36px"
+                                    >${L(`订阅源 #${feed}`, `Feed #${feed}`)}<button
+                                        type="button"
+                                        aria-label=${L("清除", "Clear")}
+                                        onClick=${() => setParams({ feed: "", page: "" })}
+                                    >
+                                        <${Icon} name="close" size=${12} /></button
+                                ></span>`
+                              : null}`
+                    : html`<${Segmented}
                     value=${category}
                     onChange=${(v) => setParams({ category: v, page: "" })}
                     options=${[["", L("全部", "All")], ...Object.entries(CATEGORY).map(([k, f]) => [k, f()])]}
@@ -244,9 +376,13 @@ export function Logs() {
                               <${Icon} name="close" size=${12} /></button
                       ></span>`
                     : null}
-                <span class="total">${data ? L(`${num(data.total)} 条`, `${num(data.total)} entries`) : ""}</span>
+                <span class="total">${data ? L(`${num(data.total)} 条`, `${num(data.total)} entries`) : ""}</span>`}
             </div>
-            <div class="card-body" style="padding-top:4px;padding-bottom:4px">
+            ${view === "runs"
+                ? html`<div class="card-body" style="padding-top:4px;padding-bottom:12px">
+                      <${RunsPanel} feedId=${feed} status=${params.status || ""} page=${page} onPage=${(p) => setParams({ page: p })} />
+                  </div>`
+                : html`<div class="card-body" style="padding-top:4px;padding-bottom:4px">
                 ${data?.degraded || data?.dropped
                     ? html`<div style="margin:10px 0">
                           <${Notice} tone="warn"
@@ -276,14 +412,14 @@ export function Logs() {
                         : html`<div class="timeline" style=${loading ? "opacity:.6" : ""}>
                               ${data.items.map((e) => html`<${EventRow} event=${e} key=${e.id} hideFeed=${!!feed} />`)}
                           </div>`}
-            </div>
-            ${data ? html`<${Pager} page=${page} size=${data.size} total=${data.total} onPage=${(p) => setParams({ page: p })} />` : null}
+            </div>`}
+            ${view !== "runs" && data ? html`<${Pager} page=${page} size=${data.size} total=${data.total} onPage=${(p) => setParams({ page: p })} />` : null}
         </section>
-        ${data
+        ${view !== "runs" && data
             ? html`<p class="muted" style="margin-top:12px;font-size:12.5px">
                   ${L(
-                      `最多保留 ${data.retention.days} 天、${num(data.retention.max_entries)} 条；每个订阅源最多 ${data.retention.per_feed} 条。没有新文章的正常检查和成功推送不逐条记录，只记录失败、有更新和恢复。`,
-                      `Up to ${data.retention.days} days and ${num(data.retention.max_entries)} entries, ${data.retention.per_feed} per feed. Routine checks with nothing new and successful deliveries aren't logged one by one — only failures, updates and recoveries.`,
+                      `最多保留 ${data.retention.days} 天、${num(data.retention.max_entries)} 条；每个订阅源最多 ${data.retention.per_feed} 条。这里只记录失败、有更新和恢复；每次抓取（包括没有新文章的）请看“抓取记录”。成功推送不逐条记录。`,
+                      `Up to ${data.retention.days} days and ${num(data.retention.max_entries)} entries, ${data.retention.per_feed} per feed. Events cover failures, updates and recoveries; every single check, including routine ones, is under Fetch runs. Successful deliveries aren't logged one by one.`,
                   )}
               </p>`
             : null}

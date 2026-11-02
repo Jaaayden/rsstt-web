@@ -270,3 +270,28 @@ def test_cli_replace_requires_explicit_deletion_confirmation(tmp_path, monkeypat
         main(['--url', 'http://127.0.0.1:8741', '--method', 'PUT', '--apply', '--data', str(data), '/api/feeds/1/recipients'])
     assert error.value.code == 2
     assert '--confirm-delete' in capsys.readouterr().err
+
+
+async def test_username_is_checked_when_sent_and_can_be_changed(logged):
+    c = logged.client
+    await c.post('/api/logout', headers=WRITE)
+    wrong = await c.post('/api/login', json={'username': 'someone', 'password': PASSWORD}, headers=WRITE)
+    assert wrong.status == 401 and (await wrong.json())['code'] == 'INVALID_CREDENTIALS'
+    assert (await c.post('/api/login', json={'username': 5, 'password': PASSWORD}, headers=WRITE)).status == 401
+    assert (await c.post('/api/login', json={'username': 'admin', 'password': 'wrong-password-1234'}, headers=WRITE)).status == 401
+    assert (await c.post('/api/login', json={'username': ' admin ', 'password': PASSWORD}, headers=WRITE)).status == 200
+    assert (await (await c.get('/api/auth/account')).json())['username'] == 'admin'
+    # Rename: needs the current password, valid characters, and signs every browser out.
+    assert (await c.post('/api/auth/password', json={'current_password': 'incorrect'}, headers=WRITE)).status == 400
+    assert (await c.post('/api/auth/password', json={'current_password': PASSWORD}, headers=WRITE)).status == 400
+    bad = await c.post('/api/auth/password', json={'current_password': PASSWORD, 'username': 'has space'}, headers=WRITE)
+    assert bad.status == 400 and (await bad.json())['code'] == 'NEW_USERNAME_INVALID'
+    assert (await c.get('/api/session')).status == 200
+    done = await c.post('/api/auth/password', json={'current_password': PASSWORD, 'username': 'jayden@home'}, headers=WRITE)
+    assert done.status == 200
+    assert (await c.get('/api/session')).status == 401
+    assert (await c.post('/api/login', json={'username': 'admin', 'password': PASSWORD}, headers=WRITE)).status == 401
+    assert (await c.post('/api/login', json={'username': 'jayden@home', 'password': PASSWORD}, headers=WRITE)).status == 200
+    assert (await c.post('/api/login', json={'password': PASSWORD}, headers=WRITE)).status == 200  # scripts may omit it
+    # The new name survives a restart; the bootstrap name is only used on first start.
+    assert (await Auth.load(logged.store, PASSWORD, 'admin')).username == 'jayden@home'

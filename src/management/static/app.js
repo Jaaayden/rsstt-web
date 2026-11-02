@@ -39,6 +39,13 @@ function Prefs() {
 }
 
 function Login({ info }) {
+    const [username, setUsername] = useState(() => {
+        try {
+            return localStorage.getItem("rsstt.user") || "";
+        } catch {
+            return "";
+        }
+    });
     const [password, setPassword] = useState("");
     const [error, setError] = useState("");
     const [busy, setBusy] = useState(false);
@@ -47,13 +54,18 @@ function Login({ info }) {
         setBusy(true);
         setError("");
         try {
-            await api("/login", { method: "POST", body: { password } });
+            await api("/login", { method: "POST", body: { username: username.trim(), password } });
+            try {
+                localStorage.setItem("rsstt.user", username.trim());
+            } catch {
+                /* private mode */
+            }
             app.session = await api("/session");
             location.hash ||= "#overview";
             window.dispatchEvent(new Event("routechange"));
             document.dispatchEvent(new Event("rsstt:session"));
         } catch (err) {
-            setError(err.status === 401 ? L("密码不正确。", "Incorrect password.") : err.message);
+            setError(err.status === 401 ? L("账号或密码不正确。", "Incorrect username or password.") : err.message);
         } finally {
             setBusy(false);
         }
@@ -85,7 +97,10 @@ function Login({ info }) {
                 <div>
                     <h2>${L("登录管理台", "Sign in")}</h2>
                     <p class="lead">
-                        ${L("输入部署时设置的管理台密码（WEB_PASSWORD）。", "Enter the console password set at deployment (WEB_PASSWORD).")}
+                        ${L(
+                            "第一次登录：账号是 admin（演示实例是 preview-admin），密码是部署时设置的 WEB_PASSWORD。登录后可以在“设置 → 账号”里修改。",
+                            "First sign-in: the username is admin (preview-admin on the demo) and the password is the WEB_PASSWORD from deployment. Change both under Settings → Account.",
+                        )}
                     </p>
                 </div>
                 ${info.snapshot
@@ -103,10 +118,32 @@ function Login({ info }) {
                             )}<//
                         >`
                       : null}
-                <${Field} label=${L("密码", "Password")} error=${error}>
-                    <${Input} type="password" autocomplete="current-password" value=${password} onInput=${setPassword} autofocus required />
+                <${Field} label=${L("账号", "Username")}>
+                    <${Input}
+                        name="username"
+                        autocomplete="username"
+                        autocapitalize="none"
+                        autocorrect="off"
+                        spellcheck="false"
+                        placeholder=${info.demo ? "preview-admin" : "admin"}
+                        value=${username}
+                        onInput=${setUsername}
+                        autofocus=${!username}
+                        required
+                    />
                 <//>
-                <${Button} kind="primary" size="lg" type="submit" loading=${busy} disabled=${!password}>${L("登录", "Sign in")}<//>
+                <${Field} label=${L("密码", "Password")} error=${error}>
+                    <${Input}
+                        name="password"
+                        type="password"
+                        autocomplete="current-password"
+                        value=${password}
+                        onInput=${setPassword}
+                        autofocus=${!!username}
+                        required
+                    />
+                <//>
+                <${Button} kind="primary" size="lg" type="submit" loading=${busy} disabled=${!username.trim() || !password}>${L("登录", "Sign in")}<//>
             </form>
         </section>
     </div>`;

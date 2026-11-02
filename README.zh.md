@@ -112,7 +112,7 @@ export WEB_PASSWORD="$(.venv/bin/python -c 'import getpass; print(getpass.getpas
 ## 数据、登录与恢复
 
 - 持久化整个 `config` 目录。这里包含原有 Bot 数据与 Telegram session、新增的 `console.sqlite3` 管理库，以及配置后生成的 `runtime-config.json` 网页覆盖值。上游 Bot 数据表继续沿用原有结构和迁移流程。
-- `WEB_PASSWORD` 仅用于首次初始化空的管理台账号。之后请在 **设置 → 账户与安全** 修改密码，修改环境变量不会覆盖已有密码。重启或改密会撤销网页登录会话；Agent 令牌按各自的有效期和撤销状态控制。
+- `WEB_PASSWORD` 仅用于首次初始化空的管理台账号（账号名 `admin`）。之后请在 **设置 → 账户与安全** 修改账号和密码，修改环境变量不会覆盖已有密码。重启或改密会撤销网页登录会话；Agent 令牌按各自的有效期和撤销状态控制。
 - 标记为“待重启”的运行配置在下次进程启动时应用。保存不会重启机器人，也不表示外部凭据或服务已经验证可用。管理者身份、数据库地址、监听配置和进程选项仍由部署配置管理。
 - Bot 主库可使用 SQLite 或 PostgreSQL。网页备份导出及自动恢复支持**文件 SQLite**，自动恢复需要 POSIX 主机。PostgreSQL 使用文档中的独立数据库维护流程。
 - 备份默认不包含网页登录凭据或 Agent 令牌，需显式勾选才导出；恢复时默认保留目标实例现有凭据。主机器人 Token、Telegram session、部署环境和网页登录会话始终不进入逻辑备份。

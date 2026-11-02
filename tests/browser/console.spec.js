@@ -2,11 +2,13 @@
 const { test, expect } = require("@playwright/test");
 
 const PASSWORD = process.env.WEB_PASSWORD;
+const USERNAME = "preview-admin"; // the demo instance's account
 
 async function signIn(page, path = "/") {
     await page.addInitScript(() => localStorage.setItem("rsstt.lang", "zh"));
     await page.goto(path);
-    await page.getByLabel("密码").fill(PASSWORD);
+    await page.locator("input[name=username]").fill(USERNAME);
+    await page.locator("input[name=password]").fill(PASSWORD);
     await page.getByRole("button", { name: "登录" }).click();
     await expect(page.locator(".sidebar")).toBeVisible();
 }
@@ -24,10 +26,15 @@ test.afterEach(async ({ page }) => {
 test("rejects a wrong password, then signs in", async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem("rsstt.lang", "zh"));
     await page.goto("/");
-    await page.getByLabel("密码").fill("definitely-not-the-password");
+    await page.locator("input[name=username]").fill(USERNAME);
+    await page.locator("input[name=password]").fill("definitely-not-the-password");
     await page.getByRole("button", { name: "登录" }).click();
-    await expect(page.getByText("密码不正确")).toBeVisible();
-    await page.getByLabel("密码").fill(PASSWORD);
+    await expect(page.getByText("账号或密码不正确")).toBeVisible();
+    await page.locator("input[name=username]").fill("someone-else");
+    await page.locator("input[name=password]").fill(PASSWORD);
+    await page.getByRole("button", { name: "登录" }).click();
+    await expect(page.getByText("账号或密码不正确")).toBeVisible();  // right password, wrong account
+    await page.locator("input[name=username]").fill(USERNAME);
     await page.getByRole("button", { name: "登录" }).click();
     await expect(page.getByRole("heading", { name: "概览" })).toBeVisible();
 });
@@ -182,6 +189,48 @@ test("batch bar: fetch now, interval and copy URLs", async ({ page, context }) =
     await expect(page.locator(".modal")).toContainText("完成：成功");
     await page.locator(".modal").getByRole("button", { name: "完成" }).click();
     await expect(page.locator(".modal")).toHaveCount(0);
+});
+
+test("fetch runs: every check is listed with time, duration and counts", async ({ page }) => {
+    await signIn(page, "/#subscriptions");
+    await page.locator("tbody tr .cell-title").first().click();
+    const drawer = page.locator(".drawer");
+    await drawer.getByRole("tab", { name: /日志/ }).click();
+    await expect(drawer.locator(".run").first()).toContainText("耗时");
+    await expect(drawer.locator(".run").first()).toContainText(/有效 \d+ 条|HTTP|内容没有变化/);
+    await drawer.getByRole("radio", { name: "事件与推送" }).click();
+    await expect(drawer.locator(".timeline, .empty").first()).toBeVisible();
+    await drawer.getByRole("radio", { name: "抓取记录" }).click();
+    await drawer.getByRole("button", { name: "关闭" }).click();
+    // The global page has the same view with a status filter.
+    await page.goto("/#logs?view=runs");
+    await expect(page.locator(".run").first()).toBeVisible();
+    await page.locator(".toolbar select").first().selectOption("failed");
+    await expect(page.locator(".run .badge-red").first()).toBeVisible();
+});
+
+test("runtime settings: grouped, searchable, descriptions in a popover", async ({ page }) => {
+    await signIn(page, "/#settings?section=runtime");
+    const groups = page.locator(".rt-group");
+    await expect(groups.first()).toBeVisible();
+    expect(await groups.count()).toBeGreaterThan(3);
+    await expect(page.locator(".rt-row").first()).toBeVisible();
+    // Only the first group is open; the explanation is hidden until asked for.
+    const open = await page.locator(".rt-group-head[aria-expanded=true]").count();
+    expect(open).toBe(1);
+    await expect(page.locator(".hint-pop")).toHaveCount(0);
+    await page.locator(".hint-btn").first().click();
+    await expect(page.locator(".hint-pop")).toContainText("Token");
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".hint-pop")).toHaveCount(0);
+    // Searching opens every group that has a match.
+    await page.locator("input[type=search]").fill("HTTP_TIMEOUT");
+    await expect(page.locator(".rt-row")).toHaveCount(1);
+    await page.locator("input[type=search]").fill("");
+    await page.getByRole("button", { name: "全部展开" }).click();
+    await expect.poll(() => page.locator(".rt-row").count()).toBeGreaterThan(10);
+    await page.getByRole("button", { name: "全部收起" }).click();
+    await expect(page.locator(".rt-row")).toHaveCount(0);
 });
 
 test("add subscriptions shows per-URL results", async ({ page }) => {

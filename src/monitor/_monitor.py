@@ -505,6 +505,13 @@ class Monitor(Singleton):
             # check was requested by hand. Failures and updates are always recorded.
             routine = (outcome in ('fetch.unchanged', 'fetch.not_modified', 'fetch.empty')
                        and not previous_errors and result is None)
+            if outcome:
+                # The run log keeps every check, routine or not: when, how long, how many posts, how many new.
+                diagnostics.run(diagnostic_id, 'failed' if outcome == 'fetch.deactivation_requested' else outcome.removeprefix('fetch.'),
+                                http_status=diagnostic_context.get('http_status'), duration_ms=duration_ms,
+                                entries=len(rss_d.entries) if rss_d is not None else None,
+                                new_entries=diagnostic_context.get('new_entries', 0), manual=result is not None,
+                                detail=outcome_detail if outcome_level == 'error' else '')
             if outcome and not routine:
                 # Preserve the source ID independently of later URL migration.
                 await diagnostics.record('fetch', outcome_level, outcome, outcome_message,

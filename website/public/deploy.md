@@ -187,4 +187,4 @@ Releases: https://github.com/Jaaayden/rsstt-web/releases. The database stays com
 
 ## 7. Report to the human
 
-Tell them: the console URL, how to read `WEB_PASSWORD` on the server, the rollback command, where the backup is, and anything you skipped.
+Tell them: the console URL, the sign-in username (`admin`), how to read `WEB_PASSWORD` on the server, the rollback command, where the backup is, and anything you skipped.
