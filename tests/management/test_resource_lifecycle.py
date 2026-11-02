@@ -100,3 +100,14 @@ async def test_monitor_failure_and_cancellation_keep_cooldown_until_release(erro
     monitor._stat.finish.assert_called_once()
     monitor._erase_state_for_feed_id(1, TaskState.LOCKED)
     assert not monitor._subtask_defer_map
+
+
+def test_force_quit_exits_without_signalling_itself(monkeypatch):
+    """As PID 1 of a container a process cannot SIGKILL itself, so a stuck shutdown would never end."""
+    import os
+    from src import entrypoint
+    exits, kills = [], []
+    monkeypatch.setattr(os, '_exit', exits.append)
+    monkeypatch.setattr(os, 'kill', lambda *args: kills.append(args))
+    entrypoint.force_quit()
+    assert exits == [137] and not kills
