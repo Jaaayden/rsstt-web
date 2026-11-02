@@ -24,6 +24,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from email.utils import format_datetime
 from collections import defaultdict
+from contextlib import asynccontextmanager
 from itertools import islice, chain, repeat
 from time import monotonic
 from urllib.parse import urlsplit
@@ -38,6 +39,7 @@ from ..helpers.singleton import Singleton
 from ..helpers.timeout import BatchTimeout
 from ..parsing.utils import ensure_plain
 from ..management import diagnostics
+from ..management import articles as article_history
 
 
 def _technical_error(error):
@@ -98,6 +100,9 @@ class Monitor(Singleton):
         # In the meantime, the deferring logic is implemented using this map.
         self._subtask_defer_map: Final[defaultdict[int, TaskState]] = defaultdict(lambda: TaskState.EMPTY)
         self._lock_up_period: int = 0  # in seconds
+        self._manual_feeds: set[int] = set()
+        self._manual_pending: set[int] = set()
+        self._manual_no_resubmit: set[int] = set()
 
         # update _lock_up_period on demand
         db.effective_utils.EffectiveOptions.add_set_callback('minimal_interval', self._update_lock_up_period_cb)
@@ -168,6 +173,10 @@ class Monitor(Singleton):
         )
 
     async def _do_monitor_subtask(self, feed: db.Feed, now: datetime):
+        if feed.id in getattr(self, '_manual_feeds', ()):
+            self._manual_pending.add(feed.id)
+            self._stat.skipped()
+            return
         self._subtask_defer_map[feed.id] |= TaskState.IN_PROGRESS
         self._stat.start()
         try:
@@ -249,6 +258,10 @@ class Monitor(Singleton):
             self._subtask_defer_map.pop(feed_id, None)
 
     def _defer_feed_id(self, feed_id: int, feed_link: str = None) -> bool:
+        if feed_id in getattr(self, '_manual_feeds', ()):
+            self._manual_pending.add(feed_id)
+            self._stat.deferred()
+            return True
         feed_description = f'{feed_id}: {feed_link}' if feed_link else str(feed_id)
         task_state = self._subtask_defer_map.get(feed_id, TaskState.EMPTY)
         if task_state == TaskState.DEFERRED:
@@ -268,6 +281,37 @@ class Monitor(Singleton):
 
     def submit_feed(self, feed: FEED_OR_ID, description: str = ''):
         self.submit_feeds((feed,), description)
+
+    def manual_busy(self, feed_id):
+        return feed_id in self._manual_feeds or bool(
+            self._subtask_defer_map.get(feed_id, TaskState.EMPTY) & TaskState.IN_PROGRESS)
+
+    def stop_manual_resubmission(self, feed_ids):
+        """Do not revive scheduled work while its owning Web app is closing."""
+        self._manual_no_resubmit.update(set(feed_ids) & self._manual_feeds)
+
+    @asynccontextmanager
+    async def manual_slot(self, feed_id):
+        """Exclude scheduled work while a bounded manual operation owns a feed.
+
+        A completed cooldown may be bypassed, while an actual in-flight request
+        must finish first. Scheduled callbacks already queued before this claim
+        also check the set in _do_monitor_subtask.
+        """
+        from ..management.service import Problem
+        if self.manual_busy(feed_id):
+            raise Problem('这个订阅源正在抓取，请等待当前任务完成后重试。', 409, code='MANUAL_FETCH_BUSY')
+        self._manual_feeds.add(feed_id)
+        try:
+            yield
+        finally:
+            self._manual_feeds.discard(feed_id)
+            pending = feed_id in self._manual_pending
+            self._manual_pending.discard(feed_id)
+            stopping = feed_id in self._manual_no_resubmit
+            self._manual_no_resubmit.discard(feed_id)
+            if pending and not stopping:
+                self.submit_feed(feed_id, 'resubmit scheduled check after manual task')
 
     async def run_periodic_task(self):
         self._stat.print_summary()
@@ -296,7 +340,9 @@ class Monitor(Singleton):
             pos += count
         assert pos == feed_count
 
-    async def _do_monitor_a_feed(self, feed: db.Feed, now: datetime):
+    async def _do_monitor_a_feed(self, feed: db.Feed, now: datetime, *, force=False,
+                               subscription_provider=None, result=None, request_headers=None,
+                               article_journal=None, article_source='scheduled', resolve_subscription=None):
         """
         Monitor the update of a feed.
 
@@ -305,11 +351,13 @@ class Monitor(Singleton):
         :return: None
         """
         stat = self._stat
-        if feed.next_check_time and now < feed.next_check_time:
+        if not force and feed.next_check_time and now < feed.next_check_time:
             stat.skipped()
             return  # skip this monitor task
 
-        subs = await feed.subs.filter(state=1)
+        subs = await subscription_provider(feed.id) if subscription_provider else await feed.subs.filter(state=1)
+        if result is not None:
+            result.update(outcome='skipped', new_entries=0, push_status='not_started', affected_recipients=len(subs))
         if not subs:  # nobody has subbed it
             logger.warning(f'Feed {feed.id} ({feed.link}) has no active subscribers.')
             await inner.utils.update_interval(feed)
@@ -317,17 +365,19 @@ class Monitor(Singleton):
             return
 
         if all(locks.user_flood_lock(sub.user_id).locked() for sub in subs):
+            if result is not None:
+                result['outcome'] = 'rate_limited'
             stat.skipped()
             return  # all subscribers are experiencing flood wait, skip this monitor task
 
-        headers = {
+        headers = {} if force else {
             'If-Modified-Since': format_datetime(feed.last_modified or feed.updated_at)
         }
-        if feed.etag:
+        if feed.etag and not force:
             headers['If-None-Match'] = feed.etag
 
         from ..management import feed_options
-        headers.update(await feed_options.headers(feed.link))
+        headers.update(request_headers if request_headers is not None else await feed_options.headers(feed.link))
         started = monotonic()
         try:
             wf = await web.feed_get(feed.link, headers=headers, verbose=False)
@@ -356,6 +406,8 @@ class Monitor(Singleton):
         new_error_count = 0
         new_next_check_time: Optional[datetime] = None  # clear next_check_time by default
         feed_updated_fields: set[str] = set()
+        journal = article_journal if article_journal is not None else article_history.current()
+        article_keys = set()
         try:
             if wf.status == 304:  # cached
                 outcome, outcome_message = 'fetch.not_modified', '订阅源未发生变化，使用缓存。'
@@ -452,6 +504,11 @@ class Monitor(Singleton):
                 # Preserve the source ID independently of later URL migration.
                 await diagnostics.record('fetch', outcome_level, outcome, outcome_message,
                                          feed_id=diagnostic_id, detail=outcome_detail, context=diagnostic_context)
+                if result is not None:
+                    result.update(outcome=outcome.removeprefix('fetch.'),
+                                  new_entries=diagnostic_context.get('new_entries', 0),
+                                  http_status=diagnostic_context.get('http_status'),
+                                  failures=diagnostic_context.get('failures'))
             if feed.error_count != new_error_count:
                 feed.error_count = new_error_count
                 feed_updated_fields.add('error_count')
@@ -479,6 +536,13 @@ class Monitor(Singleton):
                                                   'exception_type': type(error).__name__})
                 _mark_diagnosed(error, diagnostic_id)
                 raise
+            finally:
+                if journal and rss_d is not None:
+                    # URL migration can replace the Feed object. Store the
+                    # observed items under the same final ID used for delivery,
+                    # including successful checks with no new entries.
+                    await journal.capture(feed.id, rss_d.entries)
+                    article_keys = {article_history.article_key(entry) for entry in islice(rss_d.entries, 20)}
             if outcome and previous_errors and not new_error_count and outcome_level == 'info':
                 await diagnostics.record('fetch', 'info', 'fetch.recovered', '订阅源抓取已恢复。',
                                          feed_id=diagnostic_id,
@@ -488,6 +552,24 @@ class Monitor(Singleton):
         from ..management.metrics import record
         await record(fetched=len(updated_entries))
         updated_entries.reverse()  # send the earliest entry first
-        await Notifier(feed=feed, subs=subs, entries=updated_entries).notify_all()
+        if subscription_provider:
+            # Re-check service restrictions after the HTTP request, immediately
+            # before queueing delivery. A web ban/pause during fetching wins.
+            previous_targets = {sub.user_id for sub in subs}
+            subs = await subscription_provider(feed.id)
+            if journal:
+                stopped_targets = previous_targets - {sub.user_id for sub in subs}
+                for entry in updated_entries:
+                    if article_history.article_key(entry) in article_keys:
+                        for target in stopped_targets:
+                            await journal.mark(feed.id, entry, target, 'failed',
+                                detail='会话已被暂停、封禁或退出，未提交推送。', source=article_source)
+        notifier_options = dict(article_journal=journal, article_source=article_source,
+                                article_keys=article_keys) if journal or article_journal is False else {}
+        if resolve_subscription is not None:
+            notifier_options['resolve_subscription'] = resolve_subscription
+        await Notifier(feed=feed, subs=subs, entries=updated_entries, **notifier_options).notify_all()
+        if result is not None:
+            result.update(push_status='submitted' if subs else 'not_started', affected_recipients=len(subs))
         stat.updated()
         return

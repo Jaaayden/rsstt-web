@@ -3,6 +3,8 @@ on:
   pull_request:
     paths:
       - 'Dockerfile'
+      - 'compose.testing.yaml'
+      - '.env.testing.example'
       - '.dockerignore'
       - 'requirements.txt'
       - 'setup.*'
@@ -16,6 +18,8 @@ on:
     branches: [main, 'integration/**']
     paths:
       - 'Dockerfile'
+      - 'compose.testing.yaml'
+      - '.env.testing.example'
       - '.dockerignore'
       - 'requirements.txt'
       - 'setup.*'
@@ -47,6 +51,12 @@ jobs:
         with:
           fetch-depth: 0
       - uses: docker/setup-buildx-action@v4
+      - name: Validate isolated online test configuration
+        env:
+          TEST_BOT_TOKEN: test-placeholder-only
+          TEST_MANAGER_ID: '1'
+          TEST_WEB_PASSWORD: ci-validation-password-only
+        run: docker compose -p rsstt-web-test --env-file /dev/null -f compose.testing.yaml config --quiet
       - name: Check resource probe applicability
         id: resource
         shell: bash

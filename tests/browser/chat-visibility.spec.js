@@ -89,6 +89,8 @@ test("live API: blocked visibility and activity filters compose with URL, search
         await page.getByRole("button", { name: "保存角色", exact: true }).click();
         await expect(page.locator(`[data-target-edit="${activeTarget}"]`)).toHaveCount(0);
         await expect(page.locator("#toast")).toContainText("会话已封禁，订阅已暂停。可切换到“已封禁”查看。");
+        await expect(page.getByRole("dialog")).toContainText("解除封禁后不会自动恢复订阅");
+        await page.locator("#dialog .dialog-head [data-action=close]").click();
         await page.locator("#visibility-filter").selectOption("banned");
         await page.locator(`[data-target-edit="${activeTarget}"]`).click();
         await page.getByRole("button", { name: "修改角色", exact: true }).click();

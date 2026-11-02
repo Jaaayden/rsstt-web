@@ -28,6 +28,7 @@ from collections import defaultdict
 from .. import log, env, locks
 from ..errors_collection import MediaSendFailErrors
 from ..management import diagnostics
+from ..management import send_guard
 from .medium import Media, TypeMessage, TypeMessageMedia, VIDEO, ANIMATION, MEDIA_GROUP
 from .splitter import html_to_telegram_split
 
@@ -160,6 +161,9 @@ class Message:
                 async with msg_lock:  # acquire a msg lock
                     # only acquire overall semaphore when sending
                     async with self.__overall_semaphore:
+                        # The manual task's permissions may have changed while
+                        # waiting for flood, destination or concurrency locks.
+                        await send_guard.check(self.user_id)
                         if self.media_type == MEDIA_GROUP:
                             # Extracted from telethon.client.uploads.UploadMethods._send_album()
                             media = []
@@ -176,10 +180,13 @@ class Message:
                                 multi_media=media,
                                 silent=self.silent
                             )
+                            await send_guard.check(self.user_id)
+                            send_guard.attempted(self.user_id)
                             result = await env.bot(request)
                             random_ids = [m.random_id for m in media]
                             return env.bot._get_response_message(random_ids, result, entity)
                         # non-album
+                        send_guard.attempted(self.user_id)
                         return await env.bot.send_message(entity=self.user_id,
                                                           message=self.plain_text,
                                                           formatting_entities=self.format_entities,

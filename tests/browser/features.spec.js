@@ -53,7 +53,7 @@ test("source recipients, filtered export and global 请求标识（User-Agent）
     await page.locator('input[value="1"]').check();
     await page.getByRole("button", { name: "保存接收会话" }).click();
     expect(recipients).toEqual({ mode: "append", targets: ["-1001001", "1"] });
-    await page.locator("[data-sub-edit]").first().click();
+    await expect(page.getByRole("dialog").getByRole("heading")).toHaveText("订阅设置");
     await page.getByRole("button", { name: "订阅源请求设置" }).click();
     await page.getByRole("button", { name: "保存设置", exact: true }).click();
     expect(fetchOptions).toEqual({ user_agent: null });
@@ -256,6 +256,8 @@ test("role protection and Bot language remain separate from console language", a
     await page.locator("select[name=role]").selectOption("banned");
     await page.getByRole("button", { name: "保存角色" }).click();
     expect(rolePatch).toEqual({ role: "banned" });
+    await expect(page.getByRole("dialog").getByLabel("Bot 回复语言")).toBeVisible();
+    await page.locator("#dialog .dialog-head [data-action=close]").click();
     await expect(page.getByRole("dialog")).not.toBeVisible();
     // Saving refreshes the list; let any intercepted request finish before
     // Playwright disposes the context and its APIResponse objects.

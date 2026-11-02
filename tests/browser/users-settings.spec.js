@@ -30,8 +30,7 @@ test("live API: runtime persistence, secret masking, roles and Bot language", as
     await page.getByRole("button", { name: "修改角色", exact: true }).click();
     await page.locator("select[name=role]").selectOption("admin");
     await page.getByRole("button", { name: "保存角色", exact: true }).click();
-    await expect(page.getByRole("dialog")).not.toBeVisible();
-    await page.getByRole("button", { name: "管理 Alex Chen", exact: true }).click();
+    await expect(page.getByRole("dialog").getByRole("heading", { name: "服务控制", exact: true })).toBeVisible();
     await expect(page.getByText("Bot 用户角色：Bot 管理员", { exact: true })).toBeVisible();
     await page.getByLabel("Bot 回复语言").selectOption("en");
     await page.getByRole("button", { name: "保存会话默认设置", exact: true }).click();

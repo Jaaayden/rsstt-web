@@ -177,7 +177,7 @@ def capture(connection, options, console=None):
     manifest = {'format': 'rsstt-logical-backup', 'version': 1, 'database': 'sqlite',
                 'created_at': datetime.now(timezone.utc).isoformat(),
                 'included': options, 'extensions': extensions, 'sha256': hashlib.sha256(payload).hexdigest(),
-                'excluded': ['web_sessions', 'bot_token', 'telethon_session', 'deployment_environment', 'notify_jobs'],
+                'excluded': ['web_sessions', 'bot_token', 'telethon_session', 'deployment_environment', 'notify_jobs', 'recent_articles'],
                 'consistency': 'single SQLite transaction across main and console'}
     return encode({'manifest': manifest, 'data': data})
 
@@ -338,6 +338,12 @@ def apply_rows(connection, package, options):
         connection.execute('DELETE FROM console.diagnostic_events')
     if connection.execute("SELECT 1 FROM console.sqlite_master WHERE type='table' AND name='notify_jobs'").fetchone():
         connection.execute('DELETE FROM console.notify_jobs')
+    # The disposable article cache refers to upstream numeric IDs. They may be
+    # reused by restored data, so no old delivery evidence may survive a restore.
+    for cache in ('article_deliveries', 'article_cache'):
+        if connection.execute('SELECT 1 FROM console.sqlite_master WHERE type=\'table\' AND name=?', (cache,)).fetchone():
+            connection.execute(f'DELETE FROM console.{ident(cache)}')
+    connection.execute("DELETE FROM console.meta WHERE key='articles_started_at'")
     # Restore invalidates target sessions too. Source sessions are never included.
     connection.execute("DELETE FROM console.credentials WHERE kind='session'")
     for schema in ('main', 'console'):

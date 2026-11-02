@@ -12,7 +12,7 @@ from aiohttp import web
 
 from .. import db, env
 from ..command import inner
-from . import diagnostics, metrics, notifications
+from . import articles, diagnostics, metrics, notifications
 from .statistics import usage
 from .service import Problem, Service, chat_id, integer, BANNED_RESUME_MESSAGE
 from .store import Store
@@ -120,6 +120,8 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
             'recipients': '/api/feeds/{id}/recipients', 'statistics': '/api/statistics',
             'chat_activity': '/api/targets/{id}/activity',
             'diagnostics': '/api/diagnostics',
+            'manual_fetch': '/api/subscriptions/{id}/fetch-now',
+            'articles': '/api/subscriptions/{id}/articles',
         }.items()}
         return web.json_response({'demo': demo, 'snapshot': snapshot, 'features': features})
 
@@ -524,6 +526,14 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
     install(routes, service, body, admin)
     from .diagnostics_api import install as install_diagnostics
     install_diagnostics(routes, service, admin)
+    articles.routes(routes, service, admin)
+    from .manual_fetch import install as install_manual_fetch
+    manual_fetch = install_manual_fetch(routes, service, admin, body, snapshot=snapshot)
+
+    async def close_manual_fetch(application):
+        await manual_fetch.close()
+
+    app.on_cleanup.append(close_manual_fetch)
     app.add_routes(routes)
     return app
 
@@ -548,6 +558,7 @@ async def start():
         await web.TCPSite(_runner, host, port).start()
         metrics.store = _store
         diagnostics.install(_store)
+        articles.install(_store)
         _store.diagnostics.emit('system', 'info', 'console.started', '网页管理台已启动。')
         notifier = app[NOTIFICATIONS_KEY]
         await notifier.baseline()
@@ -571,6 +582,7 @@ async def stop():
     if _store:
         _store.diagnostics.emit('system', 'info', 'console.stopped', '网页管理台正在正常停止。')
     diagnostics.uninstall(_store)
+    articles.uninstall(_store)
     notifications.active = None
     metrics.store = None
     from . import feed_options

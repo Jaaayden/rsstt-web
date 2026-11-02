@@ -111,6 +111,16 @@ export function count(value, unit) {
     return `${new Intl.NumberFormat(locale).format(value)} ${word}`;
 }
 const messages = {
+    manualTestConfirm: [
+        "我确认向“{name}”测试推送最新一篇文章，可能重复已收到的内容。",
+        "I confirm sending the latest article to “{name}” as a test, even if it was delivered before.",
+    ],
+    manualUpdatesConfirm: [
+        "我确认立即检查来源，并向当前 {count} 个启用的接收会话提交新文章推送。",
+        "I confirm checking this feed now and submitting new entries to its {count} enabled recipient chats.",
+    ],
+    manualRecipientCount: ["当前影响 {count} 个启用的接收会话", "Currently affects {count} enabled recipient chats"],
+    articleRetention: ["每个订阅源保留最近 {count} 篇文章。", "The latest {count} articles are retained per feed."],
     pager: ["共 {total} 条 · 第 {page} / {pages} 页", "{total} items · Page {page} of {pages}"],
     attentionThreshold: [
         "连续抓取失败达到 {count} 次的已启用订阅",

@@ -20,9 +20,11 @@ class Store:
     def __init__(self, path):
         self.path = Path(path)
         self.lock = asyncio.Lock()
+        self.close_lock = asyncio.Lock()
         self.db = None
         self.backup_lock = None
         self.diagnostics = None
+        self.articles = None
 
     async def open(self):
         try:
@@ -69,10 +71,21 @@ class Store:
         await self.db.commit()
         from .diagnostics import initialize
         await initialize(self)
+        from .articles import initialize as initialize_articles
+        await initialize_articles(self)
         self.path.chmod(0o600)
         return self
 
     async def close(self):
+        async with self.close_lock:
+            await self._close()
+
+    async def _close(self):
+        if self.articles:
+            from .articles import uninstall
+            uninstall(self)
+            await self.articles.close()
+            self.articles = None
         if self.diagnostics:
             from .diagnostics import uninstall
             uninstall(self)

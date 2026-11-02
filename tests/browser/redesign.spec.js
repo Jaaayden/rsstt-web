@@ -176,7 +176,7 @@ test("keyboard dialog excludes background controls and returns focus after a des
     await page.keyboard.press("Enter");
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
-    const close = dialog.getByRole("button", { name: "关闭", exact: true }).first();
+    const close = dialog.getByRole("button", { name: "关闭窗口", exact: true }).first();
     const apply = dialog.getByRole("button", { name: "应用筛选", exact: true });
     await close.focus();
     // Chromium may move from a native dialog into browser chrome at a tab
