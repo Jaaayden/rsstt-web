@@ -312,3 +312,72 @@ async def test_latest_failures_are_visible_in_delivery_logs_without_article_text
     assert history['items'][0]['context']['stage'] == stage
     assert history['items'][0]['detail'] == 'RuntimeError'
     assert 'private-article-content-and-secret' not in json.dumps(history)
+
+
+async def finished_batch(context, batch):
+    for _ in range(400):
+        result = await (await context.client.get('/api/fetch-batches/' + batch['id'])).json()
+        if result['status'] != 'running':
+            return result
+        await asyncio.sleep(.001)
+    raise AssertionError('Batch did not finish')
+
+
+async def test_batch_fetch_goes_through_the_same_pipeline_once_per_feed(logged, monkeypatch):
+    paused_feed = await db.Feed.create(link='https://example.com/paused', title='Paused')
+    paused = await db.Sub.create(user_id=-1001, feed=paused_feed, state=0)
+    fetch = AsyncMock(return_value=response(logged.feed, [FeedParserDict(guid='e1', title='One', link='https://example.invalid/1')]))
+    monkeypatch.setattr(web, 'feed_get', fetch)
+    monkeypatch.setattr(Notifier, 'notify_all', AsyncMock())
+    path = '/api/subscriptions/fetch-now/batch'
+    headers = {'Origin': ORIGIN}
+    assert (await logged.client.post(path, json={'ids': [logged.sub.id]}, headers=headers)).status == 400  # no confirmation
+    assert (await logged.client.post(path, json={'ids': [], 'confirm': True}, headers=headers)).status == 400
+    assert (await logged.client.post(path, json={'ids': [999999], 'confirm': True}, headers=headers)).status == 404
+    created = await logged.client.post(path, json={'ids': [logged.sub.id, logged.other.id, paused.id], 'confirm': True}, headers=headers)
+    assert created.status == 202
+    result = await finished_batch(logged, await created.json())
+    assert result['status'] == 'completed' and result['total'] == 2        # two chats of one feed count once
+    assert result['counts'] == {'completed': 1, 'failed': 0, 'skipped': 1}
+    by_id = {item['subscription_id']: item for item in result['items']}
+    assert by_id[str(logged.sub.id)]['status'] == 'completed' and by_id[str(logged.sub.id)]['new_entries'] == 1
+    assert by_id[str(paused.id)]['status'] == 'skipped' and by_id[str(paused.id)]['code'] == 'MANUAL_FETCH_PAUSED'
+    fetch.assert_awaited_once()
+    assert (await logged.client.get('/api/fetch-batches/unknown')).status == 404
+
+
+async def test_batch_fetch_is_admin_only_and_one_at_a_time(context, logged, monkeypatch):
+    await context.client.post('/api/logout', headers={'Origin': ORIGIN})
+    path = '/api/subscriptions/fetch-now/batch'
+    body = {'ids': [context.sub.id], 'confirm': True}
+    assert (await context.client.post(path, json=body, headers={'Origin': ORIGIN})).status == 401
+    assert (await context.client.post(path, json=body, headers={**await token(context), 'Origin': ORIGIN})).status == 403
+    await context.client.post('/api/login', json={'password': PASSWORD}, headers={'Origin': ORIGIN})
+    gate = asyncio.Event()
+
+    async def slow(*args, **kwargs):
+        await gate.wait()
+        return response(context.feed)
+    monkeypatch.setattr(web, 'feed_get', slow)
+    first = await context.client.post(path, json=body, headers={'Origin': ORIGIN})
+    assert first.status == 202
+    second = await context.client.post(path, json=body, headers={'Origin': ORIGIN})
+    assert second.status == 409
+    gate.set()
+    assert (await finished_batch(context, await first.json()))['status'] == 'completed'
+
+
+async def test_batch_interval_sets_each_subscription_and_can_clear_it(logged):
+    headers = {'Origin': ORIGIN}
+    ids = [logged.sub.id, logged.other.id]
+    done = await logged.client.post('/api/subscriptions/batch', json={'ids': ids, 'action': 'interval', 'interval': 90}, headers=headers)
+    assert done.status == 200 and all(item['ok'] for item in (await done.json())['results'])
+    for sub in (logged.sub, logged.other):
+        await sub.refresh_from_db()
+        assert sub.interval == 90
+    assert (await logged.client.post('/api/subscriptions/batch', json={'ids': ids, 'action': 'interval'}, headers=headers)).status == 400
+    bad = await (await logged.client.post('/api/subscriptions/batch', json={'ids': ids, 'action': 'interval', 'interval': 0}, headers=headers)).json()
+    assert not any(item['ok'] for item in bad['results'])
+    await logged.client.post('/api/subscriptions/batch', json={'ids': ids, 'action': 'interval', 'interval': None}, headers=headers)
+    await logged.sub.refresh_from_db()
+    assert logged.sub.interval is None

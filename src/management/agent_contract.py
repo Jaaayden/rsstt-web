@@ -74,7 +74,8 @@ for name, item in (('TargetPage', 'Target'), ('SubscriptionPage', 'Subscription'
 
 BODY_SCHEMAS = {
     ('POST', '/api/subscriptions'): obj({'target': CHAT_ID, 'urls': array(STRING, minItems=1, maxItems=100)}, ('target', 'urls')),
-    ('POST', '/api/subscriptions/batch'): obj({'ids': array(INTEGER, minItems=1, maxItems=100), 'action': {'enum': ['pause', 'resume', 'delete']}}, ('ids', 'action')),
+    ('POST', '/api/subscriptions/batch'): obj({'ids': array(INTEGER, minItems=1, maxItems=100), 'action': {'enum': ['pause', 'resume', 'delete', 'interval']},
+                                                  'interval': {'type': ['integer', 'null'], 'minimum': 1, 'maximum': 32767, 'description': 'Only for action=interval; null inherits defaults'}}, ('ids', 'action')),
     ('POST', '/api/targets/{id}/opml'): obj({'opml': {'type': 'string', 'maxLength': 524288}}, ('opml',)),
     ('PUT', '/api/feeds/{id}/recipients'): obj({'mode': {'enum': ['append', 'replace']}, 'targets': array(CHAT_ID, maxItems=100)}, ('mode', 'targets')),
     ('PATCH', '/api/subscriptions/{id}'): obj({'state': {'enum': [0, 1]}, 'title': {'type': ['string', 'null']},
@@ -162,5 +163,5 @@ def openapi(router):
         if (method, path) in body_schemas:
             operation['requestBody'] = {'required': True, 'content': {'application/json': {'schema': body_schemas[method, path]}}}
         paths.setdefault(path, {})[method.lower()] = operation
-    return {'openapi': '3.1.0', 'info': {'title': 'RSStT Agent API', 'version': '1.1.2'}, 'paths': paths,
+    return {'openapi': '3.1.0', 'info': {'title': 'RSStT Agent API', 'version': '1.2.0'}, 'paths': paths,
             'components': {'securitySchemes': {'bearerAuth': {'type': 'http', 'scheme': 'bearer'}}, 'schemas': SCHEMAS}}

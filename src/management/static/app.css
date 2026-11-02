@@ -763,9 +763,11 @@ button.list-row:hover {
     bottom: 16px;
     z-index: 5;
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 8px;
     width: fit-content;
+    max-width: 100%;
     margin: 16px auto 0;
     padding: 8px 8px 8px 16px;
     border-radius: 12px;
@@ -783,6 +785,44 @@ button.list-row:hover {
 }
 .batchbar .btn-danger {
     color: #ffb4ad;
+}
+.batch-fetch-list {
+    max-height: 260px;
+    overflow: auto;
+    margin: 12px 0 0;
+    padding: 0;
+    list-style: none;
+    font-size: 13px;
+}
+.batch-fetch-list li {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 6px 0;
+    border-top: 1px solid var(--line);
+}
+.batch-fetch-list li > span:first-child {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.batch-fetch-list .bad {
+    color: var(--red);
+}
+.batch-fetch-bar {
+    height: 6px;
+    margin-top: 12px;
+    border-radius: 3px;
+    background: var(--line);
+    overflow: hidden;
+}
+.batch-fetch-bar > i {
+    display: block;
+    height: 100%;
+    background: var(--accent);
+    transition: width 0.3s;
 }
 .pager {
     display: flex;

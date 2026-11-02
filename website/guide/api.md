@@ -18,7 +18,7 @@ curl -X POST -H "Authorization: Bearer <token>" -H "Content-Type: application/js
 | GET | `/api/targets` | 会话列表 |
 | GET / POST | `/api/subscriptions` | 查询 / 添加订阅（每次最多 100 个地址） |
 | GET / PATCH / DELETE | `/api/subscriptions/{id}` | 查看 / 修改 / 取消订阅 |
-| POST | `/api/subscriptions/batch` | 批量暂停、恢复、取消 |
+| POST | `/api/subscriptions/batch` | 批量暂停、恢复、取消、设置检查间隔（`action: interval`） |
 | GET | `/api/subscriptions/opml` | 导出 OPML |
 | GET / PUT | `/api/feeds/{id}/recipients` | 查看 / 追加或替换一个源的接收会话 |
 | GET / POST | `/api/targets/{id}/opml` | 导出 / 导入某个会话的 OPML |

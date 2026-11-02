@@ -87,6 +87,8 @@ export function Subscriptions() {
     const [selected, setSelected] = useState(new Set());
     const [busy, setBusy] = useState("");
     const [proxyDialog, setProxyDialog] = useState(false);
+    const [intervalDialog, setIntervalDialog] = useState(false);
+    const [fetchDialog, setFetchDialog] = useState(false);
     const query = { q, target, ...statusQuery(status) };
     const { data, error, loading, reload } = useAsync(
         () => api("/subscriptions" + qs({ ...query, page, size: 30 })),
@@ -135,6 +137,16 @@ export function Subscriptions() {
         const params = ids.length ? { ids: ids.join(",") } : query;
         download("/subscriptions/opml" + qs(params), "rsstt.opml").catch((e) => toast(e.message, "error"));
     }
+    async function copyUrls() {
+        const urls = [...new Set(items.filter((s) => selected.has(s.id)).map((s) => s.url))];
+        try {
+            await navigator.clipboard.writeText(urls.join("\n"));
+            toast(L(`已复制 ${urls.length} 个地址`, `${urls.length} URLs copied`));
+        } catch {
+            toast(L("浏览器不允许写入剪贴板", "The browser blocked clipboard access"), "error");
+        }
+    }
+    const chosen = items.filter((s) => selected.has(s.id));
     const open = params.sub;
     const adding = params.add;
     return html`
@@ -267,7 +279,12 @@ export function Subscriptions() {
                   <span>${L(`已选 ${selected.size} 个`, `${selected.size} selected`)}</span>
                   <${Button} size="sm" icon="pause" loading=${busy === "pause"} onClick=${() => batch("pause")}>${L("暂停", "Pause")}<//>
                   <${Button} size="sm" icon="play" loading=${busy === "resume"} onClick=${() => batch("resume")}>${L("恢复", "Resume")}<//>
+                  ${app.info.features.manual_fetch
+                      ? html`<${Button} size="sm" icon="refresh" onClick=${() => setFetchDialog(true)}>${L("立即抓取", "Fetch now")}<//>`
+                      : null}
+                  <${Button} size="sm" icon="clock" onClick=${() => setIntervalDialog(true)}>${L("间隔", "Interval")}<//>
                   <${Button} size="sm" icon="globe" onClick=${() => setProxyDialog(true)}>${L("代理", "Proxy")}<//>
+                  <${Button} size="sm" icon="copy" onClick=${copyUrls}>${L("复制地址", "Copy URLs")}<//>
                   <${Button} size="sm" icon="download" onClick=${exportOpml}>${L("导出", "Export")}<//>
                   <${Button} size="sm" icon="trash" kind="danger" loading=${busy === "delete"} onClick=${() => batch("delete")}
                       >${L("取消订阅", "Unsubscribe")}<//
@@ -280,6 +297,20 @@ export function Subscriptions() {
                   feedIds=${[...new Set(items.filter((s) => selected.has(s.id)).map((s) => s.feed_id))]}
                   onClose=${() => setProxyDialog(false)}
                   onDone=${() => (setProxyDialog(false), setSelected(new Set()), reload(true))}
+              />`
+            : null}
+        ${intervalDialog
+            ? html`<${BatchInterval}
+                  ids=${chosen.map((s) => s.id)}
+                  onClose=${() => setIntervalDialog(false)}
+                  onDone=${() => (setIntervalDialog(false), setSelected(new Set()), reload(true))}
+              />`
+            : null}
+        ${fetchDialog
+            ? html`<${BatchFetch}
+                  chosen=${chosen}
+                  onClose=${() => setFetchDialog(false)}
+                  onFinished=${() => reload(true)}
               />`
             : null}
         ${open
@@ -331,6 +362,136 @@ function BatchProxy({ feedIds, onClose, onDone }) {
             )}
         </p>
         <${ProxyField} draft=${draft} onChange=${setDraft} />
+        ${error ? html`<${Notice} tone="error">${error}<//>` : null}
+    <//>`;
+}
+
+/* ---------------- batch interval ---------------- */
+
+function BatchInterval({ ids, onClose, onDone }) {
+    const settings = useAsync(() => api("/settings"), []);
+    const [value, setValue] = useState(60);
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState("");
+    const minimal = settings.data?.options.minimal_interval || 1;
+    async function submit() {
+        setBusy(true);
+        setError("");
+        try {
+            const result = await api("/subscriptions/batch", { method: "POST", body: { ids, action: "interval", interval: value } });
+            const failed = result.results.filter((r) => !r.ok);
+            if (failed.length) setError(L(`${failed.length} 个未处理：${failed[0].error}`, `${failed.length} not processed: ${failed[0].error}`));
+            else {
+                toast(L(`已更新 ${ids.length} 个订阅的检查间隔`, `Interval updated on ${ids.length} subscriptions`));
+                onDone();
+            }
+        } catch (err) {
+            setError(err.message);
+        } finally {
+            setBusy(false);
+        }
+    }
+    return html`<${Modal}
+        title=${L("设置检查间隔", "Set check interval")}
+        onClose=${onClose}
+        footer=${html`<${Button} onClick=${onClose}>${L("取消", "Cancel")}<//>
+            <${Button} kind="primary" loading=${busy} disabled=${!settings.data || (value != null && value < minimal)} onClick=${submit}
+                >${L("应用", "Apply")}<//
+            >`}
+    >
+        <p class="confirm-body">
+            ${L(
+                `把检查间隔应用到所选的 ${ids.length} 个订阅。这是每个订阅自己的设置，会覆盖会话默认值；选“跟随默认”可以清除。`,
+                `Applies to the ${ids.length} selected subscriptions. It is each subscription's own setting and overrides the chat default; “Default” clears it.`,
+            )}
+        </p>
+        ${settings.data
+            ? html`<${IntervalField}
+                  value=${value}
+                  minimal=${minimal}
+                  inheritLabel=${L(`跟随默认（${minutes(settings.data.options.default_interval)}）`, `Default (${minutes(settings.data.options.default_interval)})`)}
+                  onChange=${setValue}
+              />`
+            : html`<${Spinner} />`}
+        ${error ? html`<${Notice} tone="error">${error}<//>` : null}
+    <//>`;
+}
+
+/* ---------------- batch fetch now ---------------- */
+
+function BatchFetch({ chosen, onClose, onFinished }) {
+    const feeds = new Set(chosen.map((s) => s.feed_id)).size;
+    const [batch, setBatch] = useState(null);
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState("");
+    const timer = useRef();
+    useEffect(() => () => clearTimeout(timer.current), []);
+    const names = Object.fromEntries(chosen.map((s) => [String(s.id), s.title]));
+    async function poll(id) {
+        try {
+            const next = await api(`/fetch-batches/${id}`);
+            setBatch(next);
+            if (next.status === "running") timer.current = setTimeout(() => poll(id), 1500);
+            else onFinished();
+        } catch (err) {
+            setError(err.message);
+        }
+    }
+    async function start() {
+        setBusy(true);
+        setError("");
+        try {
+            const created = await api("/subscriptions/fetch-now/batch", {
+                method: "POST",
+                body: { ids: chosen.map((s) => s.id), confirm: true },
+            });
+            setBatch(created);
+            poll(created.id);
+        } catch (err) {
+            setError(err.message);
+        } finally {
+            setBusy(false);
+        }
+    }
+    const running = batch?.status === "running";
+    const done = batch ? batch.counts.completed + batch.counts.failed + batch.counts.skipped : 0;
+    const label = { queued: L("等待", "Waiting"), running: L("抓取中", "Fetching"), completed: L("完成", "Done"), failed: L("失败", "Failed"), skipped: L("跳过", "Skipped") };
+    return html`<${Modal}
+        title=${L("立即抓取", "Fetch now")}
+        onClose=${running ? () => {} : onClose}
+        footer=${batch
+            ? html`<${Button} kind="primary" disabled=${running} onClick=${onClose}>${running ? L("抓取中…", "Fetching…") : L("完成", "Done")}<//>`
+            : html`<${Button} onClick=${onClose}>${L("取消", "Cancel")}<//>
+                  <${Button} kind="primary" loading=${busy} onClick=${start}>${L("开始抓取", "Start")}<//>`}
+    >
+        ${batch
+            ? html`<p class="confirm-body">
+                      ${running
+                          ? L(`正在逐个抓取，已处理 ${done} / ${batch.total}。可以先去做别的，但请不要关闭页面。`, `Fetching one by one: ${done} of ${batch.total}. Please keep this page open.`)
+                          : L(
+                                `完成：成功 ${batch.counts.completed}，失败 ${batch.counts.failed}，跳过 ${batch.counts.skipped}。失败原因可在“运行日志”查看。`,
+                                `Finished: ${batch.counts.completed} fetched, ${batch.counts.failed} failed, ${batch.counts.skipped} skipped. See Logs for failure details.`,
+                            )}
+                  </p>
+                  <div class="batch-fetch-bar"><i style=${`width:${batch.total ? Math.round((done / batch.total) * 100) : 0}%`}></i></div>
+                  <ul class="batch-fetch-list">
+                      ${batch.items.map(
+                          (item) => html`<li>
+                              <span title=${names[item.subscription_id] || ""}>${names[item.subscription_id] || `#${item.subscription_id}`}</span>
+                              <span class=${item.status === "failed" ? "bad" : "muted"}
+                                  >${label[item.status]}${item.status === "completed" && item.new_entries
+                                      ? L(` · ${item.new_entries} 篇新文章`, ` · ${item.new_entries} new`)
+                                      : ""}${item.error ? ` · ${item.error}` : ""}</span
+                              >
+                          </li>`,
+                      )}
+                  </ul>`
+            : html`<p class="confirm-body">
+                  ${L(
+                      `立刻抓取所选订阅涉及的 ${feeds} 个订阅源，逐个进行。有新文章会推送给订阅它们的全部会话，和定时检查完全一样。已暂停或不可用的订阅会被跳过。`,
+                      `Fetches the ${feeds} feeds behind your selection, one by one. New posts go to every chat subscribed to them, exactly like a scheduled check. Paused or unavailable subscriptions are skipped.`,
+                  )}
+              </p>`}
         ${error ? html`<${Notice} tone="error">${error}<//>` : null}
     <//>`;
 }

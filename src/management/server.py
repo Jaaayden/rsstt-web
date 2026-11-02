@@ -443,8 +443,10 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
     async def batch(request):
         values = await body(request)
         ids, action = values.get('ids'), values.get('action')
-        if not isinstance(ids, list) or not 1 <= len(ids) <= 100 or action not in ('pause', 'resume', 'delete'):
-            raise Problem('每次可处理 1–100 条订阅，操作可选 pause、resume、delete。')
+        if not isinstance(ids, list) or not 1 <= len(ids) <= 100 or action not in ('pause', 'resume', 'delete', 'interval'):
+            raise Problem('每次可处理 1–100 条订阅，操作可选 pause、resume、delete、interval。')
+        if action == 'interval' and 'interval' not in values:
+            raise Problem('请提供更新间隔（分钟）；null 表示跟随默认。')
         result = []
         async with service.mutation:
             # Authorize the entire selection before applying any writes.
@@ -453,6 +455,8 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
                 try:
                     if action == 'delete':
                         await service.delete(sub)
+                    elif action == 'interval':
+                        await service.patch(sub, {'interval': values['interval']})
                     else:
                         if action == 'resume':
                             if sub.user.state == -1:
