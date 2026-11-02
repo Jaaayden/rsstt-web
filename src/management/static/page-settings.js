@@ -1380,17 +1380,29 @@ function CreateToken({ onClose }) {
 function Account() {
     const settings = useAsync(() => api("/settings"), []);
     const sessions = useAsync(() => api("/auth/sessions"), []);
-    const [form, setForm] = useState({ current: "", next: "", again: "" });
+    const account = useAsync(() => api("/auth/account"), []);
+    const [form, setForm] = useState({ name: null, current: "", next: "", again: "" });
     const [error, setError] = useState("");
     const [busy, setBusy] = useState("");
     const mismatch = form.again && form.next !== form.again;
+    const name = form.name ?? account.data?.username ?? "";
+    const renamed = !!account.data && name.trim() !== account.data.username;
+    const newPassword = form.next !== "";
     async function change(e) {
         e.preventDefault();
         setBusy("password");
         setError("");
         try {
-            await api("/auth/password", { method: "POST", body: { current_password: form.current, new_password: form.next } });
-            toast(L("密码已修改，请用新密码重新登录", "Password changed. Sign in with the new password."));
+            const body = { current_password: form.current };
+            if (renamed) body.username = name.trim();
+            if (newPassword) body.new_password = form.next;
+            await api("/auth/password", { method: "POST", body });
+            try {
+                if (renamed) localStorage.setItem("rsstt.user", name.trim());
+            } catch {
+                /* private mode */
+            }
+            toast(L("已修改，请重新登录", "Saved. Sign in again."));
             app.session = null;
             emit();
         } catch (err) {
@@ -1416,22 +1428,35 @@ function Account() {
     const s = settings.data;
     return html`
         <${Card}
-            title=${L("修改密码", "Change password")}
+            title=${L("账号与密码", "Account and password")}
             description=${L(
-                "修改后所有设备需要重新登录。部署时的 WEB_PASSWORD 只在第一次启动时使用。",
-                "All devices will need to sign in again. WEB_PASSWORD from deployment is only used on first start.",
+                "登录网页管理台用的账号和密码。修改后所有设备需要重新登录；部署时的 WEB_PASSWORD 只在第一次启动时使用。",
+                "The username and password for this console. All devices will need to sign in again; WEB_PASSWORD from deployment is only used on first start.",
             )}
         >
             <form class="stack" style="max-width:420px;gap:14px" onSubmit=${change}>
+                <${Field} label=${L("账号", "Username")} hint=${L("字母、数字和 . _ @ + -，最多 64 个字符。", "Letters, digits and . _ @ + -, up to 64 characters.")}
+                    ><${Input}
+                        name="username"
+                        autocomplete="username"
+                        autocapitalize="none"
+                        spellcheck="false"
+                        value=${name}
+                        onInput=${(v) => setForm({ ...form, name: v })}
+                /><//>
                 <${Field} label=${L("当前密码", "Current password")}
                     ><${Input}
+                        name="current-password"
                         type="password"
                         autocomplete="current-password"
                         value=${form.current}
                         onInput=${(v) => setForm({ ...form, current: v })}
                 /><//>
-                <${Field} label=${L("新密码", "New password")} hint=${L("至少 16 个字符。", "At least 16 characters.")}
+                <${Field}
+                    label=${L("新密码", "New password")}
+                    hint=${L("至少 16 个字符；只想改账号时留空。", "At least 16 characters; leave empty to only change the username.")}
                     ><${Input}
+                        name="new-password"
                         type="password"
                         autocomplete="new-password"
                         value=${form.next}
@@ -1450,8 +1475,11 @@ function Account() {
                         kind="primary"
                         type="submit"
                         loading=${busy === "password"}
-                        disabled=${!form.current || form.next.length < 16 || form.next !== form.again}
-                        >${L("修改密码", "Change password")}<//
+                        disabled=${!form.current ||
+                        !(renamed || newPassword) ||
+                        (newPassword && (form.next.length < 16 || form.next !== form.again)) ||
+                        !name.trim()}
+                        >${L("保存", "Save")}<//
                     >
                 </div>
             </form>

@@ -3,8 +3,11 @@ import asyncio
 import hashlib
 import hmac
 import secrets
+import re
 import time
 from collections import OrderedDict
+
+USERNAME = re.compile(r'[A-Za-z0-9._@+-]{1,64}')
 
 
 # Backup integrations preserve these tables unless credentials are explicitly
@@ -43,7 +46,8 @@ class Auth:
     def hash(self, password):
         return hashlib.scrypt(password.encode(), salt=self.salt, n=16384, r=8, p=1)
 
-    async def verify(self, password, address):
+    async def verify(self, password, address, username=None):
+        """`username` is checked when given (the sign-in form always sends it); scripts may still omit it."""
         from .service import Problem
         now = time.monotonic()
         count, since = self.attempts.pop(address, (0, now))
@@ -58,24 +62,31 @@ class Auth:
             raise Problem('登录凭据不正确。', 401, code='INVALID_CREDENTIALS')
         async with self.lock:
             result = await asyncio.to_thread(self.hash, password)
-        if not hmac.compare_digest(result, self.password):
+        wrong_user = username is not None and not (
+            isinstance(username, str) and hmac.compare_digest(username.strip().encode(), self.username.encode()))
+        if not hmac.compare_digest(result, self.password) or wrong_user:
             raise Problem('登录凭据不正确。', 401, code='INVALID_CREDENTIALS')
         self.attempts.pop(address, None)
 
-    async def change(self, password):
+    async def change(self, password=None, username=None):
         from .service import Problem
-        try:
-            self.validate(password)
-        except ValueError:
-            raise Problem('新密码需为 16–512 个字符。', code='NEW_PASSWORD_INVALID')
-        salt = secrets.token_bytes(16)
-        hashed = await asyncio.to_thread(hashlib.scrypt, password.encode(), salt=salt, n=16384, r=8, p=1)
+        if username is not None and not USERNAME.fullmatch(username):
+            raise Problem('账号需为 1–64 个字符，可用字母、数字和 . _ @ + -。', code='NEW_USERNAME_INVALID')
+        salt, hashed = self.salt, self.password
+        if password is not None:
+            try:
+                self.validate(password)
+            except ValueError:
+                raise Problem('新密码需为 16–512 个字符。', code='NEW_PASSWORD_INVALID')
+            salt = secrets.token_bytes(16)
+            hashed = await asyncio.to_thread(hashlib.scrypt, password.encode(), salt=salt, n=16384, r=8, p=1)
+        name = self.username if username is None else username
         async with self.store.lock:
             try:
-                await self.store.db.execute('UPDATE console_admin SET salt=?,hash=? WHERE id=1', (salt, hashed))
+                await self.store.db.execute('UPDATE console_admin SET username=?,salt=?,hash=? WHERE id=1', (name, salt, hashed))
                 await self.store.db.execute("DELETE FROM credentials WHERE kind='session'")
                 await self.store.db.commit()
             except BaseException:
                 await self.store.db.rollback()
                 raise
-        self.salt, self.password = salt, hashed
+        self.salt, self.password, self.username = salt, hashed, name

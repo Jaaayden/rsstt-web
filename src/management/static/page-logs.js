@@ -40,6 +40,7 @@ const EN = {
     "auth.signed_in": "Administrator signed in.",
     "auth.sign_in_failed": "Sign-in failed.",
     "auth.password_changed": "Console password changed; other sessions signed out.",
+    "auth.username_changed": "Console account name changed; other sessions signed out.",
     "auth.password_change_rejected": "Password not changed: current password was wrong.",
     "auth.token_issued": "API token created.",
     "auth.token_revoked": "API token revoked.",

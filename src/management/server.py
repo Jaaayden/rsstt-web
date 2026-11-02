@@ -190,13 +190,11 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
         values = await body(request)
         async with auth.change_lock:
             try:
-                await auth.verify(values.get('password'), client_ip(request))
+                await auth.verify(values.get('password'), client_ip(request), values.get('username'))
             except Problem:
-                store.diagnostics.emit('system', 'warning', 'auth.sign_in_failed', '管理台登录失败，请检查密码或稍后重试。')
+                store.diagnostics.emit('system', 'warning', 'auth.sign_in_failed', '管理台登录失败，请检查账号、密码或稍后重试。')
                 raise
             await store.execute("DELETE FROM credentials WHERE kind='session' AND id NOT IN (SELECT id FROM credentials WHERE kind='session' ORDER BY created_at DESC LIMIT 19)")
-            if values.get('username', auth.username) != auth.username:
-                raise Problem('登录凭据不正确。', 401, code='INVALID_CREDENTIALS')
             _, secret = await store.issue(auth.username, days=1 / 3)
         await store.audit(auth.username, 'login', 'success')
         store.diagnostics.emit('system', 'info', 'auth.signed_in', '管理员已登录网页管理台。')
@@ -226,9 +224,18 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
                     store.diagnostics.emit('system', 'warning', 'auth.password_change_rejected', '管理台密码未修改：当前密码不正确。')
                     raise Problem('当前密码不正确，密码未修改。', code='CURRENT_PASSWORD_INCORRECT') from None
                 raise
-            await auth.change(values.get('new_password'))
-        await store.audit(auth.username, 'password_changed', 'all browser sessions revoked')
-        store.diagnostics.emit('system', 'info', 'auth.password_changed', '管理台密码已修改，原有网页登录已失效。')
+            new_password, new_username = values.get('new_password'), values.get('username')
+            if new_username is not None and new_username == auth.username:
+                new_username = None
+            if new_password is None and new_username is None:
+                raise Problem('没有需要修改的内容。', code='NOTHING_TO_CHANGE')
+            await auth.change(new_password, new_username)
+        await store.audit(auth.username, 'password_changed' if new_password is not None else 'username_changed',
+                          'all browser sessions revoked')
+        if new_password is not None:
+            store.diagnostics.emit('system', 'info', 'auth.password_changed', '管理台密码已修改，原有网页登录已失效。')
+        else:
+            store.diagnostics.emit('system', 'info', 'auth.username_changed', '管理台账号已修改，原有网页登录已失效。')
         response = web.json_response({'ok': True})
         response.del_cookie(cookie_name)
         return response

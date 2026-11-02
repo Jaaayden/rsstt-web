@@ -2,11 +2,13 @@
 const { test, expect } = require("@playwright/test");
 
 const PASSWORD = process.env.WEB_PASSWORD;
+const USERNAME = "preview-admin"; // the demo instance's account
 
 async function signIn(page, path = "/") {
     await page.addInitScript(() => localStorage.setItem("rsstt.lang", "zh"));
     await page.goto(path);
-    await page.getByLabel("密码").fill(PASSWORD);
+    await page.locator("input[name=username]").fill(USERNAME);
+    await page.locator("input[name=password]").fill(PASSWORD);
     await page.getByRole("button", { name: "登录" }).click();
     await expect(page.locator(".sidebar")).toBeVisible();
 }
@@ -24,10 +26,15 @@ test.afterEach(async ({ page }) => {
 test("rejects a wrong password, then signs in", async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem("rsstt.lang", "zh"));
     await page.goto("/");
-    await page.getByLabel("密码").fill("definitely-not-the-password");
+    await page.locator("input[name=username]").fill(USERNAME);
+    await page.locator("input[name=password]").fill("definitely-not-the-password");
     await page.getByRole("button", { name: "登录" }).click();
-    await expect(page.getByText("密码不正确")).toBeVisible();
-    await page.getByLabel("密码").fill(PASSWORD);
+    await expect(page.getByText("账号或密码不正确")).toBeVisible();
+    await page.locator("input[name=username]").fill("someone-else");
+    await page.locator("input[name=password]").fill(PASSWORD);
+    await page.getByRole("button", { name: "登录" }).click();
+    await expect(page.getByText("账号或密码不正确")).toBeVisible();  // right password, wrong account
+    await page.locator("input[name=username]").fill(USERNAME);
     await page.getByRole("button", { name: "登录" }).click();
     await expect(page.getByRole("heading", { name: "概览" })).toBeVisible();
 });
