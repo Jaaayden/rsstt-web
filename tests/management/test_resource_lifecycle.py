@@ -114,6 +114,6 @@ def test_force_quit_exits_without_signalling_itself(tmp_path):
         entrypoint.force_quit()
         assert exits == [137] and not kills, (exits, kills)
     """)
-    done = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True, timeout=120,
-                          env={**__import__('os').environ, 'TOKEN': '1:x', 'MANAGER': '1', 'PATH_TO_CONFIG': str(tmp_path)})
+    done = subprocess.run([sys.executable, '-c', code, '-c', str(tmp_path)], capture_output=True, text=True,
+                          timeout=120, env={**__import__('os').environ, 'TOKEN': '1:x', 'MANAGER': '1'})
     assert done.returncode == 0, done.stderr[-800:]
