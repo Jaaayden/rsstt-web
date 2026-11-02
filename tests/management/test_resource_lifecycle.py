@@ -102,12 +102,18 @@ async def test_monitor_failure_and_cancellation_keep_cooldown_until_release(erro
     assert not monitor._subtask_defer_map
 
 
-def test_force_quit_exits_without_signalling_itself(monkeypatch):
+def test_force_quit_exits_without_signalling_itself(tmp_path):
     """As PID 1 of a container a process cannot SIGKILL itself, so a stuck shutdown would never end."""
-    import os
-    from src import entrypoint
-    exits, kills = [], []
-    monkeypatch.setattr(os, '_exit', exits.append)
-    monkeypatch.setattr(os, 'kill', lambda *args: kills.append(args))
-    entrypoint.force_quit()
-    assert exits == [137] and not kills
+    import subprocess, sys, textwrap
+    code = textwrap.dedent("""
+        import os
+        exits, kills = [], []
+        os._exit = exits.append
+        os.kill = lambda *args: kills.append(args)
+        from src import entrypoint
+        entrypoint.force_quit()
+        assert exits == [137] and not kills, (exits, kills)
+    """)
+    done = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True, timeout=120,
+                          env={**__import__('os').environ, 'TOKEN': '1:x', 'MANAGER': '1', 'PATH_TO_CONFIG': str(tmp_path)})
+    assert done.returncode == 0, done.stderr[-800:]
