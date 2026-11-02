@@ -455,3 +455,24 @@ async def test_startup_channel_probe_does_not_delay_other_private_chats(context,
         release.set()
         await observer.stop()
     assert not observer.locks
+
+
+async def test_library_error_on_one_chat_does_not_abort_the_startup_sweep(context):
+    """Telethon raises AttributeError for basic groups with a hidden member list."""
+    client = Client()
+    client.entities[-1001] = group(1001)
+    client.entities[-1002] = group(1002)
+
+    async def permissions(entity, user):
+        if entity.id == 1001:
+            raise AttributeError("'ChatParticipantsForbidden' object has no attribute 'participants'")
+        return SimpleNamespace(is_creator=True)
+
+    client.get_permissions = AsyncMock(side_effect=permissions)
+    observer = lifecycle.ChatLifecycle(context.store, client, SELF)
+    await observer.reconcile_once()
+    assert observer.scan_complete
+    metadata = await context.store.target_map([-1001, -1002])
+    assert metadata['-1001']['membership'] == 'available'      # last known state kept
+    assert metadata['-1002']['membership'] == 'available'      # later chats still verified
+    assert (await db.Sub.get(id=context.sub.id)).state == 1

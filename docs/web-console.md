@@ -112,6 +112,8 @@ WEB_PASSWORD=replace-with-a-private-random-password
 
 网页写入校验同源地址（`WEB_ORIGIN` 或浏览器实际访问的当前主机），不开放 CORS，因此通过 IP、`localhost` 或域名打开都能正常登录。反向代理时建议把 `WEB_ORIGIN` 设为浏览器实际访问的完整 HTTPS 源站地址，管理台路径保持在 `/`。Docker 容器内的监听地址与宿主机发布地址不同，不能只把容器内的 `WEB_HOST` 改成回环地址。
 
+反向代理时请把访问者 IP 写入 `X-Real-IP`（nginx：`proxy_set_header X-Real-IP $remote_addr;`）。只有来自本机或内网地址（例如宿主机 nginx 经 Docker 端口转发）的请求才会采用这个请求头，登录失败次数按真实访问者计算；经过 Cloudflare 时，应先在 nginx 中用 `real_ip_header CF-Connecting-IP` 只信任 Cloudflare 的地址。
+
 Docker 镜像构建、离线导入、安装包资源和资源限额检查已有 CI 覆盖；这些结果不能代替真实 Telegram 发送、成员权限、退出操作或实际通知渠道的验收。上线前使用独立测试机器人和测试会话验证相关行为，具体矩阵见 [CI 说明](ci.md)。
 
 ## 设置、通知与恢复

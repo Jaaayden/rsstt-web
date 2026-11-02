@@ -226,9 +226,12 @@ class ChatLifecycle:
             self.flooded = True
             LOGGER.warning('Chat membership sweep deferred by Telegram flood control')
             await self._diagnostic('membership.rate_limited', 'Telegram 限流，会话状态核验已暂停。', error, ident)
-        except (errors.RPCError, OSError, asyncio.TimeoutError, ValueError, TypeError) as error:
+        except (errors.RPCError, OSError, asyncio.TimeoutError, ValueError, TypeError, AttributeError) as error:
             # In particular, ChannelPrivate/ChatAdminRequired are not evidence
             # that the bot left; retain the last known state and subscriptions.
+            # AttributeError: Telethon's get_permissions() on a basic group whose
+            # member list is hidden (ChatParticipantsForbidden) fails inside the
+            # library; one such chat must not abort the whole startup sweep.
             await self._diagnostic('membership.failed', '无法核验会话状态，已保留上次已知状态。', error, ident)
         if member_evidence and not self.closed:
             await self._unverified_member(ident, entity)

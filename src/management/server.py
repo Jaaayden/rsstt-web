@@ -188,7 +188,7 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
         values = await body(request)
         async with auth.change_lock:
             try:
-                await auth.verify(values.get('password'), request.remote)
+                await auth.verify(values.get('password'), client_ip(request))
             except Problem:
                 store.diagnostics.emit('system', 'warning', 'auth.sign_in_failed', '管理台登录失败，请检查密码或稍后重试。')
                 raise
@@ -218,7 +218,7 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
         values = await body(request)
         async with auth.change_lock:
             try:
-                await auth.verify(values.get('current_password'), request.remote)
+                await auth.verify(values.get('current_password'), client_ip(request))
             except Problem as error:
                 if error.code == 'INVALID_CREDENTIALS':
                     store.diagnostics.emit('system', 'warning', 'auth.password_change_rejected', '管理台密码未修改：当前密码不正确。')
@@ -666,6 +666,29 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
     app.on_cleanup.append(close_manual_fetch)
     app.add_routes(routes)
     return app
+
+
+def client_ip(request):
+    """The visitor's address for sign-in throttling.
+
+    Behind the documented reverse proxy (nginx on the host, the container port
+    published on 127.0.0.1) the TCP peer is a loopback or Docker-bridge
+    address, so X-Real-IP set by that proxy is trusted. A request coming from
+    any other peer cannot choose its own address this way.
+    """
+    import ipaddress
+    peer = request.remote or ''
+    try:
+        local = ipaddress.ip_address(peer).is_loopback or ipaddress.ip_address(peer).is_private
+    except ValueError:
+        local = False
+    forwarded = request.headers.get('X-Real-IP', '').strip()
+    if local and forwarded:
+        try:
+            return str(ipaddress.ip_address(forwarded))
+        except ValueError:
+            pass
+    return peer
 
 
 def in_container():

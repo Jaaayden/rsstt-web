@@ -216,3 +216,20 @@ async def test_healthy_fetches_skip_notification_storage(context):
     await engine.configure({'policy': {'threshold': 1}})
     await engine.event('fetch', '8', 1)                     # new threshold applies immediately
     assert len(await engine.history()) == 3
+
+
+async def test_sign_in_throttle_uses_proxy_client_ip(context):
+    """Behind nginx + Cloudflare, one attacker must not lock out the owner."""
+    headers = {'Origin': ORIGIN}
+    for _ in range(10):
+        await context.client.post('/api/login', json={'password': 'wrong-password-123'},
+                                  headers={**headers, 'X-Real-IP': '203.0.113.7'})
+    blocked = await context.client.post('/api/login', json={'password': PASSWORD},
+                                        headers={**headers, 'X-Real-IP': '203.0.113.7'})
+    assert blocked.status == 429
+    owner = await context.client.post('/api/login', json={'password': PASSWORD},
+                                      headers={**headers, 'X-Real-IP': '198.51.100.20'})
+    assert owner.status == 200
+    garbage = await context.client.post('/api/login', json={'password': PASSWORD},
+                                        headers={**headers, 'X-Real-IP': 'not-an-ip'})
+    assert garbage.status == 200
