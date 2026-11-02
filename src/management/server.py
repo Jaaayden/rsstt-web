@@ -199,7 +199,7 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
         await store.audit(auth.username, 'login', 'success')
         store.diagnostics.emit('system', 'info', 'auth.signed_in', '管理员已登录网页管理台。')
         response = web.json_response({'ok': True})
-        response.set_cookie(cookie_name, secret, httponly=True, secure=parsed.scheme == 'https' or request.secure or request.headers.get('X-Forwarded-Proto') == 'https', samesite='Strict', max_age=28800, path='/')
+        response.set_cookie(cookie_name, secret, httponly=True, secure=served_over_https(request), samesite='Strict', max_age=28800, path='/')
         return response
 
     @routes.get('/api/session')
@@ -689,6 +689,25 @@ def client_ip(request):
         except ValueError:
             pass
     return peer
+
+
+def served_over_https(request):
+    """Mark the session cookie Secure exactly when the browser is on HTTPS.
+
+    Through the documented reverse proxy (X-Forwarded-Proto: https from a
+    loopback/private peer) it is. Over an SSH tunnel to http://localhost:8730
+    it is not, and a Secure cookie would be dropped by some browsers (Safari),
+    making the emergency access path unusable; the tunnel itself is encrypted.
+    """
+    import ipaddress
+    if request.secure:
+        return True
+    try:
+        peer = ipaddress.ip_address(request.remote or '')
+        local = peer.is_loopback or peer.is_private
+    except ValueError:
+        local = False
+    return local and request.headers.get('X-Forwarded-Proto', '').lower() == 'https'
 
 
 def in_container():

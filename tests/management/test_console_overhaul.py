@@ -233,3 +233,15 @@ async def test_sign_in_throttle_uses_proxy_client_ip(context):
     garbage = await context.client.post('/api/login', json={'password': PASSWORD},
                                         headers={**headers, 'X-Real-IP': 'not-an-ip'})
     assert garbage.status == 200
+
+
+async def test_session_cookie_secure_follows_the_actual_scheme(context):
+    """HTTPS via the reverse proxy gets a Secure cookie; an SSH tunnel on http://localhost still signs in."""
+    proxied = await context.client.post('/api/login', json={'password': PASSWORD},
+                                        headers={'Origin': ORIGIN, 'X-Forwarded-Proto': 'https'})
+    assert proxied.status == 200 and 'Secure' in proxied.headers['Set-Cookie']
+    host = context.client.server.host + ':' + str(context.client.server.port)
+    tunnel = await context.client.post('/api/login', json={'password': PASSWORD},
+                                       headers={'Origin': f'http://{host}'})
+    assert tunnel.status == 200 and 'Secure' not in tunnel.headers['Set-Cookie']
+    assert 'HttpOnly' in tunnel.headers['Set-Cookie'] and 'SameSite=Strict' in tunnel.headers['Set-Cookie']

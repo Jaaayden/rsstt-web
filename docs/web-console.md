@@ -76,6 +76,16 @@ docker compose -f compose.console.yaml up -d
 
 升级现有实例时，先备份并停止原进程，再替换构建；保留原有 Token、Telegram session、数据和必要的代理设置。同一个 session／主库只运行一个机器人进程。
 
+### 备用访问入口
+
+管理台端口只监听宿主机回环地址，不直接暴露到公网。域名、Cloudflare 或反向代理不可用时，用 SSH 隧道访问：
+
+```sh
+ssh -N -L 8730:127.0.0.1:8730 -p 端口 用户@服务器
+```
+
+然后打开 `http://localhost:8730` 登录。登录 Cookie 只在浏览器实际使用 HTTPS 时标记 Secure，所以隧道里的 HTTP 访问在包括 Safari 在内的浏览器中都能登录；隧道本身已加密。
+
 ### 从原版迁移与回退
 
 rsstt-web 只需要一个镜像 `ghcr.io/jaaayden/rsstt-web`，它已经包含完整的机器人代码，不需要再同时运行官方镜像。
