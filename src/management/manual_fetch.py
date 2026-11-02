@@ -18,6 +18,9 @@ ACTIVE_LIMIT = 3
 HISTORY_LIMIT = 100
 HISTORY_SECONDS = 15 * 60
 TASK_TIMEOUT = 120
+BATCH_LIMIT = 100
+BATCH_HISTORY = 10
+BATCH_RETRY = (('MANUAL_FETCH_LIMIT', 'MANUAL_FETCH_BUSY'), 90)  # codes worth waiting for, seconds to keep trying
 MODES = ('updates', 'test_latest')
 DEPARTED = ('left', 'banned', 'disabled')
 
@@ -30,6 +33,8 @@ class ManualFetch:
         self.jobs = OrderedDict()
         self.tasks = {}
         self.feed_jobs = {}
+        self.batches = OrderedDict()
+        self.batch_task = None
         self.closed = False
         self.lock = asyncio.Lock()
 
@@ -129,6 +134,84 @@ class ManualFetch:
             raise Problem('找不到手动抓取任务，可能已超过记录保留时间。', 404,
                           code='MANUAL_FETCH_JOB_NOT_FOUND')
         return self.public(job)
+
+    async def submit_batch(self, ids, principal):
+        """Fetch several feeds one after another, the same way the single "fetch now" does."""
+        self.offline_check()
+        if not isinstance(ids, list) or not 1 <= len(ids) <= BATCH_LIMIT:
+            raise Problem(f'每次可抓取 1–{BATCH_LIMIT} 个订阅。')
+        if self.batch_task and not self.batch_task.done():
+            raise Problem('已有批量抓取正在进行，请等待它完成。', 409, code='MANUAL_FETCH_BUSY')
+        # Authorise the whole selection first; one job per feed, since a fetch serves every chat of that feed.
+        subs = [await self.service.subscription(ident, principal) for ident in dict.fromkeys(ids)]
+        per_feed = {}
+        for sub in subs:
+            per_feed.setdefault(sub.feed_id, sub)
+        items = [dict(subscription_id=str(sub.id), feed_id=str(feed_id), status='queued', error=None, code=None,
+                      new_entries=None) for feed_id, sub in per_feed.items()]
+        batch = dict(id=secrets.token_hex(12), status='running', total=len(items), items=items,
+                     counts=dict(completed=0, failed=0, skipped=0), _updated=time.monotonic())
+        self.batches[batch['id']] = batch
+        while len(self.batches) > BATCH_HISTORY:
+            self.batches.popitem(last=False)
+        self.batch_task = asyncio.create_task(self._run_batch(batch, principal))
+        return self.public_batch(batch)
+
+    @staticmethod
+    def public_batch(batch):
+        return {**{key: value for key, value in batch.items() if not key.startswith('_')},
+                'items': [dict(item) for item in batch['items']], 'counts': dict(batch['counts'])}
+
+    def get_batch(self, ident):
+        batch = self.batches.get(ident)
+        if batch is None:
+            raise Problem('找不到批量抓取任务，可能已超过记录保留时间。', 404, code='MANUAL_FETCH_JOB_NOT_FOUND')
+        return self.public_batch(batch)
+
+    async def _run_batch(self, batch, principal):
+        try:
+            for item in batch['items']:
+                item['status'] = 'running'
+                try:
+                    job = await self._submit_waiting(item['subscription_id'], principal)
+                    task = self.tasks.get(job['id'])
+                    if task:
+                        await asyncio.wait({task})
+                    job = self.jobs.get(job['id'], job)
+                    if job['status'] == 'completed':
+                        item.update(status='completed', new_entries=(job.get('result') or {}).get('new_entries'))
+                    else:
+                        item.update(status='failed', error=job.get('error'), code=job.get('code'))
+                except Problem as error:
+                    # Paused, banned, departed ... : nothing to fetch for this one.
+                    item.update(status='skipped', error=error.message, code=error.code)
+                except asyncio.CancelledError:
+                    item.update(status='failed', error='实例停止，批量抓取已中断。', code='MANUAL_FETCH_CANCELLED')
+                    raise
+                except Exception:
+                    item.update(status='failed', error='抓取未完成，请查看抓取日志。', code='MANUAL_FETCH_FAILED')
+                batch['counts'][item['status']] += 1
+                batch['_updated'] = time.monotonic()
+            batch['status'] = 'completed'
+        except asyncio.CancelledError:
+            batch['status'] = 'failed'
+            for item in batch['items']:
+                if item['status'] in ('queued', 'running'):
+                    item.update(status='failed', error='实例停止，批量抓取已中断。', code='MANUAL_FETCH_CANCELLED')
+            raise
+        finally:
+            batch['_updated'] = time.monotonic()
+
+    async def _submit_waiting(self, ident, principal):
+        codes, seconds = BATCH_RETRY
+        deadline = time.monotonic() + seconds
+        while True:
+            try:
+                return await self.submit(ident, principal, dict(mode='updates', confirm=True))
+            except Problem as error:
+                if error.code not in codes or time.monotonic() > deadline:
+                    raise
+            await asyncio.sleep(1)
 
     async def log(self, job, code, message, *, error=None):
         context = {'stage': 'manual', 'status': job['status']}
@@ -279,6 +362,9 @@ class ManualFetch:
 
     async def close(self):
         self.closed = True
+        if self.batch_task and not self.batch_task.done():
+            self.batch_task.cancel()
+            await asyncio.gather(self.batch_task, return_exceptions=True)
         tasks = dict(self.tasks)
         if tasks:
             Monitor.get_instance().stop_manual_resubmission(
@@ -310,6 +396,19 @@ def install(routes, service, admin, body, *, snapshot=False):
         admin(request)
         job = await manager.submit(request.match_info['id'], request['principal'], await body(request))
         return http.json_response(job, status=202)
+
+    @routes.post('/api/subscriptions/fetch-now/batch')
+    async def submit_batch(request):
+        admin(request)
+        values = await body(request)
+        if set(values) != {'ids', 'confirm'} or values.get('confirm') is not True:
+            raise Problem('请明确确认推送范围。', code='MANUAL_FETCH_CONFIRM_REQUIRED')
+        return http.json_response(await manager.submit_batch(values['ids'], request['principal']), status=202)
+
+    @routes.get('/api/fetch-batches/{id}')
+    async def batch_status(request):
+        admin(request)
+        return http.json_response(manager.get_batch(request.match_info['id']))
 
     @routes.get('/api/fetch-jobs/{id}')
     async def status(request):

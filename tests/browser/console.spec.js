@@ -164,6 +164,26 @@ test("per-feed proxy: save, keep the credentials hidden, batch apply", async ({ 
     await expect(page.locator(".toast", { hasText: "个订阅源，下次抓取生效" })).toBeVisible();
 });
 
+test("batch bar: fetch now, interval and copy URLs", async ({ page, context }) => {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    await signIn(page, "/#subscriptions?q=机器之心");
+    await page.getByRole("checkbox", { name: "全选" }).check();
+    const bar = page.locator(".batchbar");
+    await bar.getByRole("button", { name: "复制地址" }).click();
+    await expect(page.locator(".toast", { hasText: "个地址" })).toBeVisible();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(/^https?:\/\//);
+    await bar.getByRole("button", { name: "间隔" }).click();
+    await page.locator(".modal").getByRole("button", { name: "应用" }).click();
+    await expect(page.locator(".toast", { hasText: "检查间隔" })).toBeVisible();
+    await page.getByRole("checkbox", { name: "全选" }).check();
+    await bar.getByRole("button", { name: "立即抓取" }).click();
+    await expect(page.locator(".modal")).toContainText("逐个进行");
+    await page.locator(".modal").getByRole("button", { name: "开始抓取" }).click();
+    await expect(page.locator(".modal")).toContainText("完成：成功");
+    await page.locator(".modal").getByRole("button", { name: "完成" }).click();
+    await expect(page.locator(".modal")).toHaveCount(0);
+});
+
 test("add subscriptions shows per-URL results", async ({ page }) => {
     await signIn(page, "/#subscriptions?add=1");
     const modal = page.locator(".modal");
