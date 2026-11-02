@@ -57,13 +57,14 @@ WEB_ORIGIN=http://127.0.0.1:8730
 
 ```sh
 chmod 600 .env
-docker compose -f compose.console.yaml up -d --build
+docker compose -f compose.console.yaml pull
+docker compose -f compose.console.yaml up -d
 docker compose -f compose.console.yaml logs -f --tail=100 rsstt
 ```
 
 Open **http://127.0.0.1:8730** and sign in with your initial console password. The login form requires only the password. The production console account is named `admin`.
 
-The supplied Compose file builds `rsstt-web:local`, enables the console, and persists `./config` at `/app/config`. Inside the container the console listens on `0.0.0.0`; the published host port is bound only to `127.0.0.1`.
+The supplied Compose file pulls the prebuilt image `ghcr.io/jaaayden/rsstt-web` (bot and console in one image, built by GitHub Actions — nothing is compiled on your server), enables the console, and persists `./config` at `/app/config`. Inside the container the console listens on `0.0.0.0`; the published host port is bound only to `127.0.0.1`.
 
 For a remote server, a local SSH tunnel preserves this setup:
 

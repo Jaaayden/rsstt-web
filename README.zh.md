@@ -57,13 +57,14 @@ WEB_ORIGIN=http://127.0.0.1:8730
 
 ```sh
 chmod 600 .env
-docker compose -f compose.console.yaml up -d --build
+docker compose -f compose.console.yaml pull
+docker compose -f compose.console.yaml up -d
 docker compose -f compose.console.yaml logs -f --tail=100 rsstt
 ```
 
 打开 **http://127.0.0.1:8730**，使用刚设置的初始密码登录。登录表单只需填写密码，生产管理台账号名称为 `admin`。
 
-这份 Compose 配置构建本地镜像 `rsstt-web:local`，开启管理台，并将 `./config` 持久化到容器内的 `/app/config`。管理台在容器内监听 `0.0.0.0`，宿主机端口仅绑定 `127.0.0.1`。
+这份 Compose 配置直接拉取预构建镜像 `ghcr.io/jaaayden/rsstt-web`（机器人与管理台在同一个镜像里，由 GitHub Actions 构建，服务器上不需要编译），开启管理台，并将 `./config` 持久化到容器内的 `/app/config`。管理台在容器内监听 `0.0.0.0`，宿主机端口仅绑定 `127.0.0.1`。
 
 如果部署在远程服务器，可以使用 SSH 隧道访问：
 

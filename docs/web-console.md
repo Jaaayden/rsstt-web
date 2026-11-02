@@ -68,14 +68,23 @@
 使用本仓库的 [`compose.console.yaml`](../compose.console.yaml)，按 [README](../README.zh.md#使用-docker-compose-快速部署) 创建私有 `.env`，然后构建：
 
 ```sh
-docker compose -f compose.console.yaml up -d --build
+docker compose -f compose.console.yaml pull
+docker compose -f compose.console.yaml up -d
 ```
 
-该文件从本仓库构建 `rsstt-web:local`，容器内监听 `0.0.0.0:8730`，宿主机仅发布 `127.0.0.1:8730`，并持久化 `./config:/app/config`。上游镜像和 `docker-compose.yml.sample` 不包含本 fork 的网页管理台。
+该文件拉取预构建镜像 `ghcr.io/jaaayden/rsstt-web`（可用 `RSSTT_WEB_IMAGE` 固定到某个 `sha-xxxxxxx` 版本），容器内监听 `0.0.0.0:8730`，宿主机仅发布 `127.0.0.1:8730`，并持久化 `./config:/app/config`。上游镜像和 `docker-compose.yml.sample` 不包含本 fork 的网页管理台。
 
 升级现有实例时，先备份并停止原进程，再替换构建；保留原有 Token、Telegram session、数据和必要的代理设置。同一个 session／主库只运行一个机器人进程。
 
-### 从源码开启管理台
+### 从原版迁移与回退
+
+rsstt-web 只需要一个镜像 `ghcr.io/jaaayden/rsstt-web`，它已经包含完整的机器人代码，不需要再同时运行官方镜像。
+
+- **迁移**：停止原版容器，完整备份 `config/`（`db.sqlite3*` 与 `bot.session`），再用同一个 `config/` 目录、同一个 Token 和原有环境变量启动本镜像，并加上 `WEB_*` 配置。原有数据表结构与上游一致，迁移不会修改它们；管理台数据单独保存在 `config/console.sqlite3`。
+- **回退**：停止 rsstt-web，用官方镜像和同一个 `config/` 目录启动即可。订阅、会话和格式设置都在原有数据库中，会完整保留；原版会忽略 `console.sqlite3` 和 `runtime-config.json`，因此只在网页“运行配置”里设置、没有写进部署环境的值，回退后不再生效。
+- 任何时候同一份 `config/` 只运行一个机器人进程。
+
+
 
 管理台使用 Python 3.12／3.13 验证。保留原有 `TOKEN`、`MANAGER`、`API_ID`、`API_HASH` 和代理等实际需要的配置，增加以下环境配置：
 

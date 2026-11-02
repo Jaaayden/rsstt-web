@@ -17,11 +17,11 @@ chmod 600 .env.testing
 
 ```sh
 docker compose -p rsstt-web-test --env-file .env.testing -f compose.testing.yaml config --quiet
-docker compose -p rsstt-web-test --env-file .env.testing -f compose.testing.yaml up -d --build
+docker compose -p rsstt-web-test --env-file .env.testing -f compose.testing.yaml up -d
 docker compose -p rsstt-web-test --env-file .env.testing -f compose.testing.yaml logs --tail=100 rsstt-test
 ```
 
-这份文件使用独立镜像 `rsstt-web:testing`、服务 `rsstt-test` 和项目内的数据卷。宿主机只在 `127.0.0.1:8735` 提供管理台。Compose 项目名用于隔离容器、网络和数据卷；`-p rsstt-web-test` 应在每次命令中保持一致，参见 [Docker 项目名说明](https://docs.docker.com/compose/how-tos/project-name/)。不要把本文件叠加到生产 Compose 文件上。
+这份文件使用预构建镜像（可用 `TEST_IMAGE` 指定版本）、服务 `rsstt-test` 和项目内的数据卷。宿主机只在 `127.0.0.1:8735` 提供管理台。Compose 项目名用于隔离容器、网络和数据卷；`-p rsstt-web-test` 应在每次命令中保持一致，参见 [Docker 项目名说明](https://docs.docker.com/compose/how-tos/project-name/)。不要把本文件叠加到生产 Compose 文件上。
 
 `MULTIUSER=0` 关闭陌生人的默认使用权限。管理者以及显式授予用户／会话权限的对象仍可使用；不要把测试频道授权给陌生人。
 
