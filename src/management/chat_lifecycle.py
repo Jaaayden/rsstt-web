@@ -150,6 +150,12 @@ class ChatLifecycle:
             lock = self.locks[ident] = asyncio.Lock()
         return lock
 
+    async def _diagnostic(self, code, message, error, ident=None):
+        journal = getattr(self.store, 'diagnostics', None)
+        if journal is not None:
+            await journal.record('system', 'warning', code, message, target_id=ident,
+                                 context={'stage': 'membership', 'exception_type': type(error).__name__})
+
     async def _metadata(self, ident, entity, membership, *, force=False, kind_hint=None):
         previous = (await self.store.target_map([ident])).get(str(ident), {})
         profile = _profile(entity, previous, ident, kind_hint)
@@ -216,13 +222,14 @@ class ChatLifecycle:
             if not self.closed:
                 await mark_departed(self.store, ident)
                 return 'left'
-        except errors.FloodWaitError:
+        except errors.FloodWaitError as error:
             self.flooded = True
             LOGGER.warning('Chat membership sweep deferred by Telegram flood control')
-        except (errors.RPCError, OSError, asyncio.TimeoutError, ValueError, TypeError):
+            await self._diagnostic('membership.rate_limited', 'Telegram 限流，会话状态核验已暂停。', error, ident)
+        except (errors.RPCError, OSError, asyncio.TimeoutError, ValueError, TypeError) as error:
             # In particular, ChannelPrivate/ChatAdminRequired are not evidence
             # that the bot left; retain the last known state and subscriptions.
-            pass
+            await self._diagnostic('membership.failed', '无法核验会话状态，已保留上次已知状态。', error, ident)
         if member_evidence and not self.closed:
             await self._unverified_member(ident, entity)
             return 'member'
@@ -255,6 +262,7 @@ class ChatLifecycle:
             raise
         except Exception as error:
             LOGGER.warning('Chat membership sweep incomplete (%s)', type(error).__name__)
+            await self._diagnostic('membership.scan_failed', '启动时的会话状态核验未完成。', error)
 
     async def _private(self, event, ident):
         entity = event.chat or event.sender
@@ -351,6 +359,7 @@ class ChatLifecycle:
                 # Keep the original Telegram command chain running on observer
                 # failure, without logging private titles, message text or URLs.
                 LOGGER.warning('Chat lifecycle observation failed (%s)', type(error).__name__)
+                await self._diagnostic('membership.observe_failed', '处理会话状态变更时发生错误。', error, ident)
 
 
 async def start(store):

@@ -59,7 +59,7 @@ async def run(config, args):
     from src.monitor import Monitor
     from src.monitor._notifier import Notifier
     from src.parsing.message import MessageDispatcher
-    from src.management import metrics
+    from src.management import diagnostics, metrics
     from src.management.service import Service
     from src.management.store import Store
 
@@ -72,6 +72,7 @@ async def run(config, args):
     await db.EffectiveTasks.init(flush=True)
     store = await Store(config / 'console.sqlite3').open()
     metrics.store = store
+    diagnostics.install(store)
     service = Service(store)
     monitor = Monitor.get_instance()
     # Exercise actual dispatch immediately; cooldown transitions are separately
@@ -181,6 +182,7 @@ async def run(config, args):
                     await asyncio.sleep(.01)
                 await asyncio.sleep(0)  # run done callbacks
             await asyncio.wait_for(drain(), args.round_timeout)
+            await store.diagnostics.flush()
             elapsed = time.perf_counter() - started
             ticker.cancel()
             await asyncio.gather(ticker, return_exceptions=True)
@@ -189,6 +191,10 @@ async def run(config, args):
             assert len(state.sent) == args.sources * args.targets, 'Missing destinations'
             assert all(order == list(range(args.entries)) for order in state.sent.values()), 'Missing/duplicate/reordered entries'
             assert not metrics.last_error, metrics.last_error
+            assert not store.diagnostics.degraded, 'Operational history could not be persisted'
+            assert not store.diagnostics.pending, 'Operational history retained pending events after flush'
+            diagnostic_count = (await store.rows('SELECT COUNT(*) AS n FROM diagnostic_events'))[0]['n']
+            assert 0 < diagnostic_count <= diagnostics.RETENTION['max_entries'], 'Missing or unbounded operational history'
             assert monitor._stat._in_progress_count == Notifier._stat._in_progress_count == 0
             assert not monitor._subtask_defer_map, 'Monitor retained completed states'
             if args.churn:
@@ -204,6 +210,8 @@ async def run(config, args):
                       'peak_tasks_sampled': peak_tasks, 'idle_tasks': len(asyncio.all_tasks()),
                       'fetch_peak': state.fetch_peak, 'send_peak': state.send_peak,
                       'sent': args.sources * args.targets * args.entries,
+                      'diagnostics': {'retained': diagnostic_count, 'dropped': store.diagnostics.dropped,
+                                      'pending': len(store.diagnostics.pending)},
                       'caches': {'monitor': len(monitor._subtask_defer_map), 'user_locks': len(locks._user_bucket),
                                  'host_locks': len(locks._hostname_semaphore_bucket),
                                  'dispatcher_user_locks': len(MessageDispatcher.user_sending_lock)},

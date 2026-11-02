@@ -35,6 +35,23 @@ FEED_ACCEPT: Final = 'application/rss+xml, application/rdf+xml, application/atom
                      'application/xml;q=0.9, text/xml;q=0.8, text/*;q=0.7, application/*;q=0.6'
 
 
+def _parse_with_diagnostics(*args, **kwargs):
+    result = feedparser.parse(*args, **kwargs)
+    error = result.get('bozo_exception')
+    if error:
+        # Keep only pickleable technical metadata. Parser exception messages can
+        # contain source content, so neither their text nor the RSS body is logged.
+        diagnostic = {'exception_type': type(error).__name__}
+        for key, getter in (('line', 'getLineNumber'), ('column', 'getColumnNumber')):
+            method = getattr(error, getter, None)
+            if callable(method):
+                value = method()
+                if isinstance(value, int):
+                    diagnostic[key] = value
+        result['rsstt_parse_diagnostic'] = diagnostic
+    return result
+
+
 async def feed_get(url: str, timeout: Optional[float] = sentinel, web_semaphore: Union[bool, asyncio.Semaphore] = None,
                    headers: Optional[dict] = None, verbose: bool = True) -> WebFeed:
     ret = WebFeed(url=url, ori_url=url)
@@ -73,10 +90,11 @@ async def feed_get(url: str, timeout: Optional[float] = sentinel, web_semaphore:
         with BytesIO(rss_content) as rss_content_io:
             rss_d = await run_async(
                 partial(bozo_exception_removal_wrapper,
-                        feedparser.parse, rss_content_io, sanitize_html=False,
+                        _parse_with_diagnostics, rss_content_io, sanitize_html=False,
                         response_headers={k.lower(): v for k, v in resp.headers.items()}),
                 prefer_pool='thread' if len(rss_content) < 64 * 1024 else None
             )
+        ret.parse_diagnostic = rss_d.pop('rsstt_parse_diagnostic', None)
 
         if not rss_d.feed.get('title'):  # why there is no feed hospital?
             # feed.description cannot be used to determine if this is likely to be a feed since HTML tag <body> may be

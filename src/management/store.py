@@ -22,6 +22,7 @@ class Store:
         self.lock = asyncio.Lock()
         self.db = None
         self.backup_lock = None
+        self.diagnostics = None
 
     async def open(self):
         try:
@@ -66,10 +67,17 @@ class Store:
         await self.db.execute('INSERT OR IGNORE INTO meta VALUES (?, ?)', ('attention_threshold', '3'))
         await aggregates.initialize(self)
         await self.db.commit()
+        from .diagnostics import initialize
+        await initialize(self)
         self.path.chmod(0o600)
         return self
 
     async def close(self):
+        if self.diagnostics:
+            from .diagnostics import uninstall
+            uninstall(self)
+            await self.diagnostics.close()
+            self.diagnostics = None
         if self.db:
             await self.db.close()
             self.db = None

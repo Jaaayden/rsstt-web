@@ -12,7 +12,7 @@ from aiohttp import web
 
 from .. import db, env
 from ..command import inner
-from . import metrics, notifications
+from . import diagnostics, metrics, notifications
 from .statistics import usage
 from .service import Problem, Service, chat_id, integer, BANNED_RESUME_MESSAGE
 from .store import Store
@@ -52,6 +52,7 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
     # Cookies are shared across ports; keep parallel local previews independent.
     cookie_name = f'rsstt_session_{parsed.port}' if demo else 'rsstt_session'
     service = Service(store, gateway, demo)
+    await diagnostics.observe_restore(store)
     from . import chat_audit
     await chat_audit.initialize(store)
     from ..runtime_config import RuntimeConfig, ConfigError
@@ -89,8 +90,13 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
             response = web.json_response({'error': error.message, 'code': getattr(error, 'code', None) or {400: 'INVALID_REQUEST', 401: 'UNAUTHENTICATED', 403: 'FORBIDDEN', 404: 'NOT_FOUND', 409: 'CONFLICT', 415: 'UNSUPPORTED_MEDIA_TYPE', 429: 'RATE_LIMITED'}.get(error.status, 'REQUEST_FAILED')}, status=error.status)
         except web.HTTPException as error:
             response = web.json_response({'error': '请求过大。' if error.status == 413 else '请求地址或方法无效。', 'code': 'PAYLOAD_TOO_LARGE' if error.status == 413 else 'INVALID_ROUTE'}, status=error.status)
-        except Exception:
+        except Exception as error:
             LOGGER.exception('Console request failed: %s %s', request.method, request.path)
+            resource = request.match_info.route.resource
+            store.diagnostics.emit('system', 'error', 'console.request_failed', '网页管理操作发生后台异常。',
+                                   detail=type(error).__name__,
+                                   context={'exception_type': type(error).__name__, 'method': request.method,
+                                            'route': resource.canonical if resource else '/unknown'})
             response = web.json_response({'error': '操作未完成，请查看服务日志后重试。', 'code': 'INTERNAL_ERROR'}, status=500)
         if request.get('principal', {}).get('kind') == 'token':
             await store.audit(request['principal']['id'], 'agent_request', f"{request.method} {request.match_info.route.resource.canonical if request.match_info.route.resource else '/unknown'} {response.status}")
@@ -113,6 +119,7 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
             'notifications': '/api/notifications', 'backups': '/api/backups',
             'recipients': '/api/feeds/{id}/recipients', 'statistics': '/api/statistics',
             'chat_activity': '/api/targets/{id}/activity',
+            'diagnostics': '/api/diagnostics',
         }.items()}
         return web.json_response({'demo': demo, 'snapshot': snapshot, 'features': features})
 
@@ -120,12 +127,17 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
     async def login(request):
         values = await body(request)
         async with auth.change_lock:
-            await auth.verify(values.get('password'), request.remote)
+            try:
+                await auth.verify(values.get('password'), request.remote)
+            except Problem:
+                store.diagnostics.emit('system', 'warning', 'auth.sign_in_failed', '管理台登录失败，请检查密码或稍后重试。')
+                raise
             await store.execute("DELETE FROM credentials WHERE kind='session' AND id NOT IN (SELECT id FROM credentials WHERE kind='session' ORDER BY created_at DESC LIMIT 19)")
             if values.get('username', auth.username) != auth.username:
                 raise Problem('登录凭据不正确。', 401, code='INVALID_CREDENTIALS')
             _, secret = await store.issue(auth.username, days=1 / 3)
         await store.audit(auth.username, 'login', 'success')
+        store.diagnostics.emit('system', 'info', 'auth.signed_in', '管理员已登录网页管理台。')
         response = web.json_response({'ok': True})
         response.set_cookie(cookie_name, secret, httponly=True, secure=parsed.scheme == 'https', samesite='Strict', max_age=28800, path='/')
         return response
@@ -149,10 +161,12 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
                 await auth.verify(values.get('current_password'), request.remote)
             except Problem as error:
                 if error.code == 'INVALID_CREDENTIALS':
+                    store.diagnostics.emit('system', 'warning', 'auth.password_change_rejected', '管理台密码未修改：当前密码不正确。')
                     raise Problem('当前密码不正确，密码未修改。', code='CURRENT_PASSWORD_INCORRECT') from None
                 raise
             await auth.change(values.get('new_password'))
         await store.audit(auth.username, 'password_changed', 'all browser sessions revoked')
+        store.diagnostics.emit('system', 'info', 'auth.password_changed', '管理台密码已修改，原有网页登录已失效。')
         response = web.json_response({'ok': True})
         response.del_cookie(cookie_name)
         return response
@@ -400,6 +414,8 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
         try:
             return web.json_response(runtime.describe())
         except ConfigError as error:
+            store.diagnostics.emit('system', 'error', 'runtime_config.read_failed', '无法读取运行配置，请检查配置文件。',
+                                   detail=str(error), context={'stage': 'configuration', 'exception_type': type(error).__name__})
             raise Problem(str(error), 409)
 
     @routes.patch('/api/runtime-config')
@@ -412,8 +428,12 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
             try:
                 result = runtime.save(values)
             except ConfigError as error:
+                store.diagnostics.emit('system', 'warning', 'runtime_config.rejected', '运行配置未保存，请检查配置项。',
+                                       detail=str(error), context={'stage': 'configuration', 'exception_type': type(error).__name__})
                 raise Problem(str(error))
         await store.audit(request['principal']['name'], '保存运行配置（待重启）', '、'.join(sorted(values)))
+        store.diagnostics.emit('system', 'info', 'runtime_config.saved', '运行配置已保存，等待重启生效。',
+                               context={'stage': 'configuration'})
         return web.json_response(result)
 
     @routes.get('/api/tokens')
@@ -444,6 +464,7 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
             raise Problem('最多保留 100 个有效连接授权。')
         ident, secret = await store.issue(name.strip(), 'token', permission, target_ids, days)
         await store.audit('管理员', '创建连接授权', name.strip())
+        store.diagnostics.emit('system', 'info', 'auth.token_issued', 'API 访问令牌已创建。')
         return web.json_response({'id': ident, 'token': secret}, status=201)
 
     @routes.delete('/api/tokens/{id}')
@@ -451,6 +472,7 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
         admin(request)
         await store.execute("DELETE FROM credentials WHERE id=? AND kind='token'", (request.match_info['id'],))
         await store.audit('管理员', '撤销连接授权', request.match_info['id'])
+        store.diagnostics.emit('system', 'info', 'auth.token_revoked', 'API 访问令牌已撤销。')
         return web.json_response({'ok': True})
 
     @routes.get('/')
@@ -500,6 +522,8 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
 
     from .subscriptions import install
     install(routes, service, body, admin)
+    from .diagnostics_api import install as install_diagnostics
+    install_diagnostics(routes, service, admin)
     app.add_routes(routes)
     return app
 
@@ -523,6 +547,8 @@ async def start():
         await _runner.setup()
         await web.TCPSite(_runner, host, port).start()
         metrics.store = _store
+        diagnostics.install(_store)
+        _store.diagnostics.emit('system', 'info', 'console.started', '网页管理台已启动。')
         notifier = app[NOTIFICATIONS_KEY]
         await notifier.baseline()
         notifications.active = notifier
@@ -542,6 +568,9 @@ async def stop():
     from . import chat_audit, chat_lifecycle
     await chat_lifecycle.stop()
     chat_audit.uninstall(_store)
+    if _store:
+        _store.diagnostics.emit('system', 'info', 'console.stopped', '网页管理台正在正常停止。')
+    diagnostics.uninstall(_store)
     notifications.active = None
     metrics.store = None
     from . import feed_options

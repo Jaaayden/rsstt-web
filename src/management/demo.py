@@ -69,8 +69,10 @@ async def main():
         for ident, title, target_kind, username in targets:
             await db.User.create(id=ident, state=50 if target_kind == 'channel' else 51 if target_kind == 'group' else 1)
             await store.target(ident, title, username, target_kind, 'available')
+        demo_feeds = []
         for i, (title, url) in enumerate(names):
             feed = await db.Feed.create(title=title, link=f'https://{url}', error_count=4 if i == 4 else 7 if i == 9 else 0)
+            demo_feeds.append(feed)
             for target in targets[:3 + i % 4]:
                 await db.Sub.create(user_id=target[0], feed=feed, state=0 if i == 10 else 1)
         # Synthetic history belongs only to a fresh demo. Explicit coverage lets
@@ -92,6 +94,21 @@ async def main():
         await store.db.commit()
         for action, detail in [('添加订阅', '技术与创造 · Hacker News'), ('更新设置', '默认更新间隔 · 10 分钟'), ('导入 OPML', '慢慢读书 · 8 个订阅')]:
             await store.audit('管理员', action, detail)
+        # Only a new synthetic demo gets sample diagnostics. Real snapshot
+        # previews never invent the reasons for historical failures.
+        journal = store.diagnostics
+        await journal.record('fetch', 'error', 'fetch.failed', '订阅源抓取失败。',
+                             feed_id=demo_feeds[4].id, detail='HTTP 403 Forbidden',
+                             context={'http_status': 403, 'duration_ms': 842, 'failures': 4,
+                                      'source_host': 'design.example.org', 'stage': 'http'})
+        await journal.record('fetch', 'error', 'fetch.failed', '订阅源抓取失败。',
+                             feed_id=demo_feeds[9].id, detail='TimeoutError',
+                             context={'exception_type': 'TimeoutError', 'duration_ms': 15000,
+                                      'failures': 7, 'stage': 'network'})
+        await journal.record('fetch', 'info', 'fetch.recovered', '订阅源抓取已恢复。',
+                             feed_id=demo_feeds[5].id,
+                             context={'http_status': 200, 'duration_ms': 326, 'failures': 0})
+        await journal.flush()
     gateway = DemoGateway()
     gateway.store = store
     upstream_web.feed_get = offline_feed

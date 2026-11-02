@@ -117,6 +117,14 @@ const messages = {
         "Enabled subscriptions with at least {count} consecutive fetch failures",
     ],
     fetchFailures: ["连续抓取失败 {count} 次", "{count} consecutive fetch failures"],
+    logsDropped: [
+        "日志队列曾达到上限，有 {count} 条记录未保存。当前历史可能不完整。",
+        "The log queue reached its limit; {count} records were not saved. This history may be incomplete.",
+    ],
+    logRetention: [
+        "最多保留 {days} 天、全实例 {total} 条、每个订阅源 {feed} 条记录；达到上限后删除最旧记录。",
+        "Retention: up to {days} days, {total} records per instance, and {feed} per feed. The oldest records are removed at these limits.",
+    ],
     recordedChats: [
         "已记录 {total} 个会话，其中 {unknown} 个类型未知",
         "{total} recorded chats; {unknown} have unknown types",
