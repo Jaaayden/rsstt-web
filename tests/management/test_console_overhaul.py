@@ -245,3 +245,18 @@ async def test_session_cookie_secure_follows_the_actual_scheme(context):
                                        headers={'Origin': f'http://{host}'})
     assert tunnel.status == 200 and 'Secure' not in tunnel.headers['Set-Cookie']
     assert 'HttpOnly' in tunnel.headers['Set-Cookie'] and 'SameSite=Strict' in tunnel.headers['Set-Cookie']
+
+
+async def test_settings_report_the_web_version_and_the_bot_core(logged, tmp_path, monkeypatch):
+    from src.management import version
+    data = await (await logged.client.get('/api/settings')).json()
+    assert data['version'] == version.WEB_VERSION
+    assert data['upstream_version'] == env.VERSION
+    # Inside the image the build commit comes from /app/.version.
+    fake = tmp_path / 'src' / 'management'
+    fake.mkdir(parents=True)
+    (tmp_path / '.version').write_text('dd50a40@web-v1.0.1\nbuild@2026-11-02\n')
+    monkeypatch.setattr(version, '__file__', str(fake / 'version.py'))
+    assert version.build() == 'dd50a40' and version.label() == f'RSStT Web {version.WEB_VERSION} (dd50a40)'
+    (tmp_path / '.version').write_text('dirty\n')
+    assert version.build() is None and version.label() == f'RSStT Web {version.WEB_VERSION}'

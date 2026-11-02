@@ -1486,7 +1486,12 @@ function Account() {
                 ? html`<${Spinner} />`
                 : html`<dl class="kv" style="margin:0">
                           <dt>${L("版本", "Version")}</dt>
-                          <dd class="mono">${s.version}</dd>
+                          <dd>
+                              <a href=${`https://github.com/Jaaayden/rsstt-web/releases/tag/web-v${s.version}`} target="_blank" rel="noopener">RSStT Web ${s.version}</a>
+                              ${s.build ? html` <span class="muted mono">(${s.build})</span>` : null}
+                          </dd>
+                          <dt>${L("机器人核心", "Bot core")}</dt>
+                          <dd>RSS-to-Telegram-Bot <span class="mono">${s.upstream_version}</span></dd>
                           <dt>${L("数据库", "Database")}</dt>
                           <dd>${s.database}</dd>
                           <dt>${L("管理台地址", "Console origin")}</dt>
