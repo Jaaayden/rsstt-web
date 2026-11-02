@@ -108,6 +108,8 @@ class ChatLifecycle:
         self.flooded = False
         self.scan_complete = False
         self.scan_counts = dict(examined=0, left=0, member=0, unknown=0)
+        self.names_lock = asyncio.Lock()
+        self.names = dict(examined=0, named=0, missing=0)
         self.permission_checks = 0
         self.builders = (
             events.ChatAction(),
@@ -118,7 +120,7 @@ class ChatLifecycle:
     def attach(self):
         for builder in self.builders:
             self.client.add_event_handler(self.observe, builder)
-        self.task = asyncio.create_task(self.reconcile_once())
+        self.task = asyncio.create_task(self.startup())
 
     def status(self):
         return {'running': not self.closed,
@@ -126,6 +128,7 @@ class ChatLifecycle:
                 'startup_scan_complete': self.scan_complete,
                 'startup_scan_deferred': self.flooded,
                 'startup_scan': dict(self.scan_counts),
+                'private_names': dict(self.names),
                 'posting_permission_checks': self.permission_checks,
                 'cached_private_chats': len(self.private_seen)}
 
@@ -237,6 +240,60 @@ class ChatLifecycle:
             await self._unverified_member(ident, entity)
             return 'member'
         return 'unknown' if not self.closed else None
+
+    async def startup(self):
+        await self.reconcile_once()
+        if not self.closed and not self.flooded:
+            try:
+                await self.resolve_private_names()
+            except asyncio.CancelledError:
+                raise
+            except Exception as error:
+                LOGGER.warning('Private chat name lookup incomplete (%s)', type(error).__name__)
+                await self._diagnostic('names.lookup_failed', '补全私聊用户名称时出错。', error)
+
+    async def resolve_private_names(self):
+        """Name the private users the console has never seen write.
+
+        The bot only learns a private user's name when that user sends a message, so people who
+        were already using the bot before the console existed stayed anonymous. Telegram
+        sessions remember the users the bot has met; look the names up there. Users the session
+        does not know stay unnamed and are named as soon as they write again.
+        """
+        if self.names_lock.locked():
+            return dict(self.names, busy=True)
+        async with self.names_lock:
+            rows = await self.store.rows('SELECT id, title FROM targets')
+            named = {int(r['id']) for r in rows if r['title'] and r['title'] not in (r['id'], f"会话 {r['id']}")}
+            ids = [i for i in await db.User.filter(id__gt=0).order_by('id').values_list('id', flat=True)
+                   if i not in named and i != self.self_id]
+            result = dict(examined=0, named=0, missing=0)
+            for ident in ids:
+                if self.closed:
+                    break
+                async with self._chat_lock(ident):
+                    result['examined'] += 1
+                    try:
+                        entity = await self._get_entity(ident)
+                    except errors.FloodWaitError:
+                        self.flooded = True
+                        LOGGER.warning('Private chat name lookup deferred by Telegram flood control')
+                        break
+                    except (errors.RPCError, OSError, asyncio.TimeoutError, ValueError, TypeError, AttributeError):
+                        result['missing'] += 1  # not in this session's cache: stays unnamed
+                        continue
+                    if not isinstance(entity, types.User):
+                        result['missing'] += 1
+                        continue
+                    previous = (await self.store.target_map([ident])).get(str(ident), {})
+                    membership = previous.get('membership', 'known')
+                    if membership in ('unknown', 'snapshot', 'left'):
+                        membership = 'known'
+                    await self._metadata(ident, entity, membership, force=True, kind_hint='private')
+                    result['named'] += 1
+                await asyncio.sleep(STARTUP_SPACING)
+            self.names = dict(result)
+            return dict(result)
 
     async def reconcile_once(self):
         after = None
@@ -377,6 +434,14 @@ async def start(store):
     _active = ChatLifecycle(store, client, self_id)
     _active.attach()
     return _active
+
+
+async def resolve_names():
+    """Look the missing private-user names up now (the console's "complete names" button)."""
+    from .service import Problem
+    if _active is None:
+        raise Problem('机器人当前没有连接 Telegram，无法补全名称。', 409, code='TELEGRAM_UNAVAILABLE')
+    return await _active.resolve_private_names()
 
 
 async def stop():

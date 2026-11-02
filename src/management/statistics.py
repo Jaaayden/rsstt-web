@@ -137,11 +137,14 @@ async def query(store, granularity='hour', start=None, end=None, unavailable=Fal
 async def usage(store=None):
     """Aggregate in SQL without materializing every user or subscription."""
     from tortoise.functions import Count
-    from .. import db
+    from .. import db, env
     known = dict(private=0, channel=0, group=0, unknown=0, total=0)
     active = dict(known)
-    for query_set, result in ((db.User.all(), known),
-                              (db.User.filter(subs__state=1, subs__feed__state=1).exclude(state=-1), active)):
+    # The bot's own account is never a chat (an old row can exist from early testing).
+    own = getattr(env, 'bot_id', None)
+    everyone = db.User.all() if type(own) is not int else db.User.exclude(id=own)
+    for query_set, result in ((everyone, known),
+                              (everyone.filter(subs__state=1, subs__feed__state=1).exclude(state=-1), active)):
         # Separate by ID sign and upstream explicit state; old negative IDs stay unknown.
         for positive in (True, False):
             rows = await query_set.filter(**{'id__gt' if positive else 'id__lte': 0}).annotate(

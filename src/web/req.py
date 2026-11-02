@@ -46,7 +46,27 @@ __SSL_CONTEXT: Final = ssl_create_default_context() if env.VERIFY_TLS else False
 
 DEFAULT_READ_BUFFER_SIZE: Final = 2 ** 16
 
-PROXY: Final = env.R_PROXY.replace('socks5h', 'socks5').replace('sock4a', 'socks4') if env.R_PROXY else None
+def _normalize_proxy(url: str) -> str:
+    return url.replace('socks5h', 'socks5').replace('sock4a', 'socks4')
+
+
+PROXY: Final = _normalize_proxy(env.R_PROXY) if env.R_PROXY else None
+
+# Optional per-URL override, installed by the web console:
+#   url -> None (follow the global rules) | False (connect directly) | a proxy URL
+proxy_override: Optional[Callable[[str], Union[None, bool, str]]] = None
+
+
+def choose_proxy(url: str, host: Optional[str], override: Union[None, bool, str] = None) -> Optional[str]:
+    """Pick the proxy for one request. An explicit `override` beats the per-URL one, which beats R_PROXY."""
+    if override is None and proxy_override is not None:
+        override = proxy_override(url)
+    if override is False:
+        return None
+    if isinstance(override, str):
+        return _normalize_proxy(override)
+    return PROXY if PROXY and proxy_filter(host, parse=False) else None
+
 
 HEADER_TEMPLATE: Final = {
     'User-Agent': env.USER_AGENT,
@@ -115,8 +135,10 @@ async def request(
         max_size: Optional[int] = None,
         intended_content_type: Optional[str] = None,
         allow_redirects: bool = True,
+        proxy: Union[None, bool, str] = None,
 ) -> WebResponse:
     """
+    :param proxy: None = follow the configured rules, False = connect directly, str = use this proxy URL
     :param method: HTTP method
     :param url: URL to fetch
     :param timeout: timeout in seconds
@@ -135,6 +157,7 @@ async def request(
                               decode=decode, max_size=max_size, intended_content_type=intended_content_type),
         read_bufsize=min(max_size, DEFAULT_READ_BUFFER_SIZE) if max_size is not None else DEFAULT_READ_BUFFER_SIZE,
         read_until_eof=max_size is None,
+        proxy=proxy,
     )
 
 
@@ -148,6 +171,7 @@ async def _request(
         read_bufsize: int = DEFAULT_READ_BUFFER_SIZE,
         read_until_eof: bool = True,
         allow_redirects: bool = True,
+        proxy: Union[None, bool, str] = None,
 ) -> WebResponse:
     if timeout is sentinel:
         timeout = env.HTTP_TIMEOUT
@@ -159,7 +183,8 @@ async def _request(
     # Happy Eyeballs, available since aiohttp 3.10, cause AssertionError when setting both proxy and socket family.
     # Make them mutually exclusive (proxy takes precedence) since it is always meaningless to set them together.
     # TODO: Is it time to deprecate IPV6_PRIOR and completely rely on Happy Eyeballs (RFC 8305)?
-    use_proxy: bool = PROXY and proxy_filter(host, parse=False)
+    proxy_url = choose_proxy(url, host, proxy)
+    use_proxy: bool = proxy_url is not None
     socket_family = 0
     if env.IPV6_PRIOR and not use_proxy:
         try:
@@ -220,7 +245,7 @@ async def _request(
         if retry_in_v4_flag or tries > MAX_TRIES:
             socket_family = AF_INET
         proxy_connector = (
-            ProxyConnector.from_url(PROXY, family=socket_family, ssl=__SSL_CONTEXT)
+            ProxyConnector.from_url(proxy_url, family=socket_family, ssl=__SSL_CONTEXT)
             if use_proxy
             else aiohttp.TCPConnector(family=socket_family, ssl=__SSL_CONTEXT)
         )

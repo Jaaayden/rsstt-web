@@ -476,3 +476,51 @@ async def test_library_error_on_one_chat_does_not_abort_the_startup_sweep(contex
     assert metadata['-1001']['membership'] == 'available'      # last known state kept
     assert metadata['-1002']['membership'] == 'available'      # later chats still verified
     assert (await db.Sub.get(id=context.sub.id)).state == 1
+
+
+def person(ident, name, username=None):
+    return types.User(ident, first_name=name, username=username)
+
+
+async def test_private_names_are_filled_in_from_the_session(context):
+    """Users from before the console existed are named from the session cache, without them writing."""
+    for ident in (11, 12, 13, SELF):
+        await db.User.create(id=ident, state=1)
+    await context.store.target(13, 'Already named', None, 'private', 'known')
+    client = Client()
+    client.entities[11] = person(11, 'Alice', 'alice_a')
+    # 12 is not in the session cache: Telethon raises ValueError
+    client.entities[SELF] = person(SELF, 'The bot itself')
+    observer = lifecycle.ChatLifecycle(context.store, client, SELF)
+    result = await observer.resolve_private_names()
+    assert result == {'examined': 2, 'named': 1, 'missing': 1}
+    meta = await context.store.target_map([11, 12, 13, SELF])
+    assert meta['11']['title'] == 'Alice' and meta['11']['username'] == 'alice_a' and meta['11']['kind'] == 'private'
+    assert meta['11']['membership'] == 'known'
+    assert '12' not in meta and meta['13']['title'] == 'Already named'      # unnamed stays unnamed, named untouched
+    assert str(SELF) not in meta and SELF not in client.lookups              # the bot's own account is skipped
+    assert observer.status()['private_names'] == {'examined': 2, 'named': 1, 'missing': 1}
+    # A second run only asks about the one that is still missing.
+    client.lookups.clear()
+    assert (await observer.resolve_private_names())['examined'] == 1 and client.lookups == [12]
+
+
+async def test_name_lookup_stops_on_flood_wait_and_is_not_reentrant(context):
+    for ident in (21, 22):
+        await db.User.create(id=ident, state=1)
+    client = Client()
+    client.entities[21] = errors.FloodWaitError(None, capture=30)
+    observer = lifecycle.ChatLifecycle(context.store, client, SELF)
+    result = await observer.resolve_private_names()
+    assert observer.flooded and result['examined'] == 1 and client.lookups == [21]   # stopped, 22 not tried
+    async with observer.names_lock:
+        assert (await observer.resolve_private_names())['busy'] is True
+
+
+async def test_startup_sweep_names_private_users_after_the_group_check(context):
+    await db.User.create(id=31, state=1)
+    client = Client()
+    client.entities[31] = person(31, 'Bob')
+    observer = lifecycle.ChatLifecycle(context.store, client, SELF)
+    await observer.startup()
+    assert observer.scan_complete and (await context.store.target_map([31]))['31']['title'] == 'Bob'

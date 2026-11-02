@@ -24,7 +24,7 @@
 | Telegram 连接 | `MULTIUSER` | 是否允许其他人使用机器人（默认开启）。 |
 | | `API_ID` / `API_HASH` | 自己的 Telegram 应用凭据（my.telegram.org），比内置公共凭据更稳定。 |
 | | `ERROR_LOGGING_CHAT` | 错误报告发到哪个会话，默认所有者。 |
-| 网络与代理 | `T_PROXY` / `R_PROXY` | 连接 Telegram / 抓取 RSS 用的代理，如 `socks5://127.0.0.1:1080`。 |
+| 网络与代理 | `T_PROXY` / `R_PROXY` | 连接 Telegram / 抓取 RSS 用的代理，如 `socks5://127.0.0.1:1080`。`R_PROXY` 对所有订阅生效；只有少数订阅需要代理时，请改用订阅里的单独代理设置。 |
 | | `PROXY_BYPASS_PRIVATE` / `PROXY_BYPASS_DOMAINS` | 内网地址或指定域名不走代理。 |
 | | `IPV6_PRIOR` / `VERIFY_TLS` | 优先 IPv6；校验 HTTPS 证书（建议保持开启）。 |
 | 抓取 | `USER_AGENT` | 全局 User-Agent；单个源可在订阅详情里覆盖。 |

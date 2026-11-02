@@ -53,7 +53,8 @@ def _parse_with_diagnostics(*args, **kwargs):
 
 
 async def feed_get(url: str, timeout: Optional[float] = sentinel, web_semaphore: Union[bool, asyncio.Semaphore] = None,
-                   headers: Optional[dict] = None, verbose: bool = True) -> WebFeed:
+                   headers: Optional[dict] = None, verbose: bool = True,
+                   proxy: Union[None, bool, str] = None) -> WebFeed:
     ret = WebFeed(url=url, ori_url=url)
 
     log_level = log.WARNING if verbose else log.DEBUG
@@ -64,7 +65,7 @@ async def feed_get(url: str, timeout: Optional[float] = sentinel, web_semaphore:
         _headers['Accept'] = FEED_ACCEPT
 
     try:
-        resp: WebResponse = await get(url, timeout, web_semaphore, decode=False, headers=_headers)
+        resp: WebResponse = await get(url, timeout, web_semaphore, decode=False, headers=_headers, proxy=proxy)
         rss_content = resp.content
         ret.content = rss_content
         ret.url = resp.url

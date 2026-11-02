@@ -2,6 +2,32 @@
 // arbitrary server error, submitted value, filesystem path, or traceback.
 const messages = new Map([
     [
+        "机器人当前没有连接 Telegram，无法补全名称。",
+        ["机器人当前没有连接 Telegram，无法补全名称。", "The bot isn't connected to Telegram, so names can't be completed."],
+    ],
+    [
+        "离线预览和演示实例没有连接 Telegram，无法补全名称。",
+        [
+            "离线预览和演示实例没有连接 Telegram，无法补全名称。",
+            "Offline previews and demo instances aren't connected to Telegram, so names can't be completed.",
+        ],
+    ],
+    [
+        "代理地址无效。请填写 direct，或形如 socks5://主机:端口、http://用户名:密码@主机:端口 的地址，支持 http、socks4、socks5、socks5h，不能包含路径或参数。",
+        [
+            "代理地址无效。请填写 direct，或形如 socks5://主机:端口、http://用户名:密码@主机:端口 的地址，支持 http、socks4、socks5、socks5h，不能包含路径或参数。",
+            "Invalid proxy address. Enter “direct”, or an address like socks5://host:port or http://user:password@host:port. http, socks4, socks5 and socks5h are supported; no path or query.",
+        ],
+    ],
+    ["请选择 1–100 个订阅源，并指定代理设置。", ["请选择 1–100 个订阅源，并指定代理设置。", "Choose 1–100 feeds and a proxy setting."]],
+    [
+        "离线预览和演示实例不联网，无法测试代理。",
+        [
+            "离线预览和演示实例不联网，无法测试代理。",
+            "Offline previews and demo instances don't connect to the internet, so the proxy can't be tested.",
+        ],
+    ],
+    [
         "会话显示范围无效，请选择未封禁、活跃、不活跃、已封禁或全部。",
         [
             "会话显示范围无效，请选择未封禁、活跃、不活跃、已封禁或全部。",
@@ -113,10 +139,7 @@ const messages = new Map([
             "This action requires a console administrator. Sign in through the console before continuing.",
         ],
     ],
-    [
-        "请先登录管理台。",
-        ["登录已失效，请重新登录后再操作。", "Your session has expired. Sign in again before continuing."],
-    ],
+    ["请先登录管理台。", ["登录已失效，请重新登录后再操作。", "Your session has expired. Sign in again before continuing."]],
     [
         "尝试次数过多，请在 5 分钟后重试。",
         ["密码尝试次数过多。请等待 5 分钟后再试。", "Too many password attempts. Wait 5 minutes before trying again."],
@@ -193,10 +216,7 @@ const messages = new Map([
     ],
     [
         "用户角色无效。",
-        [
-            "用户角色无效。请从页面提供的角色中重新选择。",
-            "The user role is invalid. Select one of the roles offered in the form.",
-        ],
+        ["用户角色无效。请从页面提供的角色中重新选择。", "The user role is invalid. Select one of the roles offered in the form."],
     ],
     [
         "角色必须是 banned、guest、user 或 admin。",
@@ -218,10 +238,7 @@ const messages = new Map([
     ],
     [
         "请填写完整的 RSS 网址。",
-        [
-            "RSS 地址不完整。请填写包含 http:// 或 https:// 的完整地址。",
-            "Enter a complete RSS URL starting with http:// or https://.",
-        ],
+        ["RSS 地址不完整。请填写包含 http:// 或 https:// 的完整地址。", "Enter a complete RSS URL starting with http:// or https://."],
     ],
     [
         "订阅地址只支持不含用户名、密码的 HTTP / HTTPS 网址。",
@@ -286,10 +303,7 @@ const messages = new Map([
             "Custom titles support up to 1,024 characters and tags up to 255. Shorten the content that exceeds the limit.",
         ],
     ],
-    [
-        "订阅状态无效。",
-        ["订阅状态无效。请选择暂停或恢复订阅。", "The subscription state is invalid. Choose Pause or Resume."],
-    ],
+    ["订阅状态无效。", ["订阅状态无效。请选择暂停或恢复订阅。", "The subscription state is invalid. Choose Pause or Resume."]],
     [
         "订阅上限应为 -1（不限）或非负整数。",
         [
@@ -299,10 +313,7 @@ const messages = new Map([
     ],
     [
         "长度阈值应为 0–4096。",
-        [
-            "长度阈值必须在 0–4096 之间。请修改后保存。",
-            "The length threshold must be between 0 and 4,096. Correct it before saving.",
-        ],
+        ["长度阈值必须在 0–4096 之间。请修改后保存。", "The length threshold must be between 0 and 4,096. Correct it before saving."],
     ],
     [
         "取消订阅失败，请刷新后重试。",
@@ -327,17 +338,11 @@ const messages = new Map([
     ],
     [
         "每次可处理 1–100 条订阅，操作可选 pause、resume、delete。",
-        [
-            "请先选择 1–100 条订阅，再执行暂停、恢复或取消订阅操作。",
-            "Select 1–100 subscriptions before choosing Pause, Resume, or Remove.",
-        ],
+        ["请先选择 1–100 条订阅，再执行暂停、恢复或取消订阅操作。", "Select 1–100 subscriptions before choosing Pause, Resume, or Remove."],
     ],
     [
         "OPML 文件不能超过 512 KB。",
-        [
-            "OPML 文件超过 512 KB。请拆分文件后分批导入。",
-            "The OPML file exceeds 512 KB. Split it into smaller files before importing.",
-        ],
+        ["OPML 文件超过 512 KB。请拆分文件后分批导入。", "The OPML file exceeds 512 KB. Split it into smaller files before importing."],
     ],
     [
         "不是有效的 OPML 文件，或文件包含不允许的 DTD。",
@@ -488,10 +493,7 @@ const messages = new Map([
     ],
     [
         "请填写有效的 HTTP(S) 通知地址。",
-        [
-            "通知地址无效。请填写完整的 HTTP 或 HTTPS 地址。",
-            "The notification URL is invalid. Enter a complete HTTP or HTTPS URL.",
-        ],
+        ["通知地址无效。请填写完整的 HTTP 或 HTTPS 地址。", "The notification URL is invalid. Enter a complete HTTP or HTTPS URL."],
     ],
     [
         "最多设置 10 个自定义请求头。",
@@ -530,17 +532,11 @@ const messages = new Map([
     ],
     [
         "JSON 格式错误。",
-        [
-            "提交内容不是有效 JSON。请检查 JSON 格式后重试。",
-            "The submitted content is not valid JSON. Check its syntax and try again.",
-        ],
+        ["提交内容不是有效 JSON。请检查 JSON 格式后重试。", "The submitted content is not valid JSON. Check its syntax and try again."],
     ],
     [
         "请求内容必须是 JSON 对象。",
-        [
-            "提交内容必须是 JSON 对象，不能是数组、文本或空值。",
-            "The request body must be a JSON object, not an array, text, or null.",
-        ],
+        ["提交内容必须是 JSON 对象，不能是数组、文本或空值。", "The request body must be a JSON object, not an array, text, or null."],
     ],
     [
         "备份包含全实例数据，仅允许网页登录管理员操作。",
@@ -604,10 +600,7 @@ const messages = new Map([
     ],
     [
         "备份选项必须为布尔值。",
-        [
-            "备份选项值无效。请使用页面上的启用或关闭开关。",
-            "A backup option value is invalid. Use the On or Off controls in the form.",
-        ],
+        ["备份选项值无效。请使用页面上的启用或关闭开关。", "A backup option value is invalid. Use the On or Off controls in the form."],
     ],
     [
         "备份路径不能包含符号链接。",
@@ -856,10 +849,7 @@ const messages = new Map([
     ],
     [
         "统计增量必须为非负整数。",
-        [
-            "统计增量必须是非负整数。请检查提交的数据。",
-            "A statistics increment must be a nonnegative integer. Check the submitted data.",
-        ],
+        ["统计增量必须是非负整数。请检查提交的数据。", "A statistics increment must be a nonnegative integer. Check the submitted data."],
     ],
     [
         "day 和 at 不能同时指定。",
@@ -877,17 +867,11 @@ const messages = new Map([
     ],
     [
         "不能记录未来日期。",
-        [
-            "不能记录未来的统计日期。请检查提交的日期。",
-            "A future statistics date cannot be recorded. Check the submitted date.",
-        ],
+        ["不能记录未来的统计日期。请检查提交的日期。", "A future statistics date cannot be recorded. Check the submitted date."],
     ],
     [
         "granularity 必须为 hour 或 day。",
-        [
-            "统计粒度必须为小时或天。请重新选择时间范围。",
-            "Statistics granularity must be Hour or Day. Select the time range again.",
-        ],
+        ["统计粒度必须为小时或天。请重新选择时间范围。", "Statistics granularity must be Hour or Day. Select the time range again."],
     ],
     [
         "时间窗口必须按 UTC 小时或日期边界对齐。",
@@ -934,10 +918,7 @@ const fields = new Map([
 const configHints = new Map([
     ["API_ID", ["API_ID 必须是 1–2147483647 之间的整数。", "API_ID must be an integer from 1 to 2,147,483,647."]],
     ["CRON_SECOND", ["CRON_SECOND 必须是 0–59 之间的整数。", "CRON_SECOND must be an integer from 0 to 59."]],
-    [
-        "HTTP_TIMEOUT",
-        ["HTTP_TIMEOUT 必须是 1–300 秒之间的整数。", "HTTP_TIMEOUT must be an integer from 1 to 300 seconds."],
-    ],
+    ["HTTP_TIMEOUT", ["HTTP_TIMEOUT 必须是 1–300 秒之间的整数。", "HTTP_TIMEOUT must be an integer from 1 to 300 seconds."]],
     [
         "HTTP_CONCURRENCY",
         [
@@ -954,17 +935,11 @@ const configHints = new Map([
     ],
     [
         "HTTP_MAX_LINE_SIZE",
-        [
-            "HTTP_MAX_LINE_SIZE 必须是 1024–1048576 之间的整数。",
-            "HTTP_MAX_LINE_SIZE must be an integer from 1,024 to 1,048,576.",
-        ],
+        ["HTTP_MAX_LINE_SIZE 必须是 1024–1048576 之间的整数。", "HTTP_MAX_LINE_SIZE must be an integer from 1,024 to 1,048,576."],
     ],
     [
         "HTTP_MAX_FIELD_SIZE",
-        [
-            "HTTP_MAX_FIELD_SIZE 必须是 1024–1048576 之间的整数。",
-            "HTTP_MAX_FIELD_SIZE must be an integer from 1,024 to 1,048,576.",
-        ],
+        ["HTTP_MAX_FIELD_SIZE 必须是 1024–1048576 之间的整数。", "HTTP_MAX_FIELD_SIZE must be an integer from 1,024 to 1,048,576."],
     ],
     [
         "TOKEN",
@@ -980,10 +955,7 @@ const configHints = new Map([
             "API_HASH must contain 32 hexadecimal characters, or be empty to use the original empty-value behavior.",
         ],
     ],
-    [
-        "ERROR_LOGGING_CHAT",
-        ["ERROR_LOGGING_CHAT 必须是有效的数字会话 ID。", "ERROR_LOGGING_CHAT must be a valid numeric chat ID."],
-    ],
+    ["ERROR_LOGGING_CHAT", ["ERROR_LOGGING_CHAT 必须是有效的数字会话 ID。", "ERROR_LOGGING_CHAT must be a valid numeric chat ID."]],
 ]);
 for (const key of [
     "MULTIUSER",
@@ -1018,6 +990,7 @@ const components = new Map([
     ["agent_tokens", ["Agent 连接授权", "Agent connections"]],
     ["admin_credentials", ["网页登录凭据", "Browser-login credentials"]],
     ["runtime_config", ["运行配置", "Runtime configuration"]],
+    ["feed_proxies", ["订阅源的单独代理", "Per-feed proxies"]],
     ["notification_secrets", ["通知渠道凭据", "Notification channel credentials"]],
 ]);
 
