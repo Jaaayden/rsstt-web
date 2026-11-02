@@ -96,7 +96,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--image', default='rsstt-web:ci')
     parser.add_argument('--output', type=Path, default=Path('.ci-artifacts/resource'))
-    parser.add_argument('--stable-rounds', type=int, choices=(60, 300), default=60)
+    # 20 rounds still leave 15 post-warm-up samples for the RSS growth check (quick PR runs).
+    parser.add_argument('--stable-rounds', type=int, choices=(20, 60, 300), default=60)
+    parser.add_argument('--churn-rounds', type=int, choices=(20, 60), default=60)
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     output = args.output.resolve()
@@ -112,7 +114,7 @@ def main():
                    'pids': 128, 'fds': 1024, 'tmpfs_bytes': 128 * 1024**2},
         'transport': 'Offline synthetic RSS and Telegram; no healthcheck or external connections'})
     stable = run_mode(root, args.image, output, 'stable', args.stable_rounds)
-    churn = run_mode(root, args.image, output, 'churn', 60)
+    churn = run_mode(root, args.image, output, 'churn', args.churn_rounds)
     return 0 if stable and churn else 1
 
 

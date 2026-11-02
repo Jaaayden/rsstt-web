@@ -1,8 +1,10 @@
 name: Web console tests
 on:
   pull_request:
+    paths-ignore: ['docs/**', '**.md', '**.sample', 'LICENSE']
   push:
     branches: [dev, main, 'integration/**']
+    paths-ignore: ['docs/**', '**.md', '**.sample', 'LICENSE']
   workflow_dispatch:
 permissions:
   contents: read

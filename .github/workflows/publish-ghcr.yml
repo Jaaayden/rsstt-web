@@ -60,7 +60,10 @@ jobs:
             RAILWAY_GIT_BRANCH=${{ github.ref_name }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=ghcr
+          # Reuse layers already built by the Docker test workflow.
+          cache-from: |
+            type=gha,scope=ghcr
+            type=gha,scope=console-docker
           cache-to: type=gha,scope=ghcr,mode=max
       - name: Summary
         run: |
