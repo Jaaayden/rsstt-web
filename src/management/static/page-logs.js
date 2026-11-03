@@ -5,7 +5,6 @@ import {
     useGet,
     useRoute,
     Icon,
-    Button,
     RefreshButton,
     Skeleton,
     Select,
