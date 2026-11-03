@@ -31,6 +31,7 @@ from telethon.errors import FloodWaitError, SlowModeWaitError, ServerError, BadR
 from urllib.parse import urlparse
 
 from .. import env, log, web, locks
+from ..aio_helper import run_async
 from .html_node import Code, Link, Br, Text, HtmlTree
 from .utils import isAbsoluteHttpLink
 from ..errors_collection import InvalidMediaErrors, ExternalMediaFetchFailedErrors, UserBlockedErrors
@@ -85,6 +86,9 @@ TypeInputFile = Union[InputFile, InputFileBig]
 TypeTelegramMedia = Union[TypeMessageMedia, TypeInputFile]
 
 IMAGE_MAX_SIZE: Final = 5242880
+# WebP that wsrv.nl will not convert is re-encoded here, within what Telegram accepts for a photo.
+LOCAL_CONVERT_MAX_SIDE: Final = 2560
+LOCAL_CONVERT_QUALITIES: Final = (90, 80, 70, 55)
 MEDIA_MAX_SIZE: Final = 20971520
 
 
@@ -383,6 +387,13 @@ class Medium(AbstractMedium):
                 self.max_width = max(self.max_width, self.width)
                 self.max_height = max(self.max_height, self.height)
 
+                if (self.type == ANIMATION and self.content_type and 'webp' in self.content_type
+                        and not self.need_type_fallback and self.type_fallback_medium is None):
+                    # a .gif address that serves WebP is no animation Telegram can play (it shows a sticker); if it
+                    # can be re-encoded here, send a photo, otherwise keep sending it as it is
+                    if await self.type_fallback(reason='WebP served as an animation'):
+                        return True
+
                 if self.type == IMAGE:
                     # drop icons and emoticons
                     if 0 < self.width <= 30 or 0 < self.height < 30:
@@ -610,6 +621,20 @@ class Image(Medium):
     def get_multimedia_html(self) -> str:
         return f'<img src="{self.original_urls[0]}" />'
 
+    async def type_fallback(self, reason: Union[Exception, str] = None) -> bool:
+        # A WebP that wsrv.nl would not convert: re-encode it here rather than send it as a WebP file (a sticker).
+        if (not self.need_type_fallback and self.type_fallback_medium is None and self.original_urls
+                and self.content_type and 'webp' in self.content_type):
+            local = LocalConvertedImage(self.original_urls[0])
+            if await local.validate():
+                self.valid = False
+                self.type_fallback_medium = local
+                self.need_type_fallback = True
+                logger.debug(f'Medium ({self.describe}) type fallback to ({local.describe})'
+                             + (f': {reason}' if reason else ''))
+                return True
+        return await super().type_fallback(reason=reason)
+
     async def change_server(self) -> bool:
         if weserv_relayed := insert_image_relay_into_weserv_url(self.chosen_url):
             # success if:
@@ -695,6 +720,31 @@ class Animation(Image):
     typeFallbackTo = None
     typeFallbackAllowSelfUrls = False
     inputMediaExternalType = InputMediaDocumentExternal
+
+
+def _reencode_as_jpeg(data: bytes) -> bytes:
+    """Re-encode an image (the first frame of an animated one) as a JPEG that Telegram accepts as a photo."""
+    from PIL import Image as PILImage
+    with PILImage.open(BytesIO(data)) as im:
+        im.load()
+        if im.mode in ('RGBA', 'LA') or (im.mode == 'P' and 'transparency' in im.info):
+            rgba = im.convert('RGBA')
+            flat = PILImage.new('RGB', rgba.size, (255, 255, 255))
+            flat.paste(rgba, mask=rgba.getchannel('A'))
+            im = flat
+        else:
+            im = im.convert('RGB')
+        im.thumbnail((LOCAL_CONVERT_MAX_SIDE, LOCAL_CONVERT_MAX_SIDE))
+        width, height = im.size
+        if not 0.05 < width / height < 20 or width + height > 10000:
+            raise ValueError(f'{width}x{height} is not a valid photo shape')
+        for quality in LOCAL_CONVERT_QUALITIES:
+            with BytesIO() as out:
+                im.save(out, 'JPEG', quality=quality, optimize=True)
+                jpeg = out.getvalue()
+            if len(jpeg) <= IMAGE_MAX_SIZE:
+                return jpeg
+    raise ValueError('image is too large even after re-encoding')
 
 
 class UploadedImage(AbstractMedium):
@@ -791,6 +841,39 @@ class UploadedImage(AbstractMedium):
     @property
     def describe(self) -> str:
         return self.info
+
+
+class LocalConvertedImage(UploadedImage):
+    """
+    An image fetched and re-encoded here, for the WebP that wsrv.nl refuses to convert. Sent as a WebP file, Telegram
+    shows it as a sticker, so it is uploaded as an ordinary photo instead.
+    """
+
+    def __init__(self, url: str):
+        super().__init__(None, 'image.jpg')
+        self.url = url
+
+    async def _fetch_and_reencode(self) -> bytes:
+        r = await web.get(url=self.url, max_size=None)
+        if r.status != 200 or not r.content:
+            raise ValueError(f'status code is {r.status}')
+        if len(r.content) > MEDIA_MAX_SIZE:
+            raise ValueError('image is too large')
+        return await run_async(_reencode_as_jpeg, r.content, prefer_pool='thread')
+
+    async def validate(self, flush: bool = False, *_, **__) -> bool:
+        if self.valid is None and self.file is None:
+            try:
+                self.file = await self._fetch_and_reencode()
+            except Exception as e:
+                logger.debug(f'Failed to re-encode the image locally: {self.url}', exc_info=e)
+                self.valid = False
+                return False
+        return await super().validate(flush=flush)
+
+    @property
+    def describe(self) -> str:
+        return f'locally re-encoded {self.url}'
 
 
 class Media:
