@@ -104,56 +104,73 @@ export function labelOf(key, value) {
     return option.values().find(([v]) => v === value)?.[1] ?? String(value);
 }
 
+/**
+ * One option, worded and valued exactly like the bot's /set menus.
+ * inherit: the chat's own values when editing one subscription (-100 = follow the chat, shown with its current value).
+ * generic: editing several subscriptions of different chats; -100 is offered without naming a value.
+ */
+export function OptionField({ option: o, values, onChange, inherit, generic }) {
+    const set = (value) => onChange(o.key, value);
+    const offered = inherit || generic;
+    const follows = offered && values[o.key] === -100;
+    if (o.number) {
+        return html`<${Field}
+            label=${o.label()}
+            setting=${o.key}
+            hint=${follows
+                ? generic
+                    ? L("每个订阅跟随各自会话的默认值。", "Each subscription follows its own chat's default.")
+                    : L(
+                          `跟随会话默认：${inherit[o.key] || L("不限", "unlimited")}`,
+                          `Following chat default: ${inherit[o.key] || "unlimited"}`,
+                      )
+                : o.hint?.()}
+        >
+            <div class="row">
+                ${offered
+                    ? html`<${Select}
+                          value=${follows ? "inherit" : "custom"}
+                          onChange=${(v) => set(v === "inherit" ? -100 : generic ? 0 : (inherit[o.key] ?? 0))}
+                          options=${[
+                              ["inherit", L("跟随会话默认", "Chat default")],
+                              ["custom", L("自定义", "Custom")],
+                          ]}
+                      />`
+                    : null}
+                ${follows
+                    ? null
+                    : html`<${Input}
+                          type="number"
+                          min=${o.number[0]}
+                          max=${o.number[1]}
+                          value=${values[o.key]}
+                          onInput=${(v) => set(v === "" ? 0 : Number(v))}
+                      />`}
+            </div>
+        <//>`;
+    }
+    const choices = o.values();
+    const options = offered
+        ? [
+              [
+                  -100,
+                  generic
+                      ? L("跟随会话默认", "Chat default")
+                      : L(`跟随会话默认（${labelOf(o.key, inherit[o.key])}）`, `Chat default (${labelOf(o.key, inherit[o.key])})`),
+              ],
+              ...choices,
+          ]
+        : choices;
+    return html`<${Field} label=${o.label()} setting=${o.key} hint=${o.hint?.()}>
+        <${Select} value=${values[o.key]} onChange=${(v) => set(Number(v))} options=${options} />
+    <//>`;
+}
+
 /** inherit: object of the chat's own values when editing a subscription (-100 = follow chat). */
 export function OptionsForm({ values, onChange, inherit }) {
     const set = (key, value) => onChange({ ...values, [key]: value });
     return html`<div class="option-grid">
-        ${OPTIONS.map((o) => {
-            const follows = inherit && values[o.key] === -100;
-            if (o.number) {
-                return html`<${Field}
-                    label=${o.label()}
-                    hint=${follows
-                        ? L(
-                              `跟随会话默认：${inherit[o.key] || L("不限", "unlimited")}`,
-                              `Following chat default: ${inherit[o.key] || "unlimited"}`,
-                          )
-                        : o.hint?.()}
-                >
-                    <div class="row">
-                        ${inherit
-                            ? html`<${Select}
-                                  value=${follows ? "inherit" : "custom"}
-                                  onChange=${(v) => set(o.key, v === "inherit" ? -100 : (inherit[o.key] ?? 0))}
-                                  options=${[
-                                      ["inherit", L("跟随会话默认", "Chat default")],
-                                      ["custom", L("自定义", "Custom")],
-                                  ]}
-                              />`
-                            : null}
-                        ${follows
-                            ? null
-                            : html`<${Input}
-                                  type="number"
-                                  min=${o.number[0]}
-                                  max=${o.number[1]}
-                                  value=${values[o.key]}
-                                  onInput=${(v) => set(o.key, v === "" ? 0 : Number(v))}
-                              />`}
-                    </div>
-                <//>`;
-            }
-            const choices = o.values();
-            const options = inherit
-                ? [
-                      [-100, L(`跟随会话默认（${labelOf(o.key, inherit[o.key])}）`, `Chat default (${labelOf(o.key, inherit[o.key])})`)],
-                      ...choices,
-                  ]
-                : choices;
-            return html`<${Field} label=${o.label()} hint=${o.hint?.()}>
-                <${Select} value=${values[o.key]} onChange=${(v) => set(o.key, Number(v))} options=${options} />
-            <//>`;
-        })}
+        ${OPTIONS.map((o) => html`<${OptionField} option=${o} values=${values} onChange=${set} inherit=${inherit} />`)}
     </div>`;
 }
 
@@ -162,6 +179,7 @@ export function IntervalField({ value, onChange, minimal, inheritLabel }) {
     const custom = value != null && !presets.includes(value);
     return html`<${Field}
         label=${L("检查间隔", "Check interval")}
+        setting="interval"
         hint=${L(`多久检查一次更新；最短 ${minimal} 分钟。`, `How often to check for updates; minimum ${minimal} min.`)}
     >
         <div class="row">

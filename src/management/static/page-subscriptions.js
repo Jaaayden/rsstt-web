@@ -32,6 +32,7 @@ import {
 } from "./ui.js";
 import { L, api, qs, num, ago, dateTime, readRoute, setParams, toast, download, host, minutes, app, prefetch, chatPath } from "./core.js";
 import { OptionsForm, IntervalField } from "./options.js";
+import { BatchSettings } from "./batch-settings.js";
 import { EventRow, RunsPanel, RUN_FILTERS } from "./page-logs.js";
 import { ProxyField, ProxyTestResult, emptyProxy, proxyValue, proxyChanged, proxyReady, savedText } from "./proxy.js";
 
@@ -93,6 +94,7 @@ export function Subscriptions() {
     const [busy, setBusy] = useState("");
     const [proxyDialog, setProxyDialog] = useState(false);
     const [intervalDialog, setIntervalDialog] = useState(false);
+    const [settingsDialog, setSettingsDialog] = useState(false);
     const [fetchDialog, setFetchDialog] = useState(false);
     const query = { q, target, ...statusQuery(status) };
     const { data, error, loading, reload } = useGet(listPath({ q, target, status, page }), { live: true });
@@ -283,6 +285,7 @@ export function Subscriptions() {
                   <span>${L(`已选 ${selected.size} 个`, `${selected.size} selected`)}</span>
                   <${Button} size="sm" icon="pause" loading=${busy === "pause"} onClick=${() => batch("pause")}>${L("暂停", "Pause")}<//>
                   <${Button} size="sm" icon="play" loading=${busy === "resume"} onClick=${() => batch("resume")}>${L("恢复", "Resume")}<//>
+                  <${Button} size="sm" icon="sliders" onClick=${() => setSettingsDialog(true)}>${L("批量设置", "Settings")}<//>
                   ${app.info.features.manual_fetch
                       ? html`<${Button} size="sm" icon="refresh" onClick=${() => setFetchDialog(true)}>${L("立即抓取", "Fetch now")}<//>`
                       : null}
@@ -301,6 +304,14 @@ export function Subscriptions() {
                   feedIds=${[...new Set(items.filter((s) => selected.has(s.id)).map((s) => s.feed_id))]}
                   onClose=${() => setProxyDialog(false)}
                   onDone=${() => (setProxyDialog(false), setSelected(new Set()), reload(true))}
+              />`
+            : null}
+        ${settingsDialog
+            ? html`<${BatchSettings}
+                  chosen=${chosen}
+                  onClose=${() => setSettingsDialog(false)}
+                  onChanged=${() => reload(true)}
+                  onDone=${() => (setSettingsDialog(false), setSelected(new Set()), reload(true))}
               />`
             : null}
         ${intervalDialog
@@ -792,7 +803,7 @@ function SubSettings({ sub, onChanged, onPreview, onDirty, onDeleted }) {
         </div>
 
         <div class="form-grid">
-            <${Field} label=${L("自定义标题", "Custom title")} hint=${L(`留空则使用订阅源标题。`, "Empty uses the feed's own title.")}>
+            <${Field} label=${L("自定义标题", "Custom title")} setting="title" hint=${L(`留空则使用订阅源标题。`, "Empty uses the feed's own title.")}>
                 <${Input}
                     value=${draft.title}
                     placeholder=${sub.custom_title ? "" : sub.title}
@@ -801,6 +812,7 @@ function SubSettings({ sub, onChanged, onPreview, onDirty, onDeleted }) {
             <//>
             <${Field}
                 label=${L("自定义 hashtag", "Custom hashtags")}
+                setting="tags"
                 hint=${L("空格分隔，推送时附在消息末尾。", "Space-separated, appended to each message.")}
             >
                 <${Input} value=${draft.tags} placeholder="#news #tech" onInput=${(v) => setDraft({ ...draft, tags: v })} />
@@ -828,7 +840,7 @@ function SubSettings({ sub, onChanged, onPreview, onDirty, onDeleted }) {
         </div>
         <div class="form-section">
             <h4>${L("订阅状态", "Subscription")}</h4>
-            <div class="action-card" style="margin-top:12px">
+            <div class="action-card" style="margin-top:12px" data-setting="state">
                 <${Icon} name=${sub.state ? "pause" : "play"} size=${18} />
                 <div>
                     <b>${sub.state ? L("暂停推送", "Pause delivery") : L("恢复推送", "Resume delivery")}</b>
@@ -909,7 +921,7 @@ function Recipients({ sub, onChanged, onMoved }) {
     if (error) return html`<${Notice} tone="error">${error.message}<//>`;
     if (!data) return html`<${Spinner} />`;
     return html`
-        <p class="muted" style="margin-bottom:14px">
+        <p class="muted" style="margin-bottom:14px" data-setting="recipients">
             ${L(
                 "这个 RSS 源推送到下面这些会话。只抓取一次，再分别推送；每个会话可以有自己的格式设置。在这里增减会话，就不用在机器人里先 /unsub 再 /sub。",
                 "This feed is delivered to the chats below — fetched once, then sent to each, with per-chat formatting. Add or remove chats here instead of /unsub + /sub in the bot.",
@@ -1215,7 +1227,7 @@ function Fetching({ sub, onChanged }) {
                         : null}
                 `}
 
-        <div class="section-title" style="margin-top:28px">
+        <div class="section-title" style="margin-top:28px" data-setting="proxy">
             <div>
                 <h3>${L("代理", "Proxy")}</h3>
                 <p>
@@ -1254,7 +1266,7 @@ function Fetching({ sub, onChanged }) {
                   <${ProxyTestResult} result=${proxyResult} />
               </div>`}
 
-        <div class="section-title" style="margin-top:28px">
+        <div class="section-title" style="margin-top:28px" data-setting="user_agent">
             <div>
                 <h3>User-Agent</h3>
                 <p>

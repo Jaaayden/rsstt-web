@@ -161,9 +161,27 @@ function Login({ info }) {
                     />
                 <//>
                 <${Button} kind="primary" size="lg" type="submit" loading=${busy} disabled=${!username.trim() || !password}>${L("登录", "Sign in")}<//>
+                <${Version} version=${info.version} />
             </form>
         </section>
     </div>`;
+}
+
+/** "RSStT Web 1.4.0 · abc1234": hover for the full commit, click to copy (for bug reports). */
+function Version({ version, build }) {
+    if (!version) return null;
+    const text = `RSStT Web ${version}${build ? ` · ${build.slice(0, 7)}` : ""}`;
+    async function copy() {
+        try {
+            await navigator.clipboard.writeText(text);
+            toast(L(`已复制 ${text}`, `Copied ${text}`));
+        } catch {
+            toast(L("浏览器不允许写入剪贴板", "The browser blocked clipboard access"), "error");
+        }
+    }
+    return html`<button type="button" class="version-tag" title=${(build ? build + " · " : "") + L("点击复制", "Click to copy")} onClick=${copy}>
+        ${text}
+    </button>`;
 }
 
 function BotCard() {
@@ -263,6 +281,7 @@ function Shell() {
                 <button class="pref btn-ghost btn" onClick=${logout}>
                     <${Icon} name="logout" size=${14} />${L("退出登录", "Sign out")}
                 </button>
+                <${Version} version=${app.session?.version} build=${app.session?.build} />
             </div>
         </aside>
         ${menu ? html`<div class="scrim" onClick=${() => setMenu(false)}></div>` : null}

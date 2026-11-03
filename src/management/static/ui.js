@@ -94,8 +94,8 @@ export function Button({ kind = "secondary", size, icon, children, loading, clas
 export const IconButton = ({ icon, label, ...rest }) =>
     html`<button type="button" class="icon-btn" title=${label} aria-label=${label} ...${rest}><${Icon} name=${icon} /></button>`;
 
-export function Field({ label, hint, error, children, inline }) {
-    return html`<label class="field ${inline ? "field-inline" : ""}">
+export function Field({ label, hint, error, children, inline, setting }) {
+    return html`<label class="field ${inline ? "field-inline" : ""}" data-setting=${setting}>
         ${label ? html`<span class="field-label">${label}</span>` : null} ${children}
         ${error ? html`<span class="field-error">${error}</span>` : hint ? html`<span class="field-hint">${hint}</span>` : null}
     </label>`;
