@@ -13,6 +13,7 @@
 
 ### Bug 修复
 
+- **WebP 图片显示为贴纸**: 一些网站不论文件名都返回 WebP，而 `wsrv.nl` 又拒绝转换部分域名的图片。这样的图片会退回为 WebP 文件，在 Telegram 里显示成贴纸，并且与正文分成两条消息。现在 `wsrv.nl` 无法转换时，由 RSStT 自己下载并重新编码为 JPEG 照片发送。以 `.gif` 结尾但实际返回 WebP 的地址同样处理（动态 WebP 只保留第一帧）。如果在本地下载或重新编码也失败，则沿用原有行为。
 - **格式不正确的 `<`**: 修复了在 `<code>` 或 `<pre>` 中的 `<` 被渲染为 `&LT` 的问题。这是一个上游问题，参见 [wilsonzlin/minify-html#109](https://github.com/wilsonzlin/minify-html/issues/109)。
 
 ## v2.10.0: 容器健康检查、特定于聊天的 #hashtag 和更多

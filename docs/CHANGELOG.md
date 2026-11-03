@@ -13,6 +13,7 @@
 
 ### Bug fixes
 
+- **WebP images shown as stickers**: Some sites serve WebP under any file name, and `wsrv.nl` refuses to convert images from some domains. Such an image fell back to a WebP file, which Telegram shows as a sticker, in a separate message from the text. It is now fetched and re-encoded as a JPEG photo by RSStT itself when `wsrv.nl` cannot convert it. An address that ends in `.gif` but serves WebP is treated the same way (an animated WebP keeps only its first frame). If the image cannot be fetched or re-encoded here, the previous behaviour applies.
 - **Malformed `<`**: Fixed an issue where `<` in `<code>` or `<pre>` was rendered as `&LT`. This was an upstream issue, see also [wilsonzlin/minify-html#109](https://github.com/wilsonzlin/minify-html/issues/109).
 
 ## v2.10.0: Container health check, chat-specific #hashtags, and more
