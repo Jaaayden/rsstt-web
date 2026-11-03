@@ -187,7 +187,8 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
             'manual_fetch': '/api/subscriptions/{id}/fetch-now',
             'articles': '/api/subscriptions/{id}/articles',
         }.items()}
-        return web.json_response({'demo': demo, 'snapshot': snapshot, 'features': features, 'boot': boot})
+        return web.json_response({'demo': demo, 'snapshot': snapshot, 'features': features, 'boot': boot,
+                                  'version': web_version.WEB_VERSION})
 
     @routes.post('/api/login')
     async def login(request):
@@ -209,7 +210,7 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
     @routes.get('/api/session')
     async def session(request):
         p = request['principal']
-        return web.json_response({'name': p['name'], 'permission': p['permission'], 'targets': p['targets'], 'demo': demo, 'account_type': 'agent' if p['kind'] == 'token' else 'preview_admin' if demo else 'console_admin', 'expires_at': p['expires_at'], 'capabilities': ['subscriptions:read', 'subscriptions:write'] if p['permission'] == 'write' else ['subscriptions:read'] if p['permission'] == 'read' else ['console:admin']})
+        return web.json_response({'name': p['name'], 'permission': p['permission'], 'targets': p['targets'], 'demo': demo, 'account_type': 'agent' if p['kind'] == 'token' else 'preview_admin' if demo else 'console_admin', 'expires_at': p['expires_at'], 'version': web_version.WEB_VERSION, 'build': web_version.build(), 'capabilities': ['subscriptions:read', 'subscriptions:write'] if p['permission'] == 'write' else ['subscriptions:read'] if p['permission'] == 'read' else ['console:admin']})
 
     @routes.get('/api/auth/account')
     async def account(request):

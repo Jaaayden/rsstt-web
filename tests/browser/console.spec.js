@@ -429,3 +429,26 @@ test("batch settings: removing recipients asks first; failures are listed per su
         await page.request.patch(`/api/targets/${victim.id}/role`, { data: { role: "user" }, headers });
     }
 });
+
+test("the version is shown on the sign-in page and in the sidebar; clicking copies it", async ({ page, context }) => {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    const version = (await (await page.request.get("/api/public")).json()).version;
+    expect(version).toMatch(/^\d+\.\d+\.\d+/);
+    await page.addInitScript(() => localStorage.setItem("rsstt.lang", "zh"));
+    await page.goto("/");
+    await expect(page.locator(".login-form .version-tag")).toHaveText(`RSStT Web ${version}`);
+    await signIn(page);
+    const tag = page.locator(".sidebar .version-tag");
+    await expect(tag).toContainText(`RSStT Web ${version}`);
+    await tag.click();
+    await expect(page.locator(".toast", { hasText: "已复制" })).toBeVisible();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toContain(`RSStT Web ${version}`);
+    // Still there on every page, and on a phone (the sidebar opens from the menu button).
+    await page.goto("/#settings");
+    await expect(tag).toBeVisible();
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.getByRole("button", { name: "打开菜单" }).click();
+    await expect(tag).toBeInViewport();
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(0);
+});
