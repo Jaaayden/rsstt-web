@@ -7,7 +7,7 @@ release it is based on (core()). Release tags must be web-v<WEB_VERSION>
 import re
 from pathlib import Path
 
-WEB_VERSION = '1.3.2'
+WEB_VERSION = '1.5.0'
 
 
 def core():
