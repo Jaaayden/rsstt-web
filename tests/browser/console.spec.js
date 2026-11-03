@@ -285,3 +285,147 @@ test("phone layout has no horizontal overflow", async ({ page }) => {
     await page.getByRole("button", { name: "打开菜单" }).click();
     await expect(page.locator(".sidebar")).toBeInViewport();
 });
+
+/* ---------------- batch settings ---------------- */
+
+async function openBatchSettings(page, query) {
+    await page.goto("/#subscriptions" + query);
+    await expect(page.locator("tbody tr").first()).toBeVisible();
+    await page.getByRole("checkbox", { name: "全选" }).check();
+    await page.locator(".batchbar").getByRole("button", { name: "批量设置" }).click();
+    await expect(page.locator(".modal")).toContainText("批量设置");
+    return page.locator(".modal");
+}
+
+const row = (modal, key) => modal.locator(`.batch-row[data-setting="${key}"]`);
+const subscriptionsOf = async (page, query) => (await (await page.request.get("/api/subscriptions?size=30&q=" + encodeURIComponent(query))).json()).items;
+
+test("batch settings offer exactly the settings of one subscription's drawer", async ({ page }) => {
+    // The drawer is the reference: add a setting to a subscription and this fails until the batch dialog has it too.
+    await signIn(page, "/#subscriptions?q=A List Apart");
+    await page.locator("tbody tr .cell-title").first().click();
+    const drawer = page.locator(".drawer");
+    const single = new Set();
+    for (const [tab, wait] of [
+        ["设置", "style"],
+        ["接收会话", "recipients"],
+        ["抓取", "proxy"],
+    ]) {
+        await drawer.getByRole("tab", { name: tab }).click();
+        await expect(drawer.locator(`[data-setting="${wait}"]`).first()).toBeVisible();
+        for (const key of await drawer.locator("[data-setting]").evaluateAll((nodes) => nodes.map((n) => n.dataset.setting))) single.add(key);
+    }
+    expect([...single].sort()).toEqual(
+        expect.arrayContaining(["title", "tags", "interval", "length_limit", "notify", "send_mode", "display_media", "state", "user_agent", "proxy", "recipients"]),
+    );
+    await drawer.getByRole("button", { name: "关闭" }).click();
+    const modal = await openBatchSettings(page, "?q=A List Apart");
+    const batch = new Set(await modal.locator(".batch-row").evaluateAll((nodes) => nodes.map((n) => n.dataset.setting)));
+    // Recipients are edited as a set in the drawer; the batch adds to it or removes from it.
+    const expected = new Set([...single].flatMap((key) => (key === "recipients" ? ["add_recipients", "remove_recipients"] : [key])));
+    expect([...batch].sort()).toEqual([...expected].sort());
+    // Every one of them starts as "keep".
+    await expect(modal.locator('.batch-row[data-changing="yes"]')).toHaveCount(0);
+    await expect(modal.getByRole("button", { name: "应用" })).toBeDisabled();
+});
+
+test("batch settings: no images for several subscriptions, nothing else touched", async ({ page }) => {
+    await signIn(page);
+    const modal = await openBatchSettings(page, "?q=Aeon");
+    const before = await subscriptionsOf(page, "Aeon");
+    expect(before.length).toBeGreaterThan(1);
+    await row(modal, "display_media").getByRole("checkbox").check();
+    await row(modal, "display_media").locator(".batch-control select").selectOption({ label: "禁用" });
+    await expect(modal).toContainText("将修改 1 项");
+    await modal.getByRole("button", { name: "应用" }).click();
+    await expect(page.locator(".toast", { hasText: `已修改 ${before.length} 个订阅` })).toBeVisible();
+    const after = await subscriptionsOf(page, "Aeon");
+    for (const sub of after) {
+        expect(sub.options.display_media).toBe(-1);
+        const was = before.find((b) => b.id === sub.id);
+        expect({ ...sub.options, display_media: 0 }).toEqual({ ...was.options, display_media: 0 });
+        expect([sub.custom_title, sub.tags, sub.state]).toEqual([was.custom_title, was.tags, was.state]);
+    }
+});
+
+test("batch settings: every setting can be changed for a selection", async ({ page }) => {
+    await signIn(page);
+    const modal = await openBatchSettings(page, "?q=A List Apart");
+    const keys = await modal.locator(".batch-row").evaluateAll((nodes) => nodes.map((n) => n.dataset.setting));
+    const expected = {};
+    for (const key of keys) {
+        const r = row(modal, key);
+        if (key === "remove_recipients") continue; // destructive; checked on its own below
+        await r.getByRole("checkbox").check();
+        if (key === "title") await r.locator(".batch-control input").fill("批量标题");
+        else if (key === "tags") await r.locator(".batch-control input").fill("#e2e #batch");
+        else if (key === "interval") await r.locator(".batch-control select").selectOption("30");
+        else if (key === "state") await r.locator(".batch-control select").selectOption("1");
+        else if (key === "user_agent") await r.locator(".batch-control input").fill("E2E-Reader/1.0");
+        else if (key === "proxy") await r.getByRole("radio", { name: "直连" }).click();
+        else if (key === "add_recipients") {
+            await r.locator(".picker input").click();
+            await r.locator(".picker-option").first().click();
+        } else if (key === "length_limit") {
+            await r.locator(".batch-control select").selectOption("custom");
+            await r.locator("input[type=number]").fill("123");
+            expected[key] = 123;
+        } else {
+            // the first real choice of the option (the first entry is "follow the chat default")
+            const value = await r.locator(".batch-control select option").nth(1).getAttribute("value");
+            await r.locator(".batch-control select").selectOption(value);
+            expected[key] = Number(value);
+        }
+    }
+    await expect(modal).toContainText(`将修改 ${keys.length - 1} 项`);
+    await modal.getByRole("button", { name: "应用" }).click();
+    await expect(page.locator(".toast", { hasText: "个订阅" })).toBeVisible();
+    const subs = await subscriptionsOf(page, "A List Apart");
+    expect(subs.length).toBeGreaterThan(1);
+    for (const sub of subs) {
+        expect([sub.custom_title, sub.tags, sub.state, sub.options.interval]).toEqual(["批量标题", "e2e batch", 1, 30]);
+        for (const [key, value] of Object.entries(expected)) expect(sub.options[key], key).toBe(value);
+    }
+    const feed = await (await page.request.get(`/api/feeds/${subs[0].feed_id}/fetch-options`)).json();
+    expect([feed.user_agent, feed.proxy.mode]).toEqual(["E2E-Reader/1.0", "direct"]);
+    // Leave the demo data as it was for the tests after this one.
+    await page.getByRole("checkbox", { name: "全选" }).check();
+    await page.locator(".batchbar").getByRole("button", { name: "批量设置" }).click();
+    for (const key of ["title", "tags", "interval", "user_agent", "proxy"]) {
+        await row(page.locator(".modal"), key).getByRole("checkbox").check();
+        if (key === "interval") await row(page.locator(".modal"), key).locator(".batch-control select").selectOption("");
+        if (key === "proxy") await row(page.locator(".modal"), key).getByRole("radio", { name: "跟随全局" }).click();
+    }
+    await page.locator(".modal").getByRole("button", { name: "应用" }).click();
+    await expect(page.locator(".toast", { hasText: "个订阅" }).last()).toBeVisible();
+});
+
+test("batch settings: removing recipients asks first; failures are listed per subscription", async ({ page, baseURL }) => {
+    await signIn(page, "/");
+    const chats = (await (await page.request.get("/api/targets?size=100")).json()).items;
+    const victim = chats.find((c) => c.title === "Alex Chen");
+    const headers = { Origin: baseURL };
+    // Removing a recipient is confirmed, and cancelling changes nothing.
+    let modal = await openBatchSettings(page, "?q=A List Apart");
+    await row(modal, "remove_recipients").getByRole("checkbox").check();
+    await row(modal, "remove_recipients").locator(".picker input").click();
+    await row(modal, "remove_recipients").locator(".picker-option", { hasText: "Alex Chen" }).click();
+    await modal.getByRole("button", { name: "应用" }).click();
+    await expect(page.locator(".modal").last()).toContainText("移除 1 个接收会话");
+    await page.locator(".modal").last().getByRole("button", { name: "取消" }).click();
+    expect((await subscriptionsOf(page, "A List Apart")).some((s) => s.target_title === "Alex Chen")).toBe(true);
+    await modal.getByRole("button", { name: "取消" }).click();
+    // A banned chat cannot be resumed: its subscriptions are reported one by one.
+    const banned = await page.request.patch(`/api/targets/${victim.id}/role`, { data: { role: "banned" }, headers });
+    expect(banned.ok()).toBe(true);
+    try {
+        modal = await openBatchSettings(page, `?target=${victim.id}`);
+        await row(modal, "state").getByRole("checkbox").check();
+        await row(modal, "state").locator(".batch-control select").selectOption("1");
+        await modal.getByRole("button", { name: "应用" }).click();
+        await expect(modal).toContainText("失败");
+        await expect(modal.getByTestId("batch-failures").locator("li").first()).toContainText("封禁");
+    } finally {
+        await page.request.patch(`/api/targets/${victim.id}/role`, { data: { role: "user" }, headers });
+    }
+});

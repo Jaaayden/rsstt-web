@@ -67,6 +67,12 @@ def options(obj):
     return {key: getattr(obj, key) for key in (*SUB_OPTIONS_EXHAUSTIVE_VALUES, 'interval', 'length_limit')}
 
 
+# Everything one subscription (resp. chat) accepts in PATCH. The batch settings take their keys from here,
+# so a setting added for a single subscription is available for a selection as well.
+SUB_PATCH_KEYS = (*SUB_OPTIONS_EXHAUSTIVE_VALUES, 'interval', 'length_limit', 'title', 'tags', 'state')
+USER_PATCH_KEYS = (*SUB_OPTIONS_EXHAUSTIVE_VALUES, 'interval', 'length_limit', 'sub_limit', 'lang')
+
+
 class TelegramGateway:
     """Uses the running Telethon client; never starts another Telegram receiver."""
     async def inspect(self, ident):
@@ -298,12 +304,12 @@ class Service:
             self.new_feed_check(fresh, principal)
         return {'results': results}
 
-    async def patch(self, obj, values):
+    @staticmethod
+    def clean_patch(values, is_sub):
+        """Validate settings for a subscription (is_sub) or a chat; returns the values to store."""
         if not isinstance(values, dict) or not values:
             raise Problem('没有可保存的设置。')
-        is_sub = isinstance(obj, db.Sub)
-        allowed = set(SUB_OPTIONS_EXHAUSTIVE_VALUES) | {'interval', 'length_limit'} | ({'title', 'tags', 'state'} if is_sub else {'sub_limit', 'lang'})
-        if set(values) - allowed:
+        if set(values) - set(SUB_PATCH_KEYS if is_sub else USER_PATCH_KEYS):
             raise Problem('包含不支持的设置项。')
         clean = {}
         for key, value in values.items():
@@ -338,6 +344,11 @@ class Service:
                 if key == 'length_limit' and not (0 <= value <= 4096 or (is_sub and value == -100)):
                     raise Problem('长度阈值应为 0–4096。')
                 clean[key] = value
+        return clean
+
+    async def patch(self, obj, values):
+        is_sub = isinstance(obj, db.Sub)
+        clean = self.clean_patch(values, is_sub)
         if is_sub and clean.get('state') == 1:
             user = await db.User.get(id=obj.user_id)
             if user.state == -1:
@@ -351,6 +362,14 @@ class Service:
             else:
                 async for feed in db.Feed.filter(subs__user_id=obj.id, subs__interval__isnull=True).distinct():
                     await inner.utils.update_interval(feed)
+
+    async def update_sub(self, sub, values, principal):
+        """PATCH of one subscription, shared by the single and the batch settings."""
+        if values.get('state') == 1:
+            if sub.user.state == -1:
+                raise Problem(BANNED_RESUME_MESSAGE, 409, code='TARGET_BANNED')
+            await self.refresh(sub.user_id, principal)
+        await self.patch(sub, values)
 
     async def delete(self, sub):
         result = await inner.sub.unsub(sub.user_id, sub_id=sub.id)

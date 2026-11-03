@@ -337,6 +337,22 @@ const messages = new Map([
         ],
     ],
     [
+        "每次可处理 1–100 条订阅，操作可选 pause、resume、delete、interval、settings。",
+        ["请先选择 1–100 条订阅，再执行批量操作。", "Select 1–100 subscriptions before running a batch action."],
+    ],
+    [
+        "请至少选择一项要修改的设置。",
+        ["请至少勾选一项要修改的设置。", "Tick at least one setting to change."],
+    ],
+    [
+        "接收会话最多 100 个。",
+        ["一次最多添加或移除 100 个接收会话。", "Add or remove at most 100 recipient chats at a time."],
+    ],
+    [
+        "同一个会话不能同时添加和移除。",
+        ["同一个会话不能同时添加和移除，请从其中一项里去掉它。", "A chat can't be added and removed at once. Remove it from one of the two lists."],
+    ],
+    [
         "每次可处理 1–100 条订阅，操作可选 pause、resume、delete。",
         ["请先选择 1–100 条订阅，再执行暂停、恢复或取消订阅操作。", "Select 1–100 subscriptions before choosing Pause, Resume, or Remove."],
     ],

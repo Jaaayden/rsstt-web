@@ -36,7 +36,12 @@ async def affected(request, service):
         if not isinstance(ids, list) or not 1 <= len(ids) <= 100:
             return None, [], None
         ids = [integer(value, '订阅 ID', 1, 2**31 - 1) for value in ids]
-        targets = await service.scope(db.Sub.filter(id__in=ids), request['principal']).values_list('user_id', flat=True)
+        targets = list(await service.scope(db.Sub.filter(id__in=ids), request['principal']).values_list('user_id', flat=True))
+        changes = values.get('changes') if values.get('action') == 'settings' else None
+        for key in ('add_recipients', 'remove_recipients'):
+            chats = changes.get(key) if isinstance(changes, dict) else None
+            if isinstance(chats, list) and len(chats) <= 100:
+                targets.extend(chat_id(value) for value in chats)
         return 'subscriptions.batch', targets, None
     if path in ('/api/feeds/{id}/recipients', '/api/feeds/{id}/fetch-options') and method in ('PUT', 'PATCH'):
         feed_id = integer(ident, '来源 ID', 1, 2**31 - 1)

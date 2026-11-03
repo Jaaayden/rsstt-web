@@ -16,11 +16,11 @@ from aiohttp import web
 
 from .. import db, env
 from ..command import inner
-from . import articles, diagnostics, metrics, notifications
+from . import articles, batch_settings, diagnostics, metrics, notifications
 from . import version as web_version
 from . import feed_options
 from .statistics import usage
-from .service import Problem, Service, chat_id, integer, BANNED_RESUME_MESSAGE
+from .service import Problem, Service, chat_id, integer
 from .store import Store
 from .auth import Auth, revoke_browser_sessions
 from .agent_contract import authorize_agent, openapi
@@ -44,8 +44,12 @@ async def body(request):
     return result
 
 
+def is_admin(request):
+    return request['principal']['kind'] == 'session' and request['principal']['permission'] == 'admin'
+
+
 def admin(request):
-    if request['principal']['kind'] != 'session' or request['principal']['permission'] != 'admin':
+    if not is_admin(request):
         raise Problem('此操作需要管理台管理员权限。', 403)
 
 
@@ -430,11 +434,7 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
         values = await body(request)
         async with service.mutation:
             sub = await service.subscription(request.match_info['id'], request['principal'])
-            if values.get('state') == 1:
-                if sub.user.state == -1:
-                    raise Problem(BANNED_RESUME_MESSAGE, 409, code='TARGET_BANNED')
-                await service.refresh(sub.user_id, request['principal'])
-            await service.patch(sub, values)
+            await service.update_sub(sub, values, request['principal'])
         await store.audit(request['principal']['name'], '修改订阅', str(sub.id))
         return web.json_response((await service.sub_data([sub]))[0])
 
@@ -450,30 +450,36 @@ async def create_app(store, password, origin, gateway=None, demo=False, snapshot
     async def batch(request):
         values = await body(request)
         ids, action = values.get('ids'), values.get('action')
-        if not isinstance(ids, list) or not 1 <= len(ids) <= 100 or action not in ('pause', 'resume', 'delete', 'interval'):
-            raise Problem('每次可处理 1–100 条订阅，操作可选 pause、resume、delete、interval。')
+        if not isinstance(ids, list) or not 1 <= len(ids) <= 100 or action not in ('pause', 'resume', 'delete', 'interval', 'settings'):
+            raise Problem('每次可处理 1–100 条订阅，操作可选 pause、resume、delete、interval、settings。')
         if action == 'interval' and 'interval' not in values:
             raise Problem('请提供更新间隔（分钟）；null 表示跟随默认。')
+        plan = None
+        if action == 'settings':
+            # Reject a malformed or forbidden request as a whole, before anything is written.
+            plan = batch_settings.validate(service, request['principal'], values.get('changes'), is_admin(request))
         result = []
         async with service.mutation:
             # Authorize the entire selection before applying any writes.
             subs = [await service.subscription(ident, request['principal']) for ident in dict.fromkeys(ids)]
-            for sub in subs:
+            if plan is not None:
+                result = await batch_settings.apply(service, request['principal'], subs, plan)
+            for sub in subs if plan is None else ():
                 try:
                     if action == 'delete':
                         await service.delete(sub)
                     elif action == 'interval':
                         await service.patch(sub, {'interval': values['interval']})
                     else:
-                        if action == 'resume':
-                            if sub.user.state == -1:
-                                raise Problem(BANNED_RESUME_MESSAGE, 409, code='TARGET_BANNED')
-                            await service.refresh(sub.user_id, request['principal'])
-                        await service.patch(sub, {'state': 1 if action == 'resume' else 0})
+                        await service.update_sub(sub, {'state': 1 if action == 'resume' else 0}, request['principal'])
                     result.append({'id': sub.id, 'ok': True})
                 except Problem as error:
                     result.append({'id': sub.id, 'ok': False, 'error': error.message, 'code': error.code, 'status': error.status})
-        await store.audit(request['principal']['name'], '批量处理订阅', f'{action} · {len(result)} 条')
+        detail = f'{action} · {len(result)} 条'
+        if plan is not None:
+            # Names only: a proxy address may contain credentials.
+            detail += ' · ' + ','.join(key for key in values['changes'])
+        await store.audit(request['principal']['name'], '批量处理订阅', detail)
         return web.json_response({'results': result})
 
     @routes.get('/api/settings')
