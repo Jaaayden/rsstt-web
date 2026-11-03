@@ -455,7 +455,10 @@ export function useAsync(fn, deps, { key, initial, live = false, floor = 0 } = {
     useEffect(() => {
         // Anything already known for this key goes on screen at once; only a first load with nothing to show spins.
         const hit = keyOf() && cached(keyOf());
-        if (hit) setState((s) => (sameData(s.data, hit.data) ? s : { loading: false, data: hit.data, error: null }));
+        if (hit) {
+            loadedAt.current = hit.at;
+            setState((s) => (sameData(s.data, hit.data) ? s : { loading: false, data: hit.data, error: null }));
+        }
         reload(!!hit, hit && isFresh(hit, 3000) ? Infinity : 0);
     }, [reload]);
     useEffect(() => (live ? registerLive({ reload: (minAge) => reload(true, minAge), floor }) : undefined), [live, reload]);
