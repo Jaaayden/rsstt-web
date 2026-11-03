@@ -1,4 +1,20 @@
-import { html, useState, useAsync, useGet, useRoute, Icon, Button, RefreshButton, Skeleton, Select, Segmented, Empty, Notice, Badge, Pager } from "./ui.js";
+import {
+    html,
+    useState,
+    useAsync,
+    useGet,
+    useRoute,
+    Icon,
+    Button,
+    RefreshButton,
+    Skeleton,
+    Select,
+    Segmented,
+    Empty,
+    Notice,
+    Badge,
+    Pager,
+} from "./ui.js";
 import { L, lang, api, qs, num, dateTime, readRoute, setParams, app, prefetch } from "./core.js";
 
 const CATEGORY = {
@@ -253,7 +269,9 @@ export const RUN_FILTERS = () => [
 
 /** Every fetch of one feed (feedId) or of all feeds, newest first. Paging and filter live in the caller. */
 export function RunsPanel({ feedId, status, page, onPage }) {
-    const { data, error, loading } = useGet((feedId ? `/feeds/${feedId}/fetch-runs` : "/fetch-runs") + qs({ status, page, size: 30 }), { live: true });
+    const { data, error, loading } = useGet((feedId ? `/feeds/${feedId}/fetch-runs` : "/fetch-runs") + qs({ status, page, size: 30 }), {
+        live: true,
+    });
     if (error) return html`<${Notice} tone="error">${error.message}<//>`;
     if (!data) return html`<${Skeleton} rows=${6} />`;
     return html`

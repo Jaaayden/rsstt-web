@@ -207,7 +207,9 @@ export function RefreshButton() {
     }, []);
     return html`<span class="refresh">
         ${sync.at
-            ? html`<small class="muted" title=${new Date(sync.at).toLocaleString()}>${L("更新于", "Updated")} ${ago(sync.at / 1000)}</small>`
+            ? html`<small class="muted" title=${new Date(sync.at).toLocaleString()}
+                  >${L("更新于", "Updated")} ${ago(sync.at / 1000)}</small
+              >`
             : null}
         <${Button} icon="refresh" loading=${sync.manual && sync.busy > 0} onClick=${() => refreshLive(0, { manual: true })}
             >${L("刷新", "Refresh")}<//
@@ -427,11 +429,8 @@ export function useAsync(fn, deps, { key, initial, live = false, floor = 0 } = {
     const loadedAt = useRef(0);
     const reload = useCallback(async (quiet, minAge = 0) => {
         if (minAge && Date.now() - loadedAt.current < minAge) return;
-        const hit = keyOf() && cached(keyOf());
         const id = ++serial.current;
-        // Anything already on screen stays there; only a first load with nothing to show spins.
-        if (hit) setState((s) => (sameData(s.data, hit.data) ? s : { loading: false, data: hit.data, error: null }));
-        else if (!quiet) setState((s) => ({ ...s, loading: true, error: null }));
+        if (!quiet) setState((s) => ({ ...s, loading: true, error: null }));
         if (live) syncStart();
         let ok = false;
         try {
@@ -439,7 +438,13 @@ export function useAsync(fn, deps, { key, initial, live = false, floor = 0 } = {
             ok = true;
             if (id === serial.current) {
                 loadedAt.current = Date.now();
-                setState((s) => (sameData(s.data, data) ? (s.loading || s.error ? { loading: false, data: s.data, error: null } : s) : { loading: false, data, error: null }));
+                setState((s) =>
+                    sameData(s.data, data)
+                        ? s.loading || s.error
+                            ? { loading: false, data: s.data, error: null }
+                            : s
+                        : { loading: false, data, error: null },
+                );
             }
         } catch (error) {
             if (id === serial.current) setState((s) => ({ loading: false, data: s.data, error: minAge > 0 && s.data ? s.error : error }));
@@ -448,7 +453,9 @@ export function useAsync(fn, deps, { key, initial, live = false, floor = 0 } = {
         }
     }, deps);
     useEffect(() => {
+        // Anything already known for this key goes on screen at once; only a first load with nothing to show spins.
         const hit = keyOf() && cached(keyOf());
+        if (hit) setState((s) => (sameData(s.data, hit.data) ? s : { loading: false, data: hit.data, error: null }));
         reload(!!hit, hit && isFresh(hit, 3000) ? Infinity : 0);
     }, [reload]);
     useEffect(() => (live ? registerLive({ reload: (minAge) => reload(true, minAge), floor }) : undefined), [live, reload]);

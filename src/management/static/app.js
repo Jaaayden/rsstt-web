@@ -1,6 +1,22 @@
 // Application shell: sign-in, navigation and page routing.
 import { html, render, useState, useEffect, Icon, Mark, Button, Field, Input, Toasts, ModalHost, useRoute, Notice } from "./ui.js";
-import { L, lang, setLang, theme, applyTheme, app, api, subscribe, emit, readRoute, toast, duration, dateTime, registerLive, resetCache } from "./core.js";
+import {
+    L,
+    lang,
+    setLang,
+    theme,
+    applyTheme,
+    app,
+    api,
+    subscribe,
+    emit,
+    readRoute,
+    toast,
+    duration,
+    dateTime,
+    registerLive,
+    resetCache,
+} from "./core.js";
 import { Overview, warm as warmOverview } from "./page-overview.js";
 import { Chats, warm as warmChats } from "./page-chats.js";
 import { Subscriptions, warm as warmSubscriptions } from "./page-subscriptions.js";
@@ -196,7 +212,10 @@ function Shell() {
     }, []);
     useEffect(() => {
         // Once the page in front is up, quietly fetch the first screen of the others so a first visit is as quick as a return visit.
-        const timer = setTimeout(() => !document.hidden && Object.entries(PAGES).forEach(([key, p]) => key !== current && p.warm?.()), 1500);
+        const timer = setTimeout(
+            () => !document.hidden && Object.entries(PAGES).forEach(([key, p]) => key !== current && p.warm?.()),
+            1500,
+        );
         return () => clearTimeout(timer);
     }, []);
     useEffect(() => {

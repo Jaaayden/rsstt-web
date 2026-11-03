@@ -117,13 +117,20 @@ export async function api(path, { method = "GET", body, raw = false, headers = {
     if (read) {
         const hit = cache.get(path);
         if (maxAge && isFresh(hit, maxAge)) return hit.data;
-        if (pending.has(path)) return pending.get(path);
-        const request = fetchJson(path, { method, headers }).then((data) => (cache.set(path, { data, at: Date.now(), generation }), data));
-        pending.set(path, request);
-        request.then(
-            () => pending.delete(path),
-            () => pending.delete(path),
-        );
+        // Share a request already in flight, unless a write has landed since it started (its answer may predate the write).
+        const flying = pending.get(path);
+        if (flying?.generation === generation) return flying.request;
+        const started = generation;
+        const request = fetchJson(path, { method, headers }).then((data) => {
+            cache.delete(path); // re-insert at the end: the map doubles as an LRU
+            cache.set(path, { data, at: Date.now(), generation: started });
+            if (cache.size > 100) cache.delete(cache.keys().next().value);
+            return data;
+        });
+        const entry = { request, generation: started };
+        pending.set(path, entry);
+        const done = () => pending.get(path) === entry && pending.delete(path);
+        request.then(done, done);
         return request;
     }
     const result = await fetchJson(path, { method, body, raw, headers });
@@ -212,14 +219,14 @@ export function syncDone(ok) {
     syncEmit();
 }
 
-/** A live source is { reload(minAge), floor }; it refetches unless its data is younger than minAge ms (and, for timers and focus, than `floor`). */
+/** A live source is { reload(minAge), floor }: it refetches unless its data is younger than minAge ms (timers and focus: or `floor`). */
 export function registerLive(source) {
     sources.add(source);
     arm();
     return () => (sources.delete(source), arm());
 }
 export function refreshLive(minAge = 0, { manual = false } = {}) {
-    if (manual) {
+    if (manual && sources.size) {
         sync.manual = true;
         syncEmit();
     }

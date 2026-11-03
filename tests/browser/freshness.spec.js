@@ -45,7 +45,10 @@ test.beforeEach(async ({ page }) => {
     page.on("console", (msg) => msg.type() === "error" && !/401|409/.test(msg.text()) && errors.push(msg.text()));
     page.errors = errors;
     page.api = [];
-    page.on("request", (request) => request.url().includes("/api/") && page.api.push(`${request.method()} ${new URL(request.url()).pathname}`));
+    page.on(
+        "request",
+        (request) => request.url().includes("/api/") && page.api.push(`${request.method()} ${new URL(request.url()).pathname}`),
+    );
 });
 test.afterEach(async ({ page }) => {
     expect(page.errors, "no script errors").toEqual([]);
@@ -189,7 +192,8 @@ test("a subscription drawer opens on the list row without waiting for the server
     await signIn(page, "/#subscriptions");
     await expect(page.locator("tbody tr").first()).toBeVisible();
     await page.route("**/api/subscriptions/*", async (route) => {
-        if (route.request().method() === "GET" && /\/subscriptions\/\d+$/.test(route.request().url())) await new Promise((r) => setTimeout(r, 2000));
+        if (route.request().method() === "GET" && /\/subscriptions\/\d+$/.test(route.request().url()))
+            await new Promise((r) => setTimeout(r, 2000));
         await route.continue();
     });
     await page.locator("tbody tr .cell-title").first().click();
@@ -207,7 +211,11 @@ test("pause and resume show the new state at once and roll back when the server 
     await page.route(/\/api\/subscriptions\/\d+$/, async (route) => {
         if (route.request().method() !== "PATCH") return route.continue();
         await new Promise((r) => setTimeout(r, 1500));
-        await route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ error: "服务器拒绝了这次修改", code: "CONFLICT" }) });
+        await route.fulfill({
+            status: 409,
+            contentType: "application/json",
+            body: JSON.stringify({ error: "服务器拒绝了这次修改", code: "CONFLICT" }),
+        });
     });
     await toggle.click();
     await expect(toggle).toHaveText(flipped, { timeout: 600 }); // before the server has answered

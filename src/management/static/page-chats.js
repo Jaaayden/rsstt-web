@@ -27,7 +27,24 @@ import {
     confirm,
     Modal,
 } from "./ui.js";
-import { L, api, qs, ago, dateTime, readRoute, setParams, go, toast, download, ROLE, KIND, kindOf, app, prefetch, chatPath } from "./core.js";
+import {
+    L,
+    api,
+    qs,
+    ago,
+    dateTime,
+    readRoute,
+    setParams,
+    go,
+    toast,
+    download,
+    ROLE,
+    KIND,
+    kindOf,
+    app,
+    prefetch,
+    chatPath,
+} from "./core.js";
 import { OptionsForm, IntervalField, labelOf, OPTIONS } from "./options.js";
 
 const VISIBILITY = () => [
@@ -197,7 +214,12 @@ export function Chats() {
                           <${Pager} page=${page} size=${data.size} total=${data.total} onPage=${(p) => setParams({ page: p })} />`}
         </section>
         ${open
-            ? html`<${ChatDrawer} id=${open} row=${data?.items.find((c) => c.id === String(open))} onClose=${() => setParams({ chat: "", ctab: "" })} onChanged=${() => reload(true)} />`
+            ? html`<${ChatDrawer}
+                  id=${open}
+                  row=${data?.items.find((c) => c.id === String(open))}
+                  onClose=${() => setParams({ chat: "", ctab: "" })}
+                  onChanged=${() => reload(true)}
+              />`
             : null}
         ${adding
             ? html`<${AddChat}
@@ -254,7 +276,8 @@ export function ChatDrawer({ id, row, onClose, onChanged }) {
     // The list row is the same record, so the drawer opens on it at once and the lookup only confirms it.
     const { data: lookup, error: failed, reload, setData } = useGet(chatPath(id), { live: true });
     const chat = lookup ? lookup.items.find((c) => c.id === String(id)) : row;
-    const error = failed || (lookup && !chat ? new Error(L("找不到这个会话，可能已被移除。", "Chat not found. It may have been removed.")) : null);
+    const error =
+        failed || (lookup && !chat ? new Error(L("找不到这个会话，可能已被移除。", "Chat not found. It may have been removed.")) : null);
     const changed = (next) => {
         if (next) setData((d) => d && { ...d, items: d.items.map((c) => (c.id === next.id ? next : c)) });
         else reload(true);
