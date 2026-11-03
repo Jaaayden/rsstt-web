@@ -1,6 +1,23 @@
 // Reusable interface primitives.
 import { html, render, useState, useEffect, useRef, useCallback, useMemo } from "./vendor-preact.js";
-import { L, api, qs, toasts, KIND, kindOf, emit } from "./core.js";
+import {
+    L,
+    api,
+    qs,
+    toasts,
+    KIND,
+    kindOf,
+    emit,
+    ago,
+    cached,
+    isFresh,
+    registerLive,
+    refreshLive,
+    sync,
+    syncStart,
+    syncDone,
+    subscribeSync,
+} from "./core.js";
 
 export { html, render, useState, useEffect, useRef, useCallback, useMemo };
 
@@ -136,7 +153,15 @@ export function Segmented({ value, onChange, options, size }) {
 export function SearchInput({ value, onInput, placeholder, delay = 250 }) {
     const [text, setText] = useState(value || "");
     const timer = useRef();
+    const composing = useRef(false);
     useEffect(() => setText(value || ""), [value]);
+    useEffect(() => () => clearTimeout(timer.current), []);
+    // Wait for the user to stop typing, and never search half-composed pinyin/kana. (Lowercase names: Preact only maps the
+    // handful of events the DOM has `on…` properties for, so `onCompositionEnd` would listen for an event that never fires.)
+    const schedule = (next) => {
+        clearTimeout(timer.current);
+        if (!composing.current) timer.current = setTimeout(() => onInput(next), delay);
+    };
     return html`<label class="search">
         <${Icon} name="search" />
         <input
@@ -144,10 +169,16 @@ export function SearchInput({ value, onInput, placeholder, delay = 250 }) {
             value=${text}
             placeholder=${placeholder}
             onInput=${(e) => {
-                const next = e.currentTarget.value;
-                setText(next);
+                setText(e.currentTarget.value);
+                schedule(e.currentTarget.value);
+            }}
+            oncompositionstart=${() => {
+                composing.current = true;
                 clearTimeout(timer.current);
-                timer.current = setTimeout(() => onInput(next), delay);
+            }}
+            oncompositionend=${(e) => {
+                composing.current = false;
+                schedule(e.currentTarget.value);
             }}
         />
     </label>`;
@@ -159,6 +190,30 @@ export const Badge = ({ tone = "neutral", children, dot }) =>
 
 export const Spinner = ({ label }) =>
     html`<div class="loading"><span class="spinner"></span>${label ? html`<span>${label}</span>` : null}</div>`;
+
+/** Placeholder rows while a list loads for the first time; keeps the layout from jumping. */
+export const Skeleton = ({ rows = 6 }) =>
+    html`<div class="skeleton" aria-busy="true" aria-label=${L("加载中", "Loading")}>
+        ${Array.from({ length: rows }, (_, i) => html`<div class="skeleton-row" key=${i}><i></i><span></span><span></span></div>`)}
+    </div>`;
+
+/** Reloads everything live on this page and says how old it is. */
+export function RefreshButton() {
+    const [, force] = useState(0);
+    useEffect(() => {
+        const off = subscribeSync(() => force((n) => n + 1));
+        const tick = setInterval(() => force((n) => n + 1), 20000);
+        return () => (off(), clearInterval(tick));
+    }, []);
+    return html`<span class="refresh">
+        ${sync.at
+            ? html`<small class="muted" title=${new Date(sync.at).toLocaleString()}>${L("更新于", "Updated")} ${ago(sync.at / 1000)}</small>`
+            : null}
+        <${Button} icon="refresh" loading=${sync.manual && sync.busy > 0} onClick=${() => refreshLive(0, { manual: true })}
+            >${L("刷新", "Refresh")}<//
+        >
+    </span>`;
+}
 
 export const Empty = ({ icon = "feeds", title, children, action }) =>
     html`<div class="empty">
@@ -351,23 +406,76 @@ export function Toasts() {
 }
 
 /* ---------- data hooks ---------- */
-export function useAsync(fn, deps) {
-    const [state, setState] = useState({ loading: true, data: null, error: null });
+const sameData = (a, b) => a === b || (a != null && b != null && JSON.stringify(a) === JSON.stringify(b));
+
+/**
+ * Load data for a view.
+ *  - `key`: the GET path `fn` requests (or a function returning it, for paths that move with time).
+ *    A remembered response is shown at once and refreshed behind it.
+ *  - `initial`: data already at hand (e.g. the list row for a drawer), shown while the first request runs.
+ *  - `live`: also refresh when the tab regains focus, on a slow timer while visible, and from the refresh button.
+ *    `floor` keeps slow-changing data (hourly charts) from being refetched more often than that many ms, except by the button.
+ * A refresh that returns the same data keeps the identical object, so nothing re-renders and drafts built on it are not reset.
+ */
+export function useAsync(fn, deps, { key, initial, live = false, floor = 0 } = {}) {
+    const keyOf = () => (typeof key === "function" ? key() : key);
+    const [state, setState] = useState(() => {
+        const hit = keyOf() && cached(keyOf());
+        return hit ? { loading: false, data: hit.data, error: null } : { loading: initial == null, data: initial ?? null, error: null };
+    });
     const serial = useRef(0);
-    const reload = useCallback(async (quiet) => {
+    const loadedAt = useRef(0);
+    const reload = useCallback(async (quiet, minAge = 0) => {
+        if (minAge && Date.now() - loadedAt.current < minAge) return;
+        const hit = keyOf() && cached(keyOf());
         const id = ++serial.current;
-        if (!quiet) setState((s) => ({ ...s, loading: true, error: null }));
+        // Anything already on screen stays there; only a first load with nothing to show spins.
+        if (hit) setState((s) => (sameData(s.data, hit.data) ? s : { loading: false, data: hit.data, error: null }));
+        else if (!quiet) setState((s) => ({ ...s, loading: true, error: null }));
+        if (live) syncStart();
+        let ok = false;
         try {
             const data = await fn();
-            if (id === serial.current) setState({ loading: false, data, error: null });
+            ok = true;
+            if (id === serial.current) {
+                loadedAt.current = Date.now();
+                setState((s) => (sameData(s.data, data) ? (s.loading || s.error ? { loading: false, data: s.data, error: null } : s) : { loading: false, data, error: null }));
+            }
         } catch (error) {
-            if (id === serial.current) setState((s) => ({ loading: false, data: s.data, error }));
+            if (id === serial.current) setState((s) => ({ loading: false, data: s.data, error: minAge > 0 && s.data ? s.error : error }));
+        } finally {
+            if (live) syncDone(ok);
         }
     }, deps);
     useEffect(() => {
-        reload();
+        const hit = keyOf() && cached(keyOf());
+        reload(!!hit, hit && isFresh(hit, 3000) ? Infinity : 0);
     }, [reload]);
+    useEffect(() => (live ? registerLive({ reload: (minAge) => reload(true, minAge), floor }) : undefined), [live, reload]);
     return { ...state, reload, setData: (data) => setState((s) => ({ ...s, data: typeof data === "function" ? data(s.data) : data })) };
+}
+
+/**
+ * Form state seeded from a record that can change underneath it (live refresh, a Telegram command).
+ * When it does, fields the user has not touched follow the new values and fields they have edited keep their edit,
+ * so saving never writes back a stale copy of what changed elsewhere.
+ */
+export function useDraft(base) {
+    const [draft, setDraft] = useState(base);
+    const seen = useRef(JSON.stringify(base));
+    const sig = JSON.stringify(base);
+    useEffect(() => {
+        if (seen.current === sig) return;
+        const old = JSON.parse(seen.current);
+        seen.current = sig;
+        setDraft((d) => Object.fromEntries(Object.keys(base).map((k) => [k, d[k] === old[k] ? base[k] : d[k]])));
+    }, [sig]);
+    return [draft, setDraft];
+}
+
+/** `useAsync` for one GET path: cached, deduplicated, optionally live. */
+export function useGet(path, { maxAge = 0, ...options } = {}) {
+    return useAsync(() => api(path, { maxAge }), [path], { key: path, ...options });
 }
 
 export function useRoute() {

@@ -4,6 +4,7 @@ import {
     useEffect,
     useRef,
     useAsync,
+    useGet,
     useRoute,
     Icon,
     Button,
@@ -23,7 +24,7 @@ import {
     Copy,
     SearchInput,
 } from "./ui.js";
-import { L, api, qs, num, dateTime, readRoute, setParams, toast, download, app, emit } from "./core.js";
+import { L, api, qs, num, dateTime, readRoute, setParams, toast, download, app, emit, prefetch } from "./core.js";
 
 const SECTIONS = [
     ["general", "sliders", () => L("订阅规则", "Subscription rules")],
@@ -167,7 +168,7 @@ export async function restartBot(restart) {
 }
 
 function RestartButton({ size, kind = "secondary" }) {
-    const settings = useAsync(() => api("/settings"), []);
+    const settings = useGet("/settings", { maxAge: 60000 });
     const restart = settings.data?.restart;
     if (!restart?.supported) return null;
     return html`<${Button} size=${size} kind=${kind} icon="refresh" onClick=${() => restartBot(restart)}
@@ -177,7 +178,7 @@ function RestartButton({ size, kind = "secondary" }) {
 
 /* ---------- general ---------- */
 function General() {
-    const { data, error, reload } = useAsync(() => api("/settings"), []);
+    const { data, error, reload } = useGet("/settings");
     const [draft, setDraft] = useState(null);
     const [busy, setBusy] = useState(false);
     const base = data && {
@@ -1444,7 +1445,7 @@ function CreateToken({ onClose }) {
 
 /* ---------- account ---------- */
 function Account() {
-    const settings = useAsync(() => api("/settings"), []);
+    const settings = useGet("/settings", { maxAge: 60000 });
     const sessions = useAsync(() => api("/auth/sessions"), []);
     const account = useAsync(() => api("/auth/account"), []);
     const [form, setForm] = useState({ name: null, current: "", next: "", again: "" });
@@ -1630,3 +1631,6 @@ function Account() {
         <//>
     `;
 }
+
+/** Fetched when the pointer reaches the nav link, so the page can open without waiting. */
+export const warm = () => prefetch("/settings");

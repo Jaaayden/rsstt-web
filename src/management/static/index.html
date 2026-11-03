@@ -10,7 +10,20 @@
         <title>RSStT Web</title>
         <link rel="icon" href="/assets/mark.svg" type="image/svg+xml" />
         <link rel="stylesheet" href="/assets/app.css" />
+        <!-- Everything the app needs is requested at once instead of one import level at a time. -->
         <link rel="modulepreload" href="/assets/vendor-preact.js" />
+        <link rel="modulepreload" href="/assets/core.js" />
+        <link rel="modulepreload" href="/assets/error-messages.js" />
+        <link rel="modulepreload" href="/assets/ui.js" />
+        <link rel="modulepreload" href="/assets/options.js" />
+        <link rel="modulepreload" href="/assets/proxy.js" />
+        <link rel="modulepreload" href="/assets/page-overview.js" />
+        <link rel="modulepreload" href="/assets/page-chats.js" />
+        <link rel="modulepreload" href="/assets/page-subscriptions.js" />
+        <link rel="modulepreload" href="/assets/page-logs.js" />
+        <link rel="modulepreload" href="/assets/page-settings.js" />
+        <link rel="preload" as="fetch" href="/api/public" crossorigin />
+        <link rel="preload" as="fetch" href="/api/session" crossorigin />
         <script type="module" src="/assets/app.js"></script>
     </head>
     <body>
