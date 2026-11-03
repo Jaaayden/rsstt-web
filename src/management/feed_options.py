@@ -70,3 +70,21 @@ async def save_proxy(db, url, value):
         await db.execute('INSERT INTO feed_proxies(url, proxy) VALUES (?,?) '
                          'ON CONFLICT(url) DO UPDATE SET proxy=excluded.proxy', (url, value))
         _proxies[url] = value
+
+
+USER_AGENT_INVALID = 'User-Agent 应为最多 512 个可打印 ASCII 字符，不允许换行。'
+
+
+def check_user_agent(value):
+    """A clean User-Agent, or None for "use the default"; raises ValueError."""
+    if value is not None and (not isinstance(value, str) or len(value) > 512 or any(ord(c) < 32 or ord(c) > 126 for c in value)):
+        raise ValueError('user_agent')
+    return value.strip() or None if value else None
+
+
+async def save_user_agent(db, url, value):
+    """value None = back to the default User-Agent."""
+    if value:
+        await db.execute('INSERT INTO feed_fetch_options VALUES (?,?) ON CONFLICT(url) DO UPDATE SET user_agent=excluded.user_agent', (url, value))
+    else:
+        await db.execute('DELETE FROM feed_fetch_options WHERE url=?', (url,))

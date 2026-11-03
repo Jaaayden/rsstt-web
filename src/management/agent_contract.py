@@ -60,13 +60,16 @@ SCHEMAS = {
     'Session': obj({'name': STRING, 'permission': {'enum': ['read', 'write', 'admin']},
                     'targets': {'oneOf': [array(CHAT_ID), {'type': 'null'}]}, 'demo': BOOLEAN,
                     'account_type': {'enum': ['agent', 'preview_admin', 'console_admin']},
-                    'expires_at': {'type': 'number'}, 'capabilities': array(STRING)},
+                    'expires_at': {'type': 'number'}, 'capabilities': array(STRING),
+                    'version': {**STRING, 'description': 'RSStT Web release'}, 'build': {'type': ['string', 'null'], 'description': 'Commit of this build, when known'}},
                    ('name', 'permission', 'targets', 'demo', 'account_type', 'expires_at', 'capabilities')),
     'Recipients': obj({'feed_id': INTEGER, 'scope': {'enum': ['all', 'authorized_targets']},
                        'items': {**array(ref('Subscription')), 'description': 'Editable recipients only. Blocked and departed chats are omitted; replacement preserves their existing subscriptions.'}}, ('feed_id', 'scope', 'items')),
     'AddResults': obj({'results': array(obj({'url': STRING, 'status': {'enum': ['created', 'existing', 'failed']},
                                            'message': STRING, 'id': INTEGER}, ('url', 'status')))}, ('results',)),
-    'BatchResults': obj({'results': array(obj({'id': INTEGER, 'ok': BOOLEAN, 'error': STRING}, ('id', 'ok')))}, ('results',)),
+    'BatchResults': obj({'results': array(obj({'id': INTEGER, 'ok': BOOLEAN, 'error': STRING, 'code': {'type': ['string', 'null']}, 'status': INTEGER,
+                                              'applied': {**array({'enum': ['subscription', 'fetch_options', 'recipients']}), 'description': 'Only for action=settings: the groups that were saved'}},
+                                             ('id', 'ok')))}, ('results',)),
 }
 for name, item in (('TargetPage', 'Target'), ('SubscriptionPage', 'Subscription')):
     SCHEMAS[name] = obj({'items': array(ref(item)), 'total': INTEGER, 'page': INTEGER, 'size': INTEGER},
@@ -74,8 +77,9 @@ for name, item in (('TargetPage', 'Target'), ('SubscriptionPage', 'Subscription'
 
 BODY_SCHEMAS = {
     ('POST', '/api/subscriptions'): obj({'target': CHAT_ID, 'urls': array(STRING, minItems=1, maxItems=100)}, ('target', 'urls')),
-    ('POST', '/api/subscriptions/batch'): obj({'ids': array(INTEGER, minItems=1, maxItems=100), 'action': {'enum': ['pause', 'resume', 'delete', 'interval']},
-                                                  'interval': {'type': ['integer', 'null'], 'minimum': 1, 'maximum': 32767, 'description': 'Only for action=interval; null inherits defaults'}}, ('ids', 'action')),
+    ('POST', '/api/subscriptions/batch'): obj({'ids': array(INTEGER, minItems=1, maxItems=100), 'action': {'enum': ['pause', 'resume', 'delete', 'interval', 'settings']},
+                                                  'interval': {'type': ['integer', 'null'], 'minimum': 1, 'maximum': 32767, 'description': 'Only for action=interval; null inherits defaults'},
+                                                  'changes': {'type': 'object', 'description': 'Only for action=settings; filled in by openapi()'}}, ('ids', 'action')),
     ('POST', '/api/targets/{id}/opml'): obj({'opml': {'type': 'string', 'maxLength': 524288}}, ('opml',)),
     ('PUT', '/api/feeds/{id}/recipients'): obj({'mode': {'enum': ['append', 'replace']}, 'targets': array(CHAT_ID, maxItems=100)}, ('mode', 'targets')),
     ('PATCH', '/api/subscriptions/{id}'): obj({'state': {'enum': [0, 1]}, 'title': {'type': ['string', 'null']},
@@ -136,6 +140,20 @@ def openapi(router):
     patch['properties']['title']['maxLength'] = 1024
     patch['properties']['tags']['maxLength'] = 255
     patch['properties']['interval'].update(minimum=1, maximum=32767, description='null inherits defaults; non-null must meet the configured minimal_interval')
+    # action=settings carries every setting PATCH accepts (same values, same meaning), plus the feed's and the recipients'.
+    batch = body_schemas['POST', '/api/subscriptions/batch']['properties']
+    batch['changes'] = {
+        'type': 'object', 'minProperties': 1, 'additionalProperties': False,
+        'description': 'Only for action=settings. Send only the settings to change: a missing key stays as it is on every selected subscription. '
+                       'Values mean the same as in PATCH /api/subscriptions/{id}. user_agent and proxy are for console administrators; '
+                       'they apply to the feed behind each subscription, once per feed. Every item of the response says which groups '
+                       '(subscription, fetch_options, recipients) were saved, so a failure on one subscription does not undo the others.',
+        'properties': {**deepcopy(patch['properties']),
+                       'user_agent': {'type': ['string', 'null'], 'maxLength': 512, 'description': 'null restores the default User-Agent'},
+                       'proxy': {'type': ['string', 'null'], 'description': 'null follows the global proxy rules, "direct" bypasses proxies, otherwise a proxy URL'},
+                       'add_recipients': {**array(CHAT_ID, maxItems=100), 'description': 'Chats that also receive the feeds behind the selection'},
+                       'remove_recipients': {**array(CHAT_ID, maxItems=100), 'description': 'Chats that stop receiving the feeds behind the selection (their subscription is removed, like /unsub)'}},
+    }
     installed = {(route.method, route.resource.canonical) for route in router.routes() if route.resource}
     paths = {}
     for (method, path), scope in AGENT_ROUTES.items():
@@ -163,5 +181,5 @@ def openapi(router):
         if (method, path) in body_schemas:
             operation['requestBody'] = {'required': True, 'content': {'application/json': {'schema': body_schemas[method, path]}}}
         paths.setdefault(path, {})[method.lower()] = operation
-    return {'openapi': '3.1.0', 'info': {'title': 'RSStT Agent API', 'version': '1.3.2'}, 'paths': paths,
+    return {'openapi': '3.1.0', 'info': {'title': 'RSStT Agent API', 'version': '1.4.0'}, 'paths': paths,
             'components': {'securitySchemes': {'bearerAuth': {'type': 'http', 'scheme': 'bearer'}}, 'schemas': SCHEMAS}}

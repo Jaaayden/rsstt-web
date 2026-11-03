@@ -142,18 +142,14 @@ def install(routes, service, read_body, require_admin):
             values = await read_body(request)
             if not values or set(values) - {'user_agent', 'proxy'}:
                 raise Problem('包含不支持的设置项。')
-            ua = values.get('user_agent')
-            if 'user_agent' in values and ua is not None and (
-                    not isinstance(ua, str) or len(ua) > 512 or any(ord(c) < 32 or ord(c) > 126 for c in ua)):
-                raise Problem('User-Agent 应为最多 512 个可打印 ASCII 字符，不允许换行。')
+            try:
+                ua = feed_options.check_user_agent(values.get('user_agent'))
+            except ValueError:
+                raise Problem(feed_options.USER_AGENT_INVALID) from None
             proxy = clean_proxy(values.get('proxy')) if 'proxy' in values else None
             async with service.mutation:
                 if 'user_agent' in values:
-                    ua = ua.strip() if ua else None
-                    if ua:
-                        await service.store.execute('INSERT INTO feed_fetch_options VALUES (?,?) ON CONFLICT(url) DO UPDATE SET user_agent=excluded.user_agent', (feed.link, ua))
-                    else:
-                        await service.store.execute('DELETE FROM feed_fetch_options WHERE url=?', (feed.link,))
+                    await feed_options.save_user_agent(service.store, feed.link, ua)
                     await service.store.audit(request['principal']['name'], '修改来源 UA', str(feed.id))
                 if 'proxy' in values:
                     await feed_options.save_proxy(service.store, feed.link, proxy)

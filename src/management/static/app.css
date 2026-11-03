@@ -254,6 +254,26 @@ p {
     display: grid;
     gap: 8px;
 }
+.version-tag {
+    justify-self: center;
+    max-width: 100%;
+    padding: 2px 6px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-3);
+    font: inherit;
+    font-size: 11.5px;
+    font-variant-numeric: tabular-nums;
+    cursor: copy;
+}
+.version-tag:hover {
+    color: var(--text-2);
+    background: var(--surface-2, transparent);
+}
+.login-form .version-tag {
+    margin-top: 4px;
+}
 .bot-card {
     display: flex;
     align-items: center;
@@ -785,6 +805,51 @@ button.list-row:hover {
 }
 .batchbar .btn-danger {
     color: #ffb4ad;
+}
+.batch-rows {
+    display: grid;
+    gap: 12px;
+}
+.batch-row {
+    display: grid;
+    grid-template-columns: 18px minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 4px 10px;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+}
+.batch-row.on {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+.batch-row > .checkbox {
+    margin-top: 2px;
+}
+.batch-control {
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+.batch-control:disabled {
+    opacity: 0.55;
+}
+.batch-state {
+    grid-column: 3;
+    grid-row: 1;
+    padding-top: 2px;
+    color: var(--text-3);
+    font-size: 12px;
+}
+.batch-row.on .batch-state {
+    color: var(--accent);
+}
+.batch-row.wide {
+    grid-column: 1 / -1;
+}
+.batch-rows.option-grid .batch-row.wide {
+    grid-column: 1 / -1;
 }
 .batch-fetch-list {
     max-height: 260px;

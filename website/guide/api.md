@@ -18,7 +18,7 @@ curl -X POST -H "Authorization: Bearer <token>" -H "Content-Type: application/js
 | GET | `/api/targets` | 会话列表 |
 | GET / POST | `/api/subscriptions` | 查询 / 添加订阅（每次最多 100 个地址） |
 | GET / PATCH / DELETE | `/api/subscriptions/{id}` | 查看 / 修改 / 取消订阅 |
-| POST | `/api/subscriptions/batch` | 批量暂停、恢复、取消、设置检查间隔（`action: interval`） |
+| POST | `/api/subscriptions/batch` | 批量暂停、恢复、取消、设置检查间隔（`action: interval`）；`action: settings` 带 `changes` 一次修改单个订阅 `PATCH` 支持的全部设置，另可带 `user_agent`、`proxy`（仅管理台管理员）和 `add_recipients`、`remove_recipients`。没有出现在 `changes` 里的项保持不变，结果逐个订阅返回 |
 | GET | `/api/subscriptions/opml` | 导出 OPML |
 | GET / PUT | `/api/feeds/{id}/recipients` | 查看 / 追加或替换一个源的接收会话 |
 | GET / POST | `/api/targets/{id}/opml` | 导出 / 导入某个会话的 OPML |
