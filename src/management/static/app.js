@@ -1,18 +1,34 @@
 // Application shell: sign-in, navigation and page routing.
 import { html, render, useState, useEffect, Icon, Mark, Button, Field, Input, Toasts, ModalHost, useRoute, Notice } from "./ui.js";
-import { L, lang, setLang, theme, applyTheme, app, api, subscribe, emit, readRoute, toast, duration, dateTime } from "./core.js";
-import { Overview } from "./page-overview.js";
-import { Chats } from "./page-chats.js";
-import { Subscriptions } from "./page-subscriptions.js";
-import { Logs } from "./page-logs.js";
-import { Settings } from "./page-settings.js";
+import {
+    L,
+    lang,
+    setLang,
+    theme,
+    applyTheme,
+    app,
+    api,
+    subscribe,
+    emit,
+    readRoute,
+    toast,
+    duration,
+    dateTime,
+    registerLive,
+    resetCache,
+} from "./core.js";
+import { Overview, warm as warmOverview } from "./page-overview.js";
+import { Chats, warm as warmChats } from "./page-chats.js";
+import { Subscriptions, warm as warmSubscriptions } from "./page-subscriptions.js";
+import { Logs, warm as warmLogs } from "./page-logs.js";
+import { Settings, warm as warmSettings } from "./page-settings.js";
 
 const PAGES = {
-    overview: { icon: "overview", label: () => L("概览", "Overview"), view: Overview },
-    chats: { icon: "chats", label: () => L("会话", "Chats"), view: Chats },
-    subscriptions: { icon: "feeds", label: () => L("订阅", "Subscriptions"), view: Subscriptions },
-    logs: { icon: "logs", label: () => L("运行日志", "Logs"), view: Logs },
-    settings: { icon: "settings", label: () => L("设置", "Settings"), view: Settings },
+    overview: { icon: "overview", label: () => L("概览", "Overview"), view: Overview, warm: warmOverview },
+    chats: { icon: "chats", label: () => L("会话", "Chats"), view: Chats, warm: warmChats },
+    subscriptions: { icon: "feeds", label: () => L("订阅", "Subscriptions"), view: Subscriptions, warm: warmSubscriptions },
+    logs: { icon: "logs", label: () => L("运行日志", "Logs"), view: Logs, warm: warmLogs },
+    settings: { icon: "settings", label: () => L("设置", "Settings"), view: Settings, warm: warmSettings },
 };
 
 function Prefs() {
@@ -60,6 +76,7 @@ function Login({ info }) {
             } catch {
                 /* private mode */
             }
+            resetCache();
             app.session = await api("/session");
             location.hash ||= "#overview";
             window.dispatchEvent(new Event("routechange"));
@@ -195,8 +212,11 @@ function Shell() {
     const View = PAGES[current].view;
     useEffect(() => setMenu(false), [current]);
     useEffect(() => {
-        let timer;
-        const tick = async () => {
+        // The sidebar's bot state and failure badge. /status is tiny, so it follows the pages' refresh but never faster than once a minute,
+        // and not at all while the overview (which carries the same numbers) has just loaded.
+        const tick = async (minAge = 0) => {
+            if (minAge && Date.now() - (app.statusAt || 0) < minAge) return;
+            app.statusAt = Date.now();
             try {
                 const s = await api("/status");
                 Object.assign(app, { bot: s.bot, uptime: s.uptime_seconds, attention: s.attention });
@@ -204,9 +224,16 @@ function Shell() {
             } catch {
                 /* shown on next successful poll */
             }
-            timer = setTimeout(tick, document.hidden ? 300000 : 60000);
         };
         tick();
+        return registerLive({ reload: tick, floor: 55000 });
+    }, []);
+    useEffect(() => {
+        // Once the page in front is up, quietly fetch the first screen of the others so a first visit is as quick as a return visit.
+        const timer = setTimeout(
+            () => !document.hidden && Object.entries(PAGES).forEach(([key, p]) => key !== current && p.warm?.()),
+            1500,
+        );
         return () => clearTimeout(timer);
     }, []);
     useEffect(() => {
@@ -219,6 +246,7 @@ function Shell() {
             /* already gone */
         }
         app.session = null;
+        resetCache();
         document.dispatchEvent(new Event("rsstt:session"));
     }
     const info = app.info;
@@ -230,7 +258,14 @@ function Shell() {
             <nav class="nav">
                 ${Object.entries(PAGES).map(
                     ([key, p]) =>
-                        html`<a href=${"#" + key} class=${key === current ? "on" : ""} aria-current=${key === current ? "page" : undefined}>
+                        html`<a
+                            href=${"#" + key}
+                            class=${key === current ? "on" : ""}
+                            aria-current=${key === current ? "page" : undefined}
+                            onPointerEnter=${p.warm}
+                            onFocus=${p.warm}
+                            ontouchstart=${p.warm}
+                        >
                             <${Icon} name=${p.icon} size=${17} />${p.label()}
                             ${key === "subscriptions" && app.attention
                                 ? html`<span class="count" title=${L("连续抓取失败的订阅", "Subscriptions with repeated fetch failures")}
@@ -285,16 +320,10 @@ function Root() {
         const unsubscribe = subscribe(update);
         document.addEventListener("rsstt:session", update);
         (async () => {
-            try {
-                app.info = await api("/public");
-            } catch {
-                app.info = { features: {} };
-            }
-            try {
-                app.session = await api("/session");
-            } catch {
-                app.session = null;
-            }
+            // Independent, so they travel together (index.html already asked for both while the scripts loaded).
+            const [info, session] = await Promise.allSettled([api("/public"), api("/session")]);
+            app.info = info.status === "fulfilled" ? info.value : { features: {} };
+            app.session = session.status === "fulfilled" ? session.value : null;
             setReady(true);
         })();
         return () => {

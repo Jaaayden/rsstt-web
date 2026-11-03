@@ -1,5 +1,5 @@
-import { html, useState, useAsync, useRef, Icon, Button, Segmented, Spinner, Empty, Notice, Badge } from "./ui.js";
-import { L, api, qs, num, compact, ago, dateTime, go, app, emit, locale } from "./core.js";
+import { html, useState, useAsync, useRef, Icon, Button, Segmented, Spinner, RefreshButton, Empty, Notice, Badge } from "./ui.js";
+import { L, api, qs, num, compact, ago, dateTime, go, app, emit, locale, prefetch } from "./core.js";
 
 const RANGES = {
     day: { label: () => L("24 小时", "24 hours"), granularity: "hour", hours: 24 },
@@ -121,7 +121,8 @@ function Trend({ buckets, granularity }) {
 
 function TrendCard() {
     const [range, setRange] = useState("day");
-    const { data, loading, error } = useAsync(() => api("/statistics" + qs(windowQuery(range))), [range]);
+    const path = () => "/statistics" + qs(windowQuery(range));
+    const { data, loading, error } = useAsync(() => api(path()), [range], { key: path, live: true, floor: 5 * 60_000 });
     const sums = data?.buckets?.reduce(
         (acc, b) => ({
             delivered: acc.delivered + (b.delivered || 0),
@@ -202,14 +203,19 @@ function groupByFeed(subs) {
 }
 
 export function Overview() {
-    const { data, error, reload } = useAsync(async () => {
-        const d = await api("/dashboard");
-        app.bot = d.bot;
-        app.uptime = d.uptime_seconds;
-        app.attention = d.counts.attention;
-        emit();
-        return d;
-    }, []);
+    const { data, error, reload } = useAsync(
+        async () => {
+            const d = await api("/dashboard");
+            app.bot = d.bot;
+            app.uptime = d.uptime_seconds;
+            app.attention = d.counts.attention;
+            app.statusAt = Date.now(); // the sidebar needs no /status of its own while this is fresh
+            emit();
+            return d;
+        },
+        [],
+        { key: "/dashboard", live: true },
+    );
     if (error && !data)
         return html`<${Notice} tone="error" action=${html`<${Button} size="sm" onClick=${() => reload()}>${L("重试", "Retry")}<//>`}
             >${error.message}<//
@@ -237,6 +243,7 @@ export function Overview() {
                 </p>
             </div>
             <div class="page-actions">
+                <${RefreshButton} />
                 <${Button} icon="plus" kind="primary" onClick=${() => go("subscriptions", { add: 1 })}
                     >${L("添加订阅", "Add subscription")}<//
                 >
@@ -367,3 +374,6 @@ export function Overview() {
         </section>
     `;
 }
+
+/** Fetched when the pointer reaches the nav link, so the page can open without waiting. */
+export const warm = () => (prefetch("/dashboard"), prefetch("/statistics" + qs(windowQuery("day"))));

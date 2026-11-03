@@ -95,7 +95,56 @@ function explain(data, status) {
     return L("请求失败。", "Request failed.");
 }
 
-export async function api(path, { method = "GET", body, raw = false, headers = {} } = {}) {
+/* GET responses are remembered so a page can paint the last known data instantly and refresh behind it.
+ * Any successful write bumps `generation`, which marks every remembered response as stale (still shown, always refetched). */
+const cache = new Map();
+const pending = new Map();
+let generation = 0;
+export const cached = (path) => cache.get(path) || null;
+export function resetCache() {
+    cache.clear();
+    pending.clear();
+    generation++;
+}
+export const isFresh = (entry, maxAge) => !!entry && entry.generation === generation && Date.now() - entry.at < maxAge;
+
+/**
+ * `maxAge` (GET only): reuse a remembered response younger than this many ms instead of asking the server again.
+ * Concurrent identical GETs share one request.
+ */
+export async function api(path, { method = "GET", body, raw = false, headers = {}, maxAge = 0 } = {}) {
+    const read = method === "GET" && !raw;
+    if (read) {
+        const hit = cache.get(path);
+        if (maxAge && isFresh(hit, maxAge)) return hit.data;
+        // Share a request already in flight, unless a write has landed since it started (its answer may predate the write).
+        const flying = pending.get(path);
+        if (flying?.generation === generation) return flying.request;
+        const started = generation;
+        const request = fetchJson(path, { method, headers }).then((data) => {
+            cache.delete(path); // re-insert at the end: the map doubles as an LRU
+            cache.set(path, { data, at: Date.now(), generation: started });
+            if (cache.size > 100) cache.delete(cache.keys().next().value);
+            return data;
+        });
+        const entry = { request, generation: started };
+        pending.set(path, entry);
+        const done = () => pending.get(path) === entry && pending.delete(path);
+        request.then(done, done);
+        return request;
+    }
+    const result = await fetchJson(path, { method, body, raw, headers });
+    if (method !== "GET") generation++;
+    return result;
+}
+
+/** The chat record by id (also carries its default options); shared by every drawer that needs it. */
+export const chatPath = (id) => "/targets" + qs({ q: id, visibility: "all", include_departed: "true", size: 5 });
+
+/** Warm the cache for a page the user is about to open; failures are the page's own business later. */
+export const prefetch = (path, maxAge = 3000) => api(path, { maxAge }).catch(() => {});
+
+async function fetchJson(path, { method, body, raw, headers }) {
     let response;
     try {
         response = await fetch("/api" + path, {
@@ -109,6 +158,7 @@ export async function api(path, { method = "GET", body, raw = false, headers = {
     }
     if (response.status === 401 && path !== "/login" && app.session) {
         app.session = null;
+        cache.clear();
         emit();
     }
     if (raw && response.ok) return response;
@@ -140,6 +190,75 @@ export async function download(path, fallbackName, options) {
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+
+/* ---------- freshness: keep what is on screen current ----------
+ * Data also changes outside the console (Telegram commands, the scheduler), so visible data is refreshed
+ *   - when the tab becomes visible or the window regains focus (if it is older than FOCUS_STALE),
+ *   - every POLL while the tab is visible and was used in the last IDLE,
+ *   - on demand, from the refresh button.
+ * Hidden tabs and pages with nothing live on screen (Settings) make no background requests at all. */
+const FOCUS_STALE = 10_000;
+const POLL = 60_000;
+const IDLE = 15 * 60_000;
+const sources = new Set();
+const syncListeners = new Set();
+export const sync = { at: 0, busy: 0, manual: false };
+const syncEmit = () => syncListeners.forEach((fn) => fn());
+export function subscribeSync(fn) {
+    syncListeners.add(fn);
+    return () => syncListeners.delete(fn);
+}
+export function syncStart() {
+    sync.busy++;
+    syncEmit();
+}
+export function syncDone(ok) {
+    sync.busy = Math.max(0, sync.busy - 1);
+    if (ok) sync.at = Date.now();
+    if (!sync.busy) sync.manual = false;
+    syncEmit();
+}
+
+/** A live source is { reload(minAge), floor }: it refetches unless its data is younger than minAge ms (timers and focus: or `floor`). */
+export function registerLive(source) {
+    sources.add(source);
+    arm();
+    return () => (sources.delete(source), arm());
+}
+export function refreshLive(minAge = 0, { manual = false } = {}) {
+    if (manual && sources.size) {
+        sync.manual = true;
+        syncEmit();
+    }
+    sources.forEach((source) => source.reload(manual ? 0 : Math.max(minAge, source.floor || 0)));
+}
+
+let ticker = null;
+let lastActive = Date.now();
+const visible = () => document.visibilityState !== "hidden";
+function wake() {
+    lastActive = Date.now();
+    if (visible()) refreshLive(FOCUS_STALE);
+}
+function touch() {
+    const resumed = Date.now() - lastActive >= IDLE;
+    lastActive = Date.now();
+    if (resumed && visible()) refreshLive(FOCUS_STALE);
+}
+function arm() {
+    if (sources.size && !ticker) {
+        ticker = setInterval(() => {
+            if (visible() && Date.now() - lastActive < IDLE) refreshLive(POLL - 2000);
+        }, POLL);
+    } else if (!sources.size && ticker) {
+        clearInterval(ticker);
+        ticker = null;
+    }
+}
+document.addEventListener("visibilitychange", () => visible() && wake());
+window.addEventListener("focus", wake);
+window.addEventListener("online", wake);
+for (const type of ["pointerdown", "keydown", "wheel", "touchstart"]) window.addEventListener(type, touch, { passive: true });
 
 /* ---------- routing: #page?key=value ---------- */
 export function readRoute() {

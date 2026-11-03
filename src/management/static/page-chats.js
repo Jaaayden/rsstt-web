@@ -2,6 +2,8 @@ import {
     html,
     useState,
     useAsync,
+    useGet,
+    useDraft,
     useRoute,
     Icon,
     Button,
@@ -11,6 +13,8 @@ import {
     Segmented,
     SearchInput,
     Spinner,
+    Skeleton,
+    RefreshButton,
     Empty,
     Notice,
     Badge,
@@ -23,7 +27,24 @@ import {
     confirm,
     Modal,
 } from "./ui.js";
-import { L, api, qs, ago, dateTime, readRoute, setParams, go, toast, download, ROLE, KIND, kindOf, app } from "./core.js";
+import {
+    L,
+    api,
+    qs,
+    ago,
+    dateTime,
+    readRoute,
+    setParams,
+    go,
+    toast,
+    download,
+    ROLE,
+    KIND,
+    kindOf,
+    app,
+    prefetch,
+    chatPath,
+} from "./core.js";
 import { OptionsForm, IntervalField, labelOf, OPTIONS } from "./options.js";
 
 const VISIBILITY = () => [
@@ -52,10 +73,7 @@ export function Chats() {
     const kind = params.kind || "";
     const visibility = params.visibility || "unbanned";
     const page = Number(params.page || 1);
-    const { data, error, loading, reload } = useAsync(
-        () => api("/targets" + qs({ q, kind, visibility, page, size: 25 })),
-        [q, kind, visibility, page],
-    );
+    const { data, error, loading, reload } = useGet(listPath({ q, kind, visibility, page }), { live: true });
     const [adding, setAdding] = useState(false);
     const [naming, setNaming] = useState(false);
     const unnamed = data?.items.some((chat) => chat.named === false);
@@ -92,6 +110,7 @@ export function Chats() {
                 </p>
             </div>
             <div class="page-actions">
+                <${RefreshButton} />
                 <${Button} icon="plus" onClick=${() => setAdding(true)}>${L("添加会话", "Add chat")}<//>
             </div>
         </div>
@@ -128,7 +147,7 @@ export function Chats() {
             ${error
                 ? html`<div class="card-body"><${Notice} tone="error">${error.message}<//></div>`
                 : !data
-                  ? html`<${Spinner} />`
+                  ? html`<${Skeleton} rows=${8} />`
                   : !data.items.length
                     ? html`<${Empty} icon="chats" title=${L("没有符合条件的会话", "No matching chats")}>
                           ${visibility === "unbanned"
@@ -150,7 +169,11 @@ export function Chats() {
                                   <tbody>
                                       ${data.items.map(
                                           (chat) =>
-                                              html`<tr class="clickable" onClick=${() => setParams({ chat: chat.id }, { replace: false })}>
+                                              html`<tr
+                                                  class="clickable"
+                                                  onClick=${() => setParams({ chat: chat.id }, { replace: false })}
+                                                  onPointerEnter=${() => prefetch(chatPath(chat.id))}
+                                              >
                                                   <td>
                                                       <div class="cell-main">
                                                           <${ChatAvatar} chat=${chat} />
@@ -191,7 +214,12 @@ export function Chats() {
                           <${Pager} page=${page} size=${data.size} total=${data.total} onPage=${(p) => setParams({ page: p })} />`}
         </section>
         ${open
-            ? html`<${ChatDrawer} id=${open} onClose=${() => setParams({ chat: "", ctab: "" })} onChanged=${() => reload(true)} />`
+            ? html`<${ChatDrawer}
+                  id=${open}
+                  row=${data?.items.find((c) => c.id === String(open))}
+                  onClose=${() => setParams({ chat: "", ctab: "" })}
+                  onChanged=${() => reload(true)}
+              />`
             : null}
         ${adding
             ? html`<${AddChat}
@@ -242,22 +270,16 @@ function AddChat({ onClose, onDone }) {
 
 /* ---------------- chat drawer ---------------- */
 
-export function ChatDrawer({ id, onClose, onChanged }) {
+export function ChatDrawer({ id, row, onClose, onChanged }) {
     const { params } = readRoute();
     const tab = params.ctab || "overview";
-    const {
-        data: chat,
-        error,
-        reload,
-        setData,
-    } = useAsync(async () => {
-        const result = await api("/targets" + qs({ q: id, visibility: "all", include_departed: "true", size: 5 }));
-        const found = result.items.find((c) => c.id === String(id));
-        if (!found) throw new Error(L("找不到这个会话，可能已被移除。", "Chat not found. It may have been removed."));
-        return found;
-    }, [id]);
+    // The list row is the same record, so the drawer opens on it at once and the lookup only confirms it.
+    const { data: lookup, error: failed, reload, setData } = useGet(chatPath(id), { live: true });
+    const chat = lookup ? lookup.items.find((c) => c.id === String(id)) : row;
+    const error =
+        failed || (lookup && !chat ? new Error(L("找不到这个会话，可能已被移除。", "Chat not found. It may have been removed.")) : null);
     const changed = (next) => {
-        if (next) setData(next);
+        if (next) setData((d) => d && { ...d, items: d.items.map((c) => (c.id === next.id ? next : c)) });
         else reload(true);
         onChanged?.();
     };
@@ -485,7 +507,7 @@ function ChatOverview({ chat, onChanged, onClose }) {
 }
 
 function ChatSubs({ chat, onChanged }) {
-    const { data, error, reload } = useAsync(() => api("/subscriptions" + qs({ target: chat.id, size: 100 })), [chat.id]);
+    const { data, error, reload } = useGet("/subscriptions" + qs({ target: chat.id, size: 100 }), { live: true });
     const [busy, setBusy] = useState("");
     async function importOpml(file) {
         if (!file) return;
@@ -574,10 +596,10 @@ const LANGS = [
 ];
 
 function ChatDefaults({ chat, onChanged }) {
-    const settings = useAsync(() => api("/settings"), []);
-    const [draft, setDraft] = useState(() => ({ lang: chat.lang, sub_limit: chat.sub_limit, ...chat.options }));
-    const [busy, setBusy] = useState(false);
+    const settings = useGet("/settings", { maxAge: 60000 });
     const base = { lang: chat.lang, sub_limit: chat.sub_limit, ...chat.options };
+    const [draft, setDraft] = useDraft(base);
+    const [busy, setBusy] = useState(false);
     const dirty = Object.keys(draft).filter((k) => draft[k] !== base[k]);
     const minimal = settings.data?.options.minimal_interval || 1;
     const globalLimit = settings.data
@@ -800,3 +822,8 @@ function ChatActivity({ chat }) {
         <${Pager} page=${page} size=${data.size} total=${data.total} onPage=${setPage} />
     `;
 }
+
+const listPath = ({ q, kind, visibility = "unbanned", page = 1 }) => "/targets" + qs({ q, kind, visibility, page, size: 25 });
+
+/** Fetched when the pointer reaches the nav link, so the page can open without waiting. */
+export const warm = () => prefetch(listPath({}));

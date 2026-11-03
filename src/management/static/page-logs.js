@@ -1,5 +1,20 @@
-import { html, useState, useAsync, useRoute, Icon, Button, Select, Segmented, Spinner, Empty, Notice, Badge, Pager } from "./ui.js";
-import { L, lang, api, qs, num, dateTime, readRoute, setParams, app } from "./core.js";
+import {
+    html,
+    useState,
+    useAsync,
+    useGet,
+    useRoute,
+    Icon,
+    RefreshButton,
+    Skeleton,
+    Select,
+    Segmented,
+    Empty,
+    Notice,
+    Badge,
+    Pager,
+} from "./ui.js";
+import { L, lang, api, qs, num, dateTime, readRoute, setParams, app, prefetch } from "./core.js";
 
 const CATEGORY = {
     fetch: () => L("抓取", "Fetch"),
@@ -253,12 +268,11 @@ export const RUN_FILTERS = () => [
 
 /** Every fetch of one feed (feedId) or of all feeds, newest first. Paging and filter live in the caller. */
 export function RunsPanel({ feedId, status, page, onPage }) {
-    const { data, error, loading } = useAsync(
-        () => api((feedId ? `/feeds/${feedId}/fetch-runs` : "/fetch-runs") + qs({ status, page, size: 30 })),
-        [feedId, status, page],
-    );
+    const { data, error, loading } = useGet((feedId ? `/feeds/${feedId}/fetch-runs` : "/fetch-runs") + qs({ status, page, size: 30 }), {
+        live: true,
+    });
     if (error) return html`<${Notice} tone="error">${error.message}<//>`;
-    if (!data) return html`<${Spinner} />`;
+    if (!data) return html`<${Skeleton} rows=${6} />`;
     return html`
         ${!data.items.length
             ? html`<${Empty} icon="logs" title=${L("还没有抓取记录", "No fetches recorded yet")}>
@@ -293,13 +307,11 @@ export function Logs() {
     const target = params.target || "";
     const page = Number(params.page || 1);
     const view = params.view === "runs" ? "runs" : "events";
-    const { data, error, loading, reload } = useAsync(
-        () =>
-            view === "runs"
-                ? Promise.resolve(null)
-                : api((feed ? `/feeds/${feed}/diagnostics` : "/diagnostics") + qs({ category, level, target_id: target, page, size: 40 })),
-        [view, category, level, feed, target, page],
-    );
+    const eventsPath = (feed ? `/feeds/${feed}/diagnostics` : "/diagnostics") + qs({ category, level, target_id: target, page, size: 40 });
+    const { data, error, loading } = useAsync(() => (view === "runs" ? Promise.resolve(null) : api(eventsPath)), [view, eventsPath], {
+        key: view === "runs" ? undefined : eventsPath,
+        live: view !== "runs",
+    });
     return html`
         <div class="page-head">
             <div>
@@ -312,7 +324,7 @@ export function Logs() {
                 </p>
             </div>
             <div class="page-actions">
-                <${Button} icon="refresh" loading=${loading && !!data} onClick=${() => reload()}>${L("刷新", "Refresh")}<//>
+                <${RefreshButton} />
             </div>
         </div>
         <section class="card">
@@ -396,7 +408,7 @@ export function Logs() {
                 ${error
                     ? html`<div style="margin:10px 0"><${Notice} tone="error">${error.message}<//></div>`
                     : !data
-                      ? html`<${Spinner} />`
+                      ? html`<${Skeleton} rows=${6} />`
                       : !data.items.length
                         ? html`<${Empty} icon="logs" title=${L("没有日志", "No log entries")}>
                               ${app.info.snapshot
@@ -425,3 +437,6 @@ export function Logs() {
             : null}
     `;
 }
+
+/** Fetched when the pointer reaches the nav link, so the page can open without waiting. */
+export const warm = () => prefetch("/diagnostics" + qs({ page: 1, size: 40 }));

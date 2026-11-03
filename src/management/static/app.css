@@ -2509,3 +2509,53 @@ button.list-row:hover {
 .adv[open] summary {
     margin-bottom: 4px;
 }
+
+/* refresh button with "updated … ago" */
+.refresh {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+}
+.refresh small {
+    font-size: 12.5px;
+    white-space: nowrap;
+}
+@media (max-width: 640px) {
+    .refresh small {
+        display: none;
+    }
+}
+
+/* placeholder rows while a list loads for the first time */
+.skeleton {
+    display: grid;
+    gap: 1px;
+    padding: 4px 0;
+}
+.skeleton-row {
+    display: grid;
+    grid-template-columns: 34px minmax(80px, 3fr) minmax(60px, 2fr);
+    align-items: center;
+    gap: 14px;
+    padding: 14px 16px;
+}
+.skeleton-row > * {
+    height: 12px;
+    border-radius: 6px;
+    background: var(--line);
+    animation: pulse 1.2s ease-in-out infinite;
+}
+.skeleton-row > i {
+    height: 30px;
+    border-radius: 9px;
+}
+@keyframes pulse {
+    50% {
+        opacity: 0.45;
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    .skeleton-row > * {
+        animation: none;
+    }
+}

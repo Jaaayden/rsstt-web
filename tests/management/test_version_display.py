@@ -1,5 +1,5 @@
 """The console shows which release it is: the sign-in page and every page after it."""
-from conftest import ORIGIN, token
+from conftest import token
 from src.management import version
 
 

@@ -4,6 +4,8 @@ import {
     useEffect,
     useRef,
     useAsync,
+    useGet,
+    useDraft,
     useRoute,
     Icon,
     Button,
@@ -15,6 +17,8 @@ import {
     Segmented,
     SearchInput,
     Spinner,
+    Skeleton,
+    RefreshButton,
     Empty,
     Notice,
     Badge,
@@ -26,7 +30,7 @@ import {
     ChatPicker,
     confirm,
 } from "./ui.js";
-import { L, api, qs, num, ago, dateTime, readRoute, setParams, toast, download, host, minutes, app } from "./core.js";
+import { L, api, qs, num, ago, dateTime, readRoute, setParams, toast, download, host, minutes, app, prefetch, chatPath } from "./core.js";
 import { OptionsForm, IntervalField } from "./options.js";
 import { BatchSettings } from "./batch-settings.js";
 import { EventRow, RunsPanel, RUN_FILTERS } from "./page-logs.js";
@@ -93,11 +97,8 @@ export function Subscriptions() {
     const [settingsDialog, setSettingsDialog] = useState(false);
     const [fetchDialog, setFetchDialog] = useState(false);
     const query = { q, target, ...statusQuery(status) };
-    const { data, error, loading, reload } = useAsync(
-        () => api("/subscriptions" + qs({ ...query, page, size: 30 })),
-        [q, target, status, page],
-    );
-    const threshold = useAsync(() => api("/settings").then((s) => Number(s.console.attention_threshold) || 3), []).data || 3;
+    const { data, error, loading, reload } = useGet(listPath({ q, target, status, page }), { live: true });
+    const threshold = Number(useGet("/settings", { maxAge: 60000 }).data?.console.attention_threshold) || 3;
     useEffect(() => setSelected(new Set()), [q, target, status, page]);
     const items = data?.items || [];
     const allOn = items.length && items.every((s) => selected.has(s.id));
@@ -164,6 +165,7 @@ export function Subscriptions() {
                 </p>
             </div>
             <div class="page-actions">
+                <${RefreshButton} />
                 <${Button} icon="download" onClick=${exportOpml}>${L("导出 OPML", "Export OPML")}<//>
                 <${Button} icon="plus" kind="primary" onClick=${() => setParams({ add: 1 }, { replace: false })}
                     >${L("添加订阅", "Add subscription")}<//
@@ -189,7 +191,7 @@ export function Subscriptions() {
             ${error
                 ? html`<div class="card-body"><${Notice} tone="error">${error.message}<//></div>`
                 : !data
-                  ? html`<${Spinner} />`
+                  ? html`<${Skeleton} rows=${8} />`
                   : !items.length
                     ? html`<${Empty}
                           icon="feeds"
@@ -228,6 +230,7 @@ export function Subscriptions() {
                                               html`<tr
                                                   class="clickable ${selected.has(s.id) ? "selected" : ""}"
                                                   onClick=${() => setParams({ sub: s.id }, { replace: false })}
+                                                  onPointerEnter=${() => prefetch(chatPath(s.target))}
                                               >
                                                   <td class="check" onClick=${(e) => e.stopPropagation()}>
                                                       <input
@@ -328,6 +331,7 @@ export function Subscriptions() {
         ${open
             ? html`<${SubDrawer}
                   id=${open}
+                  row=${items.find((s) => String(s.id) === String(open))}
                   threshold=${threshold}
                   onClose=${() => setParams({ sub: "", tab: "" })}
                   onChanged=${() => reload(true)}
@@ -609,11 +613,12 @@ function AddSubscription({ target, onClose, onDone }) {
 
 /* ---------------- drawer ---------------- */
 
-export function SubDrawer({ id, onClose, onChanged, threshold }) {
+export function SubDrawer({ id, row, onClose, onChanged, threshold }) {
     useRoute();
     const { params } = readRoute();
     const tab = params.tab || "settings";
-    const detail = useAsync(() => loadSub(id), [id]);
+    // The list row is the same record, so the drawer opens on it at once and the request only confirms it.
+    const detail = useAsync(() => loadSub(id), [id], { key: `/subscriptions/${id}`, initial: row, live: true });
     const s = detail.data;
     const [dirty, setDirty] = useState(false);
     const setTab = async (t) => {
@@ -691,6 +696,7 @@ export function SubDrawer({ id, onClose, onChanged, threshold }) {
                         ? html`<${SubSettings}
                               sub=${s}
                               onChanged=${changed}
+                              onPreview=${detail.setData}
                               onDirty=${setDirty}
                               onDeleted=${() => (onChanged?.(), onClose())}
                           />`
@@ -717,17 +723,12 @@ async function loadSub(id) {
     }
 }
 
-function SubSettings({ sub, onChanged, onDirty, onDeleted }) {
-    const chat = useAsync(
-        () =>
-            api("/targets" + qs({ q: sub.target, visibility: "all", include_departed: "true", size: 5 })).then((d) =>
-                d.items.find((c) => c.id === sub.target),
-            ),
-        [sub.target],
-    );
-    const settings = useAsync(() => api("/settings"), []);
+function SubSettings({ sub, onChanged, onPreview, onDirty, onDeleted }) {
+    const chatList = useGet(chatPath(sub.target));
+    const chat = { data: chatList.data?.items.find((c) => c.id === sub.target) };
+    const settings = useGet("/settings", { maxAge: 60000 });
     const initial = { title: sub.custom_title || "", tags: hashtags(sub.tags), ...sub.options };
-    const [draft, setDraft] = useState(initial);
+    const [draft, setDraft] = useDraft(initial);
     const [busy, setBusy] = useState("");
     const dirtyKeys = Object.keys(draft).filter((k) => draft[k] !== initial[k]);
     useEffect(() => onDirty(dirtyKeys.length > 0), [dirtyKeys.length]);
@@ -748,11 +749,15 @@ function SubSettings({ sub, onChanged, onDirty, onDeleted }) {
         }
     }
     async function toggleState() {
+        // Show the new state at once; the server confirms it (resuming asks Telegram first, which can take a moment) or it rolls back.
+        const was = sub;
         setBusy("state");
+        onPreview({ ...sub, state: sub.state ? 0 : 1 });
         try {
-            onChanged(await api(`/subscriptions/${sub.id}`, { method: "PATCH", body: { state: sub.state ? 0 : 1 } }));
-            toast(sub.state ? L("已暂停", "Paused") : L("已恢复", "Resumed"));
+            onChanged(await api(`/subscriptions/${sub.id}`, { method: "PATCH", body: { state: was.state ? 0 : 1 } }));
+            toast(was.state ? L("已暂停", "Paused") : L("已恢复", "Resumed"));
         } catch (err) {
+            onPreview(was);
             toast(err.message, "error");
         } finally {
             setBusy("");
@@ -845,7 +850,7 @@ function SubSettings({ sub, onChanged, onDirty, onDeleted }) {
                             : L("恢复后按检查间隔继续推送新文章。", "Resume checking and delivering new posts.")}
                     </p>
                 </div>
-                <${Button} size="sm" loading=${busy === "state"} onClick=${toggleState}
+                <${Button} size="sm" disabled=${busy === "state"} onClick=${toggleState}
                     >${sub.state ? L("暂停", "Pause") : L("恢复", "Resume")}<//
                 >
             </div>
@@ -980,7 +985,7 @@ const DELIVERY = {
 };
 
 function Articles({ sub }) {
-    const { data, error, reload, loading } = useAsync(() => api(`/subscriptions/${sub.id}/articles`), [sub.id]);
+    const { data, error, reload, loading } = useGet(`/subscriptions/${sub.id}/articles`, { live: true });
     if (error) return html`<${Notice} tone="error">${error.message}<//>`;
     if (!data) return html`<${Spinner} />`;
     return html`
@@ -1367,3 +1372,8 @@ function FeedEvents({ sub }) {
                   <${Pager} page=${page} size=${data.size} total=${data.total} onPage=${setPage} />`}
     `;
 }
+
+const listPath = ({ q, target, status, page }) => "/subscriptions" + qs({ q, target, ...statusQuery(status), page, size: 30 });
+
+/** Fetched when the pointer reaches the nav link, so the page can open without waiting. */
+export const warm = () => (prefetch(listPath({ page: 1 })), prefetch("/settings", 60000));
