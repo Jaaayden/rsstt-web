@@ -181,5 +181,5 @@ def openapi(router):
         if (method, path) in body_schemas:
             operation['requestBody'] = {'required': True, 'content': {'application/json': {'schema': body_schemas[method, path]}}}
         paths.setdefault(path, {})[method.lower()] = operation
-    return {'openapi': '3.1.0', 'info': {'title': 'RSStT Agent API', 'version': '1.4.0'}, 'paths': paths,
+    return {'openapi': '3.1.0', 'info': {'title': 'RSStT Agent API', 'version': '1.4.1'}, 'paths': paths,
             'components': {'securitySchemes': {'bearerAuth': {'type': 'http', 'scheme': 'bearer'}}, 'schemas': SCHEMAS}}

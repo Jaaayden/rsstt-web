@@ -18,6 +18,21 @@ RETENTION = dict(days=30, max_entries=5000, per_feed=100)
 RUN_RETENTION = dict(days=30, per_feed=20)  # per_feed is the default; the console setting `fetch_run_rows` overrides it
 RUN_ROWS_RANGE = (5, 200)
 RUN_STATUSES = ('updated', 'unchanged', 'not_modified', 'empty', 'failed', 'exception')
+QUIET_STATUSES = ('unchanged', 'not_modified')  # nothing new; whether the server answered 200 or 304 is a coin toss for many sources
+
+
+def fold_runs(older, newer):
+    """The (status, http_status, entries, new_entries, manual, detail) one row shows for two back-to-back checks, or None if they differ.
+
+    Identical checks fold. So do "unchanged" (200, N posts) and "not_modified" (304, no body): a source
+    that answers either way run after run is one stretch of "nothing new", not a row per answer."""
+    if older == newer:
+        return older
+    (status, _, entries, new, manual, detail), other = older, newer
+    if status in QUIET_STATUSES and other[0] in QUIET_STATUSES and (new, manual, detail) == other[3:] \
+            and (entries == other[2] or entries is None or other[2] is None):
+        return older if status == 'unchanged' else newer
+    return None
 MAX_PENDING = 256
 MAX_PENDING_RUNS = 2048
 _active = None
@@ -156,6 +171,7 @@ async def initialize(store):
     await store.db.execute('INSERT OR IGNORE INTO meta VALUES (?,?)',
                            ('diagnostics_started_at', datetime.now(timezone.utc).isoformat()))
     await store.db.commit()
+    await _merge_stored_runs(store.db)
     store.diagnostics = Journal(store)
     try:
         rows = int((await store.settings()).get('fetch_run_rows', ''))
@@ -164,6 +180,35 @@ async def initialize(store):
     except ValueError:
         pass
     return store.diagnostics
+
+
+async def _merge_stored_runs(db):
+    """Once: fold history written before "unchanged" and "not_modified" shared a row."""
+    if await db.execute_fetchall('SELECT 1 FROM meta WHERE key=?', ('fetch_runs_merged',)):
+        return
+    rows = await db.execute_fetchall(
+        'SELECT id,at,last_at,count,feed_id,status,http_status,entries,new_entries,manual,detail,ms_min,ms_max,ms_sum '
+        'FROM fetch_runs ORDER BY feed_id,id')
+    keep = {}
+    try:
+        for row in rows:
+            row = list(row)
+            kept = keep.get(row[4])
+            folded = fold_runs(tuple(kept[5:11]), tuple(row[5:11])) if kept else None
+            if folded:
+                kept[2], kept[3] = row[2], kept[3] + row[3]
+                kept[11], kept[12], kept[13] = min(kept[11], row[11]), max(kept[12], row[12]), kept[13] + row[13]
+                kept[5:11] = folded
+                await db.execute('DELETE FROM fetch_runs WHERE id=?', (row[0],))
+                await db.execute('UPDATE fetch_runs SET last_at=?,count=?,status=?,http_status=?,entries=?,ms_min=?,ms_max=?,ms_sum=? WHERE id=?',
+                                 (kept[2], kept[3], kept[5], kept[6], kept[7], kept[11], kept[12], kept[13], kept[0]))
+            else:
+                keep[row[4]] = row
+        await db.execute('INSERT OR IGNORE INTO meta VALUES (?,?)', ('fetch_runs_merged', '1'))
+        await db.commit()
+    except BaseException:
+        await db.rollback()
+        raise
 
 
 async def observe_restore(store):
@@ -335,9 +380,12 @@ class Journal:
                     'SELECT id,status,http_status,entries,new_entries,manual,detail FROM fetch_runs WHERE feed_id=? ORDER BY id DESC LIMIT 1', (feed,))
                 newest[feed] = tuple(rows[0]) if rows else None
             same = (status, http_status, entries, new, manual, detail)
-            if newest[feed] and newest[feed][1:] == same:
+            folded = fold_runs(newest[feed][1:], same) if newest[feed] else None
+            if folded:
                 await db.execute('UPDATE fetch_runs SET last_at=?, count=count+1, ms_min=MIN(ms_min,?), ms_max=MAX(ms_max,?), '
-                                 'ms_sum=ms_sum+? WHERE id=?', (at, duration, duration, duration, newest[feed][0]))
+                                 'ms_sum=ms_sum+?, status=?, http_status=?, entries=? WHERE id=?',
+                                 (at, duration, duration, duration, folded[0], folded[1], folded[2], newest[feed][0]))
+                newest[feed] = (newest[feed][0], *folded)
             else:
                 cursor = await db.execute(
                     'INSERT INTO fetch_runs(at,last_at,feed_id,status,http_status,entries,new_entries,manual,detail,ms_min,ms_max,ms_sum) '

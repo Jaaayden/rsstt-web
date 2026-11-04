@@ -105,6 +105,53 @@ async def test_identical_consecutive_checks_share_one_row(logged):
         ('failed', None, 1, True), ('failed', None, 2, False), ('unchanged', 6, 1, False), ('unchanged', 5, 4, False)]
 
 
+async def test_cached_and_full_answers_with_nothing_new_share_one_row(logged):
+    journal = logged.store.diagnostics
+    journal.emit_run(logged.feed.id, 'not_modified', http_status=304, duration_ms=40)
+    for duration in (60, 80):
+        journal.emit_run(logged.feed.id, 'unchanged', http_status=200, duration_ms=duration, entries=34)
+    journal.emit_run(logged.feed.id, 'not_modified', http_status=304, duration_ms=20)
+    await journal.flush()
+    data = await runs(logged)
+    assert data['total'] == 1
+    row = data['items'][0]
+    assert (row['status'], row['http_status'], row['entries'], row['count']) == ('unchanged', 200, 34, 4)
+    assert (row['duration_min'], row['duration_max'], row['duration_ms']) == (20, 80, 50)
+    # Only checks with the same post count fold; a new post or a manual check still starts another row.
+    journal.emit_run(logged.feed.id, 'unchanged', http_status=200, duration_ms=10, entries=28)
+    journal.emit_run(logged.feed.id, 'updated', http_status=200, duration_ms=10, entries=28, new_entries=2)
+    journal.emit_run(logged.feed.id, 'not_modified', http_status=304, duration_ms=10, manual=True)
+    await journal.flush()
+    assert [(r['status'], r['count']) for r in (await runs(logged))['items']] == [
+        ('not_modified', 1), ('updated', 1), ('unchanged', 1), ('unchanged', 4)]
+    # A run of only cached answers keeps reading as cached.
+    other = logged.feed.id + 1
+    journal.emit_run(other, 'not_modified', http_status=304, duration_ms=10)
+    journal.emit_run(other, 'not_modified', http_status=304, duration_ms=10)
+    await journal.flush()
+    rows = await logged.store.rows('SELECT status,http_status,entries,count FROM fetch_runs WHERE feed_id=?', (str(other),))
+    assert rows == [dict(status='not_modified', http_status=304, entries=None, count=2)]
+
+
+async def test_history_written_before_the_change_is_folded_once(logged):
+    db, feed = logged.store.db, str(logged.feed.id)
+    stretch = [('unchanged', 200, 34, 3), ('not_modified', 304, None, 1), ('unchanged', 200, 34, 6), ('not_modified', 304, None, 1),
+               ('updated', 200, 34, 1), ('not_modified', 304, None, 1)]
+    for number, (status, http, entries, count) in enumerate(stretch):
+        await db.execute('INSERT INTO fetch_runs(at,last_at,count,feed_id,status,http_status,entries,new_entries,ms_min,ms_max,ms_sum) '
+                         'VALUES (?,?,?,?,?,?,?,?,?,?,?)', (f'2026-11-03T0{number}:00:00+00:00', f'2026-11-03T0{number}:30:00+00:00', count, feed, status,
+                                                            http, entries, 2 if status == 'updated' else 0, 40 + number, 90, 60 * count))
+    await db.execute('DELETE FROM meta WHERE key=?', ('fetch_runs_merged',))  # as on a database written by an older version
+    await db.commit()
+    await diagnostics._merge_stored_runs(db)
+    rows = (await runs(logged))['items']
+    assert [(r['status'], r['entries'], r['count']) for r in rows] == [('not_modified', None, 1), ('updated', 34, 1), ('unchanged', 34, 11)]
+    assert rows[2]['at'].startswith('2026-11-03T00:00') and rows[2]['last_at'].startswith('2026-11-03T03:30')
+    assert rows[2]['duration_min'] == 40 and rows[2]['duration_ms'] == round((180 + 60 + 360 + 60) / 11)
+    await diagnostics._merge_stored_runs(db)  # already done: a second start changes nothing
+    assert (await runs(logged))['total'] == 3
+
+
 async def test_history_keeps_the_newest_rows_per_feed(logged, monkeypatch):
     journal = logged.store.diagnostics
     journal.run_rows = 5
