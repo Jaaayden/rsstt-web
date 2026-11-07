@@ -50,6 +50,19 @@ def construct_hashtags(tags: Union[Iterable[str], str]) -> str:
     return '#' + ' #'.join(tags)
 
 
+# How many entry hashes a feed remembers, as a multiple of the entries it lists now. The list holds the entries of
+# the latest fetch plus those that have left the feed, so only a feed that really churns (a ranking, a bundle) ever
+# fills it; a feed that rarely drops entries stays small however high the limit is.
+ENTRY_HASH_LIMIT_FACTOR = 30
+ENTRY_HASH_LIMIT_MIN = 100
+ENTRY_HASH_LIMIT_MAX = 20000  # about 220 KB of JSON
+
+
+def entry_hash_limit(entry_count: int) -> int:
+    """How many hashes of seen entries to keep for a feed that currently lists `entry_count` entries."""
+    return min(max(entry_count * ENTRY_HASH_LIMIT_FACTOR, ENTRY_HASH_LIMIT_MIN), ENTRY_HASH_LIMIT_MAX)
+
+
 def calculate_update(old_hashes: Optional[Sequence[str]], entries: Sequence[dict]) \
         -> tuple[Iterable[str], Iterable[dict]]:
     new_hashes_d = {
