@@ -24,7 +24,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {python: '3.9', os: ubuntu-latest}
+          - {python: '3.9', os: ubuntu-24.04}  # ubuntu-latest (26.04) has no Python 3.9
           - {python: '3.10', os: ubuntu-latest}
           - {python: '3.11', os: ubuntu-latest}
           - {python: '3.12', os: ubuntu-latest}
@@ -41,7 +41,7 @@ jobs:
       - run: python scripts/ci_bot_smoke.py
   postgres:
     name: PostgreSQL and legacy migrations
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # needs Python 3.9, which ubuntu-latest (26.04) no longer has
     timeout-minutes: 20
     services:
       postgres:

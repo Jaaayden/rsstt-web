@@ -484,7 +484,7 @@ class Monitor(Singleton):
             outcome, outcome_message = 'fetch.updated', '抓取成功，发现新文章。'
             diagnostic_context.update(status='updated', new_entries=len(updated_entries))
             feed.last_modified = wr.last_modified
-            feed.entry_hashes = list(islice(new_hashes, max(len(rss_d.entries) * 2, 100))) or None
+            feed.entry_hashes = list(islice(new_hashes, inner.utils.entry_hash_limit(len(rss_d.entries)))) or None
             feed_updated_fields.update({'last_modified', 'entry_hashes'})
         except asyncio.CancelledError:
             outcome = None
